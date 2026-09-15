@@ -1,0 +1,579 @@
+// The single command registry. Both the command palette and the toolbar rail
+// render from this list, so an action only ever has to be defined once.
+//
+// A command is:
+//   { id, title, hint, group, keywords, url?, run?, newTab? }
+// Commands with a `url` are navigations and support "open in a new tab" via
+// Shift/Ctrl+Enter; commands with a `run` execute in place.
+
+import {
+  listUrl,
+  recordUrl,
+  newRecordUrl,
+  xmlUrl,
+  absoluteUrl,
+  tableConfigTargets,
+  toggleTechnicalNames,
+  getRecordInfo,
+  getNodeInfo,
+  copyText,
+  fetchSelectableUpdateSets,
+  setCurrentUpdateSet,
+  findRecordBySysId,
+  isSysId,
+} from './quickActions.js';
+import { searchTables, labelForTable } from './tableCatalog.js';
+import { queryTable } from './tableApi.js';
+
+export const GROUPS = {
+  record: 'This record',
+  table: 'This table',
+  analyze: 'Analyze',
+  ai: 'AI',
+  navigate: 'Navigate',
+  instance: 'Instance',
+  tools: 'Tools',
+};
+
+/**
+ * Build the full command list for the page as it is right now.
+ * Called each time the palette opens so table/record-scoped commands reflect
+ * the page the user is actually looking at.
+ *
+ * @param {object} deps - { ctx, sidebar, toast, getCsrfToken, impersonate }
+ */
+export function buildCommands(deps) {
+  const { ctx = {}, sidebar, toast, getCsrfToken, impersonate } = deps;
+  const table = ctx.table || '';
+  const sysId = ctx.sysId || '';
+  const commands = [];
+
+  const add = (cmd) => commands.push(cmd);
+  const openPanel = (fn) => () => {
+    sidebar.open();
+    fn();
+  };
+  const runSlash = (command) => () => {
+    sidebar.open();
+    sidebar.runCommand(command);
+  };
+
+  // --- This record ---------------------------------------------------------
+  if (table && sysId) {
+    const label = labelForTable(table);
+
+    add({
+      id: 'record.copySysId',
+      title: 'Copy sys_id',
+      hint: sysId,
+      group: GROUPS.record,
+      keywords: 'sysid id clipboard',
+      run: async () => {
+        await copyText(sysId);
+        toast.success(`Copied sys_id ${sysId}`);
+      },
+    });
+
+    add({
+      id: 'record.copyUrl',
+      title: 'Copy record URL',
+      hint: `${table}.do`,
+      group: GROUPS.record,
+      keywords: 'link share clipboard url',
+      run: async () => {
+        await copyText(absoluteUrl(recordUrl(table, sysId)));
+        toast.success('Copied record URL');
+      },
+    });
+
+    add({
+      id: 'record.copyMarkdown',
+      title: 'Copy record as markdown link',
+      group: GROUPS.record,
+      keywords: 'link share clipboard markdown',
+      run: async () => {
+        const info = await getRecordInfo(table, sysId).catch(() => null);
+        const text = `[${info?.className || label} ${sysId.slice(0, 8)}](${absoluteUrl(recordUrl(table, sysId))})`;
+        await copyText(text);
+        toast.success('Copied markdown link');
+      },
+    });
+
+    add({
+      id: 'record.xml',
+      title: 'Open record XML',
+      hint: 'Raw field values',
+      group: GROUPS.record,
+      keywords: 'xml export raw payload',
+      url: xmlUrl(table, sysId),
+      raw: true,
+    });
+
+    add({
+      id: 'record.info',
+      title: 'Record info',
+      hint: 'Created / updated / update count',
+      group: GROUPS.record,
+      keywords: 'who created updated audit metadata',
+      run: async () => {
+        const info = await getRecordInfo(table, sysId);
+        if (!info) {
+          toast.error('Could not read this record.');
+          return;
+        }
+        toast.info(
+          `${info.className} · created ${info.createdOn} by ${info.createdBy} · ` +
+            `updated ${info.updatedOn} by ${info.updatedBy} · ${info.updates} updates`,
+          { timeout: 12000 }
+        );
+      },
+    });
+
+    add({
+      id: 'record.history',
+      title: 'Record audit history',
+      group: GROUPS.record,
+      keywords: 'audit changes history who',
+      url: listUrl('sys_audit', `documentkey=${sysId}^ORDERBYDESCsys_created_on`),
+    });
+
+    add({
+      id: 'record.versions',
+      title: 'Record versions',
+      hint: 'sys_update_version',
+      group: GROUPS.record,
+      keywords: 'version compare revert update',
+      url: listUrl('sys_update_version', `name=${table}_${sysId}^ORDERBYDESCsys_recorded_at`),
+    });
+
+    add({
+      id: 'record.updateEntry',
+      title: 'Update set entry for this record',
+      group: GROUPS.record,
+      keywords: 'update set xml captured deployment',
+      url: listUrl('sys_update_xml', `name=${table}_${sysId}^ORDERBYDESCsys_updated_on`),
+    });
+
+    add({
+      id: 'record.newTab',
+      title: 'Open this record in a new tab',
+      group: GROUPS.record,
+      keywords: 'tab window duplicate',
+      url: recordUrl(table, sysId),
+      newTab: true,
+    });
+  }
+
+  // --- This table ----------------------------------------------------------
+  if (table) {
+    add({
+      id: 'table.list',
+      title: `Open ${table} list`,
+      hint: labelForTable(table),
+      group: GROUPS.table,
+      keywords: 'list records open',
+      url: listUrl(table),
+    });
+
+    add({
+      id: 'table.new',
+      title: `New ${table} record`,
+      group: GROUPS.table,
+      keywords: 'create insert new',
+      url: newRecordUrl(table),
+    });
+
+    tableConfigTargets(table).forEach((target) => {
+      add({
+        id: `table.cfg.${target.label.replace(/\s+/g, '').toLowerCase()}`,
+        title: `${target.label} for ${table}`,
+        group: GROUPS.table,
+        keywords: `${target.label} configuration ${table}`,
+        url: target.url,
+      });
+    });
+  }
+
+  // --- Analyze (deterministic, no AI tokens) -------------------------------
+  add({
+    id: 'analyze.lint',
+    title: 'Lint this script',
+    hint: 'Deterministic, no tokens',
+    group: GROUPS.analyze,
+    keywords: 'lint static analysis quality rules',
+    run: runSlash('/lint'),
+  });
+
+  add({
+    id: 'analyze.formdiff',
+    title: 'Show unsaved form changes',
+    hint: 'Deterministic, no tokens',
+    group: GROUPS.analyze,
+    keywords: 'diff dirty unsaved changes form',
+    run: runSlash('/formdiff'),
+  });
+
+  add({
+    id: 'analyze.search',
+    title: 'Code search across the instance',
+    group: GROUPS.analyze,
+    keywords: 'find grep script search text',
+    run: openPanel(() => sidebar.openSearchPanel()),
+  });
+
+  add({
+    id: 'analyze.updateset',
+    title: 'Update set review',
+    hint: 'Collisions and uncaptured changes',
+    group: GROUPS.analyze,
+    keywords: 'update set deploy collision coverage',
+    run: openPanel(() => sidebar.openUpdateSetPanel()),
+  });
+
+  add({
+    id: 'analyze.audit',
+    title: 'Security audit',
+    group: GROUPS.analyze,
+    keywords: 'security acl public risk audit',
+    run: runSlash('/audit'),
+  });
+
+  add({
+    id: 'analyze.compare',
+    title: 'Compare instances',
+    group: GROUPS.analyze,
+    keywords: 'diff instances compare environments',
+    run: openPanel(() => sidebar.openComparePanel()),
+  });
+
+  add({
+    id: 'analyze.conflict',
+    title: 'Conflict check',
+    group: GROUPS.analyze,
+    keywords: 'conflict order collision duplicate',
+    run: runSlash('/conflictcheck'),
+  });
+
+  // --- AI ------------------------------------------------------------------
+  add({
+    id: 'ai.chat',
+    title: 'Open AI chat',
+    hint: 'Alt+Shift+C',
+    group: GROUPS.ai,
+    keywords: 'chat ask assistant ai sidebar',
+    run: () => sidebar.toggle(),
+  });
+
+  add({
+    id: 'ai.review',
+    title: 'AI code review',
+    group: GROUPS.ai,
+    keywords: 'review ai quality security',
+    run: runSlash('/review'),
+  });
+
+  add({
+    id: 'ai.logs',
+    title: 'Error triage',
+    group: GROUPS.ai,
+    keywords: 'errors logs triage syslog',
+    run: runSlash('/logs'),
+  });
+
+  add({
+    id: 'ai.atf',
+    title: 'Generate ATF test outline',
+    group: GROUPS.ai,
+    keywords: 'atf test automated outline',
+    run: runSlash('/atf'),
+  });
+
+  add({
+    id: 'ai.document',
+    title: 'Generate documentation',
+    group: GROUPS.ai,
+    keywords: 'document docs describe',
+    run: runSlash('/document'),
+  });
+
+  // --- Tools ---------------------------------------------------------------
+  add({
+    id: 'tools.background',
+    title: 'Background script runner',
+    hint: 'Dry run on by default',
+    group: GROUPS.tools,
+    keywords: 'background script run execute gs',
+    run: openPanel(() => sidebar.openBackgroundScriptPanel()),
+  });
+
+  add({
+    id: 'tools.rest',
+    title: 'REST builder',
+    group: GROUPS.tools,
+    keywords: 'rest api request http builder',
+    run: openPanel(() => sidebar.openRestPanel()),
+  });
+
+  add({
+    id: 'tools.technicalNames',
+    title: 'Toggle technical field names',
+    hint: 'Show database names on the form',
+    group: GROUPS.tools,
+    keywords: 'field names technical dictionary labels show',
+    run: () => {
+      const { enabled, count } = toggleTechnicalNames();
+      toast.info(enabled ? `Showing ${count} field names` : 'Field names hidden');
+    },
+  });
+
+  add({
+    id: 'tools.impersonate',
+    title: 'Impersonate user…',
+    hint: 'Type @username in the palette',
+    group: GROUPS.tools,
+    keywords: 'impersonate user switch test as',
+    run: () => impersonate(),
+  });
+
+  add({
+    id: 'tools.endImpersonation',
+    title: 'End impersonation',
+    group: GROUPS.tools,
+    keywords: 'stop end impersonation revert',
+    url: '/logout_impersonate.do',
+    raw: true,
+  });
+
+  add({
+    id: 'tools.switchUpdateSet',
+    title: 'Switch update set…',
+    group: GROUPS.tools,
+    keywords: 'update set switch current pick',
+    run: async () => {
+      const sets = await fetchSelectableUpdateSets();
+      if (!sets.length) {
+        toast.error('No in-progress update sets found.');
+        return;
+      }
+      const names = sets.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
+      const choice = window.prompt(`Switch to which update set?\n\n${names}`, '1');
+      const index = Number(choice) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= sets.length) return;
+      const token = await getCsrfToken();
+      await setCurrentUpdateSet(sets[index].sys_id, token);
+      toast.success(`Switched to "${sets[index].name}". Reload to pick it up.`, {
+        action: { label: 'Reload', onClick: () => window.location.reload() },
+        timeout: 10000,
+      });
+    },
+  });
+
+  // --- Instance ------------------------------------------------------------
+  add({
+    id: 'instance.cache',
+    title: 'Flush instance cache',
+    hint: '/cache.do',
+    group: GROUPS.instance,
+    keywords: 'cache flush clear refresh',
+    url: '/cache.do',
+    raw: true,
+    newTab: true,
+  });
+
+  add({
+    id: 'instance.stats',
+    title: 'Node stats',
+    hint: '/stats.do',
+    group: GROUPS.instance,
+    keywords: 'node stats build version instance',
+    url: '/stats.do',
+    raw: true,
+    newTab: true,
+  });
+
+  add({
+    id: 'instance.nodeInfo',
+    title: 'Show node and build',
+    group: GROUPS.instance,
+    keywords: 'node build version release',
+    run: async () => {
+      const info = await getNodeInfo();
+      toast.info(
+        `Node ${info.node || 'unknown'} · build ${info.build || '?'} ${info.buildDate || ''}`,
+        { timeout: 10000 }
+      );
+    },
+  });
+
+  add({
+    id: 'instance.xmlstats',
+    title: 'XML stats',
+    group: GROUPS.instance,
+    keywords: 'xmlstats semaphore transactions node',
+    url: '/xmlstats.do',
+    raw: true,
+    newTab: true,
+  });
+
+  add({
+    id: 'instance.threads',
+    title: 'Thread info',
+    group: GROUPS.instance,
+    keywords: 'threads stuck performance',
+    url: '/threads.do',
+    raw: true,
+    newTab: true,
+  });
+
+  add({
+    id: 'instance.copyInstanceUrl',
+    title: 'Copy current page URL',
+    group: GROUPS.instance,
+    keywords: 'url copy share link page',
+    run: async () => {
+      await copyText(window.location.href);
+      toast.success('Copied page URL');
+    },
+  });
+
+  // --- Navigate ------------------------------------------------------------
+  const navTargets = [
+    ['System Properties', listUrl('sys_properties', 'ORDERBYname'), 'properties config glide'],
+    ['System Log', listUrl('syslog', 'ORDERBYDESCsys_created_on'), 'log errors syslog'],
+    ['Transaction Log', listUrl('syslog_transaction', 'ORDERBYDESCsys_created_on'), 'slow transactions performance'],
+    ['Local Update Sets', listUrl('sys_update_set', 'ORDERBYDESCsys_updated_on'), 'update set deploy'],
+    ['Retrieved Update Sets', listUrl('sys_remote_update_set', 'ORDERBYDESCsys_updated_on'), 'retrieved remote update set'],
+    ['Scheduled Jobs', listUrl('sysauto_script', 'ORDERBYname'), 'scheduled job cron'],
+    ['Schedule Items (sys_trigger)', listUrl('sys_trigger', 'ORDERBYnext_action'), 'trigger scheduled queue'],
+    ['Email Log', listUrl('sys_email', 'ORDERBYDESCsys_created_on'), 'email notification outbound'],
+    ['Events', listUrl('sysevent', 'ORDERBYDESCsys_created_on'), 'event queue'],
+    ['Users', listUrl('sys_user', 'active=true^ORDERBYname'), 'user people account'],
+    ['Groups', listUrl('sys_user_group', 'active=true^ORDERBYname'), 'group team assignment'],
+    ['Roles', listUrl('sys_user_role', 'ORDERBYname'), 'role permission'],
+    ['Applications', listUrl('sys_app', 'ORDERBYname'), 'application scope app'],
+    ['Plugins', '/v_plugin_list.do', 'plugin install feature'],
+    ['REST API Explorer', '/$restapi.do', 'rest api explorer'],
+    ['Flow Designer', '/$flow-designer.do', 'flow designer automation'],
+    ['Script Debugger', '/$scriptDebugger.do', 'debugger breakpoint step'],
+  ];
+
+  navTargets.forEach(([title, url, keywords]) => {
+    add({
+      id: `nav.${title.replace(/\W+/g, '').toLowerCase()}`,
+      title,
+      group: GROUPS.navigate,
+      keywords,
+      url,
+    });
+  });
+
+  return commands;
+}
+
+/**
+ * Query-driven results that cannot be precomputed: table lookups, sys_id
+ * resolution and user impersonation. Each returns commands to merge into the
+ * palette's result list.
+ */
+export function buildProviders(deps) {
+  const { ctx = {}, toast, impersonateByQuery } = deps;
+
+  return [
+    // "@jsmith" -> impersonate
+    async (query) => {
+      if (!query.startsWith('@') || query.length < 2) return [];
+      const term = query.slice(1);
+      const users = await queryTable(
+        'sys_user',
+        `active=true^user_nameLIKE${term}^ORnameLIKE${term}^ORDERBYuser_name`,
+        ['sys_id', 'user_name', 'name', 'email'],
+        { limit: 8 }
+      );
+      return users.map((user) => ({
+        id: `impersonate.${user.sys_id}`,
+        title: `Impersonate ${user.name || user.user_name}`,
+        hint: user.user_name + (user.email ? ` · ${user.email}` : ''),
+        group: GROUPS.tools,
+        score: 1000,
+        run: () => impersonateByQuery(user.sys_id),
+      }));
+    },
+
+    // A pasted sys_id -> open the record it belongs to
+    async (query) => {
+      const term = query.trim();
+      if (!isSysId(term)) return [];
+      const found = await findRecordBySysId(term, ctx.table);
+      if (!found) {
+        return [
+          {
+            id: 'sysid.notfound',
+            title: 'sys_id not found in sys_metadata, task, sys_user or cmdb_ci',
+            hint: term,
+            group: GROUPS.navigate,
+            score: 1000,
+            run: () => toast.error('Could not resolve that sys_id.'),
+          },
+        ];
+      }
+      return [
+        {
+          id: `sysid.${found.sysId}`,
+          title: `Open ${found.name || found.table}`,
+          hint: `${found.table} · ${found.sysId}`,
+          group: GROUPS.navigate,
+          score: 1000,
+          url: recordUrl(found.table, found.sysId),
+        },
+      ];
+    },
+
+    // Any other text -> table lookup (list, new record, configuration)
+    async (query) => {
+      const term = query.trim();
+      if (term.length < 2 || term.startsWith('@') || term.startsWith('/') || isSysId(term)) return [];
+
+      const tables = await searchTables(term, 6);
+      const results = [];
+      tables.forEach((t, index) => {
+        results.push({
+          id: `tablenav.list.${t.name}`,
+          title: `${t.label} list`,
+          hint: `${t.name}_list.do`,
+          group: GROUPS.navigate,
+          score: 900 - index * 10,
+          url: listUrl(t.name),
+        });
+        results.push({
+          id: `tablenav.new.${t.name}`,
+          title: `New ${t.label}`,
+          hint: `${t.name}.do?sys_id=-1`,
+          group: GROUPS.navigate,
+          score: 880 - index * 10,
+          url: newRecordUrl(t.name),
+        });
+      });
+      return results;
+    },
+  ];
+}
+
+/**
+ * Slash commands typed directly into the palette are handed to the chat
+ * sidebar, which already owns the command vocabulary.
+ */
+export function slashCommand(query, sidebar) {
+  const term = query.trim();
+  if (!term.startsWith('/')) return null;
+  return {
+    id: `slash.${term}`,
+    title: `Run ${term}`,
+    hint: 'Sends the command to the AI chat sidebar',
+    group: GROUPS.ai,
+    score: 1000,
+    run: () => {
+      sidebar.open();
+      sidebar.runCommand(term);
+    },
+  };
+}

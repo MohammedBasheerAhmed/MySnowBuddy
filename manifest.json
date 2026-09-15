@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "MySnowBuddy",
+  "version": "0.5.0",
+  "description": "AI-assisted ServiceNow developer toolkit: command palette, code search, linting, conflict and update set checks, instance compare, security audit, REST builder and chat.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["https://*.service-now.com/*"],
+  "background": {
+    "service_worker": "background.bundle.js"
+  },
+  "action": {
+    "default_title": "MySnowBuddy - toggle sidebar"
+  },
+  "commands": {
+    "open-palette": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Space",
+        "mac": "MacCtrl+Shift+Space"
+      },
+      "description": "Open the MySnowBuddy command palette"
+    },
+    "toggle-sidebar": {
+      "suggested_key": {
+        "default": "Alt+Shift+C",
+        "mac": "Alt+Shift+C"
+      },
+      "description": "Toggle the MySnowBuddy AI chat sidebar"
+    }
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://*.service-now.com/*"],
+      "js": ["content.bundle.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content.css", "pagebridge.js"],
+      "matches": ["https://*.service-now.com/*"]
+    }
+  ]
+}

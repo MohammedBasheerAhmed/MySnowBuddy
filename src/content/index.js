@@ -1,9 +1,19 @@
-import { createToolbar } from './toolbar.js';
 import { createCommandPalette } from './commandPalette.js';
 import { createToastHost } from './toast.js';
-import { getInstanceInfo, copyText } from './quickActions.js';
-import { detectPageContext, getCsrfToken } from './context.js';
-import { queryTable, fetchRecord, runBackgroundScript, impersonateUser } from './tableApi.js';
+import { getInstanceInfo, getCurrentUpdateSet, formDocuments, recordUrl } from './quickActions.js';
+import { detectPageContext, getCsrfToken, installSelectionTracking, startScriptWatcher, readFormScript, detectListInfo } from './context.js';
+import { queryTable, fetchRecord, runBackgroundScript, impersonateUser, countRecords, queryAll } from './tableApi.js';
+import { callPage } from './pageBridge.js';
+import { startLogTail } from './logTail.js';
+import { fetchVersionList, diffVersions } from './versions.js';
+import { fetchTableFields, fetchFieldLive } from './fieldInspector.js';
+import { fetchAtfSuites, fetchAtfResults, fetchAtfSuiteResults, runAtfSuite, readAtfProgress } from './atf.js';
+import { fetchScopes, exportScope, downloadScopeZip } from './scopeExport.js';
+import { compareWithInstance } from './remoteRecord.js';
+import { listInstances, recordRecent } from './stores.js';
+import { createPageWatcher } from './pageWatcher.js';
+import { createGuards } from './guards.js';
+import { watchFormControls } from './a11y.js';
 import {
   fetchCurrentRecord,
   fetchRelatedRecords,
@@ -21,7 +31,14 @@ import { runRestRequest } from './restClient.js';
 import { lintScript } from '../lib/lint.js';
 import { wrapAsDryRun, wrapWithGuards } from '../lib/scriptSafety.js';
 import { mountSidebar } from '../sidebar/mount.js';
-import { getSettings, getUiState, saveUiState } from './storage.js';
+import { getSettings, saveSettings, onSettingsChanged } from './storage.js';
+import { startInstanceTag } from './instanceTag.js';
+import { installFieldTools } from './fieldTools.js';
+import { openScriptEditor } from './scriptEditor.js';
+import { findDefinitionUrl } from './storedCommands.js';
+import { extractScriptOutput } from '../lib/logTail.js';
+import { startFileSync, stopFileSync, isFileSyncActive } from './fileSync.js';
+import { createAutomation } from './automation.js';
 
 const HOST_ID = 'mysnowbuddy-root';
 
@@ -35,18 +52,30 @@ const LINTABLE_TABLES = {
   sys_ui_action: { scriptField: 'script', fields: ['sys_id', 'name', 'script', 'table', 'condition'] },
   sysauto_script: { scriptField: 'script', fields: ['sys_id', 'name', 'script', 'run_type'] },
   sysevent_script_action: { scriptField: 'script', fields: ['sys_id', 'name', 'script', 'event_name'] },
+  catalog_script_client: { scriptField: 'script', fields: ['sys_id', 'name', 'script', 'type', 'cat_item'] },
+  sys_ui_script: { scriptField: 'script', fields: ['sys_id', 'name', 'script'] },
 };
+
+// Tables not listed above are still tried, since most scripted records use a `script` field.
+const GENERIC_SCRIPT_TABLE = { scriptField: 'script', fields: ['sys_id', 'name', 'script'] };
 
 async function init() {
   if (document.getElementById(HOST_ID)) return;
 
   const settings = await getSettings();
-  if (!settings.toolbarEnabled && !settings.sidebarEnabled && !settings.paletteEnabled) return;
+  if (!settings.sidebarEnabled && !settings.paletteEnabled) return;
 
   const host = document.createElement('div');
   host.id = HOST_ID;
   document.documentElement.appendChild(host);
   const shadow = host.attachShadow({ mode: 'open' });
+  const applyTheme = (theme) => {
+    if (theme === 'light' || theme === 'dark') host.setAttribute('data-theme', theme);
+    else host.removeAttribute('data-theme');
+  };
+  applyTheme(settings.theme);
+  onSettingsChanged((next) => applyTheme(next.theme));
+  watchFormControls(shadow);
 
   const style = document.createElement('link');
   style.rel = 'stylesheet';
@@ -63,17 +92,36 @@ async function init() {
     openSearchPanel() {},
     openUpdateSetPanel() {},
     openRestPanel() {},
+    openPromptPanel() {},
+    openQueryPanel() {},
+    openLogTailPanel() {},
+    openVersionPanel() {},
+    openFieldPanel() {},
+    openRemotePanel() {},
+    openAtfPanel() {},
+    openScopePanel() {},
+    openAutomationPanel() {},
+    sendPrompt() {},
     runCommand() {},
     registerBackgroundScriptRunner() {},
     registerServices() {},
   };
+
+  // `toast` is declared below; the wrapper only reads it when a run reports back.
+  const automation = createAutomation({
+    toast: { success: (m) => toast.success(m), error: (m) => toast.error(m) },
+  });
 
   if (settings.sidebarEnabled) {
     const sidebarContainer = document.createElement('div');
     sidebarContainer.id = 'msb-sidebar-container';
     shadow.appendChild(sidebarContainer);
 
-    sidebarApi = mountSidebar(sidebarContainer, { getContext: detectPageContext });
+    sidebarApi = mountSidebar(sidebarContainer, {
+      getContext: detectPageContext,
+      instance: settings.instanceBadgeEnabled ? getInstanceInfo() : null,
+      onOpenPalette: settings.paletteEnabled ? () => palette.toggle() : null,
+    });
 
     // The runner receives { dryRun } from the sidebar. Dry run wraps the
     // script so GlideRecord writes are intercepted rather than applied.
@@ -111,20 +159,28 @@ async function init() {
       // Deterministic linting. Prefers the saved record (so Business Rule
       // timing is known) and falls back to whatever is typed in the form.
       lintCurrent: async (ctx) => {
-        const def = ctx?.table ? LINTABLE_TABLES[ctx.table] : null;
+        const def = ctx?.table ? LINTABLE_TABLES[ctx.table] || GENERIC_SCRIPT_TABLE : null;
         let record = null;
         if (def && ctx.sysId) {
-          record = await fetchRecord(ctx.table, ctx.sysId, def.fields);
+          record = await fetchRecord(ctx.table, ctx.sysId, def.fields).catch(() => null);
         }
 
-        const script = record?.[def?.scriptField || 'script'] || ctx?.scriptBody || '';
+        let script = record?.[def?.scriptField || 'script'] || ctx?.scriptBody || '';
+        let fieldName = def?.scriptField || ctx?.scriptFieldLabel || 'script';
+        if (!script) {
+          const fromForm = await readFormScript();
+          if (fromForm) {
+            script = fromForm.body;
+            fieldName = fromForm.label;
+          }
+        }
         const when = record?.when || '';
 
         return {
           script,
           when,
           table: ctx?.table || '',
-          fieldName: def?.scriptField || ctx?.scriptFieldLabel || 'script',
+          fieldName,
           findings: lintScript(script, { table: ctx?.table, when }),
         };
       },
@@ -168,14 +224,78 @@ async function init() {
       // REST builder. CSRF token is attached here so the panel never has to
       // handle it directly.
       runRestRequest: async ({ method, path, body }) => {
-        const csrfToken = method === 'GET' ? '' : await getCsrfToken();
+        const csrfToken = await getCsrfToken();
         return runRestRequest({ method, path, body, csrfToken });
       },
+
+      // List filter tools.
+      detectListInfo: () => detectListInfo(),
+      countRecords: (table, query) => countRecords(table, query),
+      queryAll: (table, query, fields, options) => queryAll(table, query, fields, options),
+
+      // Live log, versions, field inspector.
+      startLogTail: (options) => startLogTail(options),
+      fetchVersionList: (table, sysId) => fetchVersionList(table, sysId),
+      diffVersions: (fromId, toId) => diffVersions(fromId, toId),
+      fetchTableFields: (table) => fetchTableFields(table),
+      fetchFieldLive: (name) => fetchFieldLive(name),
+
+      // ATF. Starting a run needs the CSRF token, attached here.
+      fetchAtfSuites: (search) => fetchAtfSuites(search),
+      fetchAtfResults: () => fetchAtfResults(),
+      fetchAtfSuiteResults: () => fetchAtfSuiteResults(),
+      runAtfSuite: async (suiteSysId) => runAtfSuite(suiteSysId, await getCsrfToken()),
+      readAtfProgress: (progressId) => readAtfProgress(progressId),
+
+      // Scope export, other-instance compare.
+      fetchScopes: (search) => fetchScopes(search),
+      exportScope: (scope, options) => exportScope(scope, options),
+      downloadScopeZip: (scope, files) => downloadScopeZip(scope, files),
+      compareWithInstance: (args) => compareWithInstance(args),
+      listInstances: () => listInstances(),
+
+      // Apply AI code to the open form (the single write the page bridge allows).
+      getScriptFields: () => callPage('getScriptFields'),
+      getFieldState: (name) => callPage('getFieldState', [name]),
+      setFieldValue: (name, value) => callPage('setFieldValue', [name, value]),
+
+      // Page automation (navigate and click through screens).
+      runAutomation: (steps) => automation.run(steps),
+      cancelAutomation: () => automation.cancel(),
+      snapshotAutomation: () => automation.snapshot(),
+      subscribeAutomation: (fn) => automation.subscribe(fn),
     });
   }
 
   const toast = createToastHost();
   shadow.appendChild(toast.element);
+
+  automation.resume().catch((err) => console.error('[MySnowBuddy] automation resume failed', err));
+
+  try {
+    installSelectionTracking();
+    startScriptWatcher();
+    installFieldTools({ toast });
+  } catch (err) {
+    console.error('[MySnowBuddy] selection tracking failed', err);
+  }
+
+  if (settings.instanceTagEnabled !== false) {
+    startInstanceTag(shadow).catch((err) => console.error('[MySnowBuddy] instance tag failed', err));
+  }
+
+  async function impersonateUserName(userName) {
+    if (!userName || String(userName).includes('^')) {
+      toast.error('That user name is not valid.');
+      return;
+    }
+    const results = await queryTable('sys_user', `user_name=${userName}`, ['sys_id', 'user_name']);
+    if (!results.length) {
+      toast.error(`No user found for "${userName}".`);
+      return;
+    }
+    return impersonate(results[0].sys_id);
+  }
 
   async function impersonate(sysIdOrNull) {
     try {
@@ -197,74 +317,105 @@ async function init() {
     }
   }
 
+  async function toggleTheme() {
+    const { theme } = await getSettings();
+    const dark = theme === 'system' ? window.matchMedia('(prefers-color-scheme: dark)').matches : theme === 'dark';
+    const next = dark ? 'light' : 'dark';
+    await saveSettings({ theme: next });
+    return next;
+  }
+
+  // Services the full-screen editor uses beyond editing text.
+  const editorTools = {
+    runScript: async (script, { dryRun }) => {
+      const token = await getCsrfToken();
+      const html = await runBackgroundScript(dryRun ? wrapAsDryRun(script) : wrapWithGuards(script), token);
+      return extractScriptOutput(html);
+    },
+    askAi: (label, prompt) => sidebarApi.sendPrompt(label, prompt),
+    openCompare: () => sidebarApi.openRemotePanel(),
+    getUpdateSet: () => getCurrentUpdateSet(),
+    findDefinition: (name) => findDefinitionUrl(name),
+    isProd: () => getInstanceInfo().env === 'prod',
+  };
+  const openEditor = () => openScriptEditor({ shadow, toast, tools: editorTools });
+
+  // Classic forms live in a same-origin iframe; tell it when the palette is open so it can relay keys.
+  function broadcastPaletteState(open) {
+    document.querySelectorAll('iframe').forEach((frame) => {
+      try {
+        frame.contentWindow?.postMessage({ source: 'msb-palette-state', open }, window.location.origin);
+      } catch {
+        // Cross-origin frame; nothing to relay.
+      }
+    });
+  }
+
   const palette = createCommandPalette({
     getContext: detectPageContext,
     sidebar: sidebarApi,
     toast,
     getCsrfToken,
+    openScriptEditor: openEditor,
+    startFileSync: () => startFileSync({ toast }),
+    stopFileSync,
+    isFileSyncActive,
+    setTheme: (theme) => saveSettings({ theme }),
+    toggleTheme,
+    onOpenChange: broadcastPaletteState,
     impersonate: () => impersonate(),
     impersonateByQuery: (sysId) => impersonate(sysId),
+    impersonateUserName: (userName) => impersonateUserName(userName),
   });
   shadow.appendChild(palette.element);
 
-  if (settings.toolbarEnabled) {
-    const uiState = await getUiState();
-    const toolbar = createToolbar({
-      instance: getInstanceInfo(),
-      showBadge: settings.instanceBadgeEnabled,
-      position: uiState.toolbarPosition,
-      onPositionChange: (pos) => saveUiState({ toolbarPosition: pos }),
-      primary: {
-        label: 'Command palette',
-        hint: PALETTE_HINT,
-        onClick: () => palette.toggle(),
+  // Notice navigation (classic and Next Experience change pages without a reload).
+  try {
+    startPageFeatures();
+  } catch (err) {
+    console.error('[MySnowBuddy] page features failed', err);
+  }
+
+  function startPageFeatures() {
+    const watcher = createPageWatcher(detectPageContext);
+
+    const guards = createGuards({
+      toast,
+      getSettings,
+      getContext: detectPageContext,
+      getInstanceInfo,
+      getCurrentUpdateSet,
+      onChangeUpdateSet: () => {
+        sidebarApi.open();
+        sidebarApi.openUpdateSetPanel();
       },
-      buttons: [
-        { id: 'chat', label: 'AI chat', icon: 'chat', onClick: () => sidebarApi.toggle() },
-        {
-          id: 'search',
-          label: 'Code search',
-          icon: 'search',
-          onClick: () => {
-            sidebarApi.open();
-            sidebarApi.openSearchPanel();
-          },
-        },
-        {
-          id: 'lint',
-          label: 'Lint this script',
-          icon: 'lint',
-          onClick: () => {
-            sidebarApi.open();
-            sidebarApi.runCommand('/lint');
-          },
-        },
-        {
-          id: 'sysid',
-          label: 'Copy sys_id',
-          icon: 'record',
-          onClick: async () => {
-            const ctx = detectPageContext();
-            if (!ctx.sysId) {
-              toast.error('No sys_id found on this page.');
-              return;
-            }
-            await copyText(ctx.sysId);
-            toast.success(`Copied sys_id ${ctx.sysId}`);
-          },
-        },
-      ],
     });
-    shadow.appendChild(toolbar);
+    watcher.subscribe((ctx) => guards.onPageChange(ctx));
+
+    watcher.subscribe((ctx) => {
+      if (ctx.isList || !ctx.table || !ctx.sysId) return;
+      // Give the frame a moment to set its title.
+      setTimeout(() => {
+        const docs = formDocuments();
+        const title = (docs[docs.length - 1].title || document.title || '').replace(/\s*\|\s*ServiceNow.*$/i, '');
+        recordRecent(window.location.hostname, {
+          table: ctx.table,
+          sysId: ctx.sysId,
+          title,
+          path: recordUrl(ctx.table, ctx.sysId),
+        }).catch(() => {});
+      }, 1500);
+    });
   }
 
   if (settings.paletteEnabled) {
-    installHotkeys(palette, sidebarApi);
+    installHotkeys(palette, sidebarApi, openEditor);
   }
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'TOGGLE_SIDEBAR') sidebarApi.toggle();
     if (message?.type === 'OPEN_PALETTE') palette.toggle();
+    if (message?.type === 'AUTOMATION_RESUME') automation.resume().catch(() => {});
   });
 
   // Classic UI runs the form inside the same-origin `gsft_main` iframe, where
@@ -276,6 +427,8 @@ async function init() {
     if (event.data?.source !== 'msb-frame-hotkey') return;
     if (event.data.action === 'palette') palette.toggle();
     if (event.data.action === 'chat') sidebarApi.toggle();
+    if (event.data.action === 'editor') openEditor();
+    if (event.data.action === 'key') palette.handleKey(event.data.key);
   });
 
   notifyIfFirstRun(toast);
@@ -291,7 +444,11 @@ function matchesChatHotkey(event) {
   return event.altKey && event.shiftKey && !event.ctrlKey && event.code === 'KeyC';
 }
 
-function installHotkeys(palette, sidebarApi) {
+function matchesEditorHotkey(event) {
+  return event.altKey && event.shiftKey && !event.ctrlKey && event.code === 'KeyE';
+}
+
+function installHotkeys(palette, sidebarApi, openEditor) {
   // Capture phase: ServiceNow form fields and the list editor swallow a lot of
   // key events on the bubble phase.
   document.addEventListener(
@@ -307,6 +464,12 @@ function installHotkeys(palette, sidebarApi) {
         event.preventDefault();
         event.stopPropagation();
         sidebarApi.toggle();
+        return;
+      }
+      if (matchesEditorHotkey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        openEditor();
       }
     },
     true
@@ -315,14 +478,37 @@ function installHotkeys(palette, sidebarApi) {
 
 /** Installed in sub-frames only: relays the hotkeys to the top frame's UI. */
 function forwardHotkeysToTop() {
+  let paletteOpen = false;
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || event.data?.source !== 'msb-palette-state') return;
+    paletteOpen = !!event.data.open;
+  });
+
+  const NAV_KEYS = new Set(['Escape', 'ArrowDown', 'ArrowUp', 'Enter', 'Home', 'End']);
+
   document.addEventListener(
     'keydown',
     (event) => {
+      if (paletteOpen && (NAV_KEYS.has(event.key) || (event.ctrlKey && ['n', 'p'].includes(event.key.toLowerCase())))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.top.postMessage(
+          {
+            source: 'msb-frame-hotkey',
+            action: 'key',
+            key: { key: event.key, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey },
+          },
+          window.location.origin
+        );
+        return;
+      }
       const action = matchesPaletteHotkey(event)
         ? 'palette'
         : matchesChatHotkey(event)
           ? 'chat'
-          : null;
+          : matchesEditorHotkey(event)
+            ? 'editor'
+            : null;
       if (!action) return;
       event.preventDefault();
       window.top.postMessage({ source: 'msb-frame-hotkey', action }, window.location.origin);
@@ -337,16 +523,19 @@ async function notifyIfFirstRun(toast) {
   const stored = await chrome.storage.local.get(FIRST_RUN_KEY);
   if (stored[FIRST_RUN_KEY]) return;
   await chrome.storage.local.set({ [FIRST_RUN_KEY]: true });
-  toast.info(`Press ${PALETTE_HINT} to open the MySnowBuddy command palette.`, { timeout: 9000 });
+  toast.info(
+    `MySnowBuddy: ${PALETTE_HINT} opens the command palette (type / for shortcuts), Alt+Shift+E the script editor, Alt+Shift+C chat.`,
+    { timeout: 9000 }
+  );
 }
 
 function start() {
   if (window.top !== window) {
-    // Sub-frames get hotkey forwarding only — no duplicate toolbars.
+    // Sub-frames get hotkey forwarding only — no duplicate UIs.
     forwardHotkeysToTop();
     return;
   }
-  init();
+  init().catch((err) => console.error('[MySnowBuddy] failed to start', err));
 }
 
 if (document.readyState === 'loading') {

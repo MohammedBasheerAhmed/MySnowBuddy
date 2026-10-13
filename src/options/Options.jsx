@@ -1,4 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import {
+  listInstances,
+  addInstance,
+  removeInstance,
+  listPresets,
+  addPreset,
+  removePreset,
+  listCustomCommands,
+  addCustomCommand,
+  removeCustomCommand,
+} from '../content/stores.js';
+import { getSyncEnabled, setSyncEnabled } from '../lib/promptLibrary.js';
 
 const KEY_STORAGE = 'mysnowbuddy_openai_key';
 const SETTINGS_STORAGE = 'mysnowbuddy_settings';
@@ -9,11 +21,21 @@ export default function Options() {
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
   const [settings, setSettings] = useState({
-    toolbarEnabled: true,
     sidebarEnabled: true,
     paletteEnabled: true,
     instanceBadgeEnabled: true,
   });
+  const [syncOn, setSyncOn] = useState(false);
+
+  useEffect(() => {
+    getSyncEnabled().then(setSyncOn);
+  }, []);
+
+  async function toggleSync() {
+    const next = !syncOn;
+    setSyncOn(next);
+    await setSyncEnabled(next);
+  }
 
   useEffect(() => {
     chrome.storage.local.get([KEY_STORAGE, SETTINGS_STORAGE]).then((res) => {
@@ -38,6 +60,18 @@ export default function Options() {
 
   async function toggleSetting(key) {
     const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    await chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
+  }
+
+  const theme = settings.theme || 'system';
+  useEffect(() => {
+    if (theme === 'light' || theme === 'dark') document.documentElement.setAttribute('data-theme', theme);
+    else document.documentElement.removeAttribute('data-theme');
+  }, [theme]);
+
+  async function changeTheme(value) {
+    const next = { ...settings, theme: value };
     setSettings(next);
     await chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
   }
@@ -87,15 +121,19 @@ export default function Options() {
       </section>
 
       <section>
+        <h2>Appearance</h2>
+        <p className="msb-options__hint">
+          Applies to the sidebar, command palette, editor and this page. Match system follows your operating system.
+        </p>
+        <select value={theme} onChange={(e) => changeTheme(e.target.value)} aria-label="Theme">
+          <option value="system">Match system</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </section>
+
+      <section>
         <h2>Features</h2>
-        <label>
-          <input
-            type="checkbox"
-            checked={settings.toolbarEnabled}
-            onChange={() => toggleSetting('toolbarEnabled')}
-          />
-          Show the floating toolbar
-        </label>
         <label>
           <input
             type="checkbox"
@@ -118,8 +156,87 @@ export default function Options() {
             checked={settings.instanceBadgeEnabled}
             onChange={() => toggleSetting('instanceBadgeEnabled')}
           />
-          Show the environment badge (PROD / TEST / DEV) on the toolbar
+          Show the environment badge (PROD / TEST / DEV) in the sidebar header
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.instanceTagEnabled !== false}
+            onChange={() =>
+              setSettings((s) => {
+                const next = { ...s, instanceTagEnabled: s.instanceTagEnabled === false };
+                chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
+                return next;
+              })
+            }
+          />
+          Tag the browser tab: [DEV] title prefix, coloured favicon and a stripe at the top of the page
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.guardsEnabled !== false}
+            onChange={() =>
+              setSettings((s) => {
+                const next = { ...s, guardsEnabled: s.guardsEnabled === false };
+                chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
+                return next;
+              })
+            }
+          />
+          Safety guards: warn about the Default update set and confirm saves on PROD
+        </label>
+        <label>
+          <input type="checkbox" checked={syncOn} onChange={toggleSync} />
+          Sync my prompt library across browsers (uses chrome.storage.sync, about 80 KB limit)
+        </label>
+      </section>
+
+      <section>
+        <h2>Known instances</h2>
+        <p className="msb-options__hint">
+          Used by "Compare with another instance". Only *.service-now.com hosts are accepted.
+        </p>
+        <PairList
+          load={listInstances}
+          add={({ a, b }) => addInstance({ label: a, host: b })}
+          remove={removeInstance}
+          labelPlaceholder="label (e.g. PROD)"
+          valuePlaceholder="prod12345.service-now.com"
+          render={(item) => `${item.label} \u2014 ${item.host}`}
+        />
+      </section>
+
+      <section>
+        <h2>Impersonation presets</h2>
+        <p className="msb-options__hint">
+          Appear in the command palette as "Impersonate ...". Use the user_name of the account.
+        </p>
+        <PairList
+          load={listPresets}
+          add={({ a, b }) => addPreset({ label: a, userName: b })}
+          remove={removePreset}
+          labelPlaceholder="label (e.g. ITIL user)"
+          valuePlaceholder="user_name"
+          render={(item) => `${item.label} \u2014 ${item.userName}`}
+        />
+      </section>
+
+      <section>
+        <h2>Custom slash commands</h2>
+        <p className="msb-options__hint">
+          Type <code>/name text</code> in the palette. The target is a path on the instance; <code>{'{q}'}</code> is
+          replaced with your text as an encoded-query value and <code>{'{raw}'}</code> as plain text. Example:{' '}
+          <code>/incident_list.do?sysparm_query=short_descriptionLIKE{'{q}'}</code>
+        </p>
+        <PairList
+          load={listCustomCommands}
+          add={({ a, b }) => addCustomCommand({ verb: a, template: b })}
+          remove={removeCustomCommand}
+          labelPlaceholder="name (e.g. mine)"
+          valuePlaceholder="/incident_list.do?sysparm_query=assigned_to=javascript:gs.getUserID()"
+          render={(item) => `/${item.verb} \u2014 ${item.template}`}
+        />
       </section>
 
       <section>
@@ -169,6 +286,56 @@ export default function Options() {
 }
 
 const CREDS_KEY = 'mysnowbuddy_instance_credentials';
+
+function PairList({ load, add, remove, labelPlaceholder, valuePlaceholder, render }) {
+  const [items, setItems] = useState([]);
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [error, setError] = useState(null);
+
+  const refresh = () => load().then(setItems);
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  async function handleAdd() {
+    setError(null);
+    try {
+      await add({ a, b });
+      setA('');
+      setB('');
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleRemove(id) {
+    await remove(id);
+    await refresh();
+  }
+
+  return (
+    <div>
+      <div className="msb-options__cred-form">
+        <input value={a} onChange={(e) => setA(e.target.value)} placeholder={labelPlaceholder} />
+        <input value={b} onChange={(e) => setB(e.target.value)} placeholder={valuePlaceholder} />
+        <button onClick={handleAdd}>Add</button>
+      </div>
+      {error && <div className="msb-options__invalid">{error}</div>}
+      {items.length > 0 && (
+        <ul className="msb-options__cred-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <span>{render(item)}</span>
+              <button onClick={() => handleRemove(item.id)}>Remove</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function InstanceCredentials() {
   const [creds, setCreds] = useState({});

@@ -2,20 +2,41 @@ const SETTINGS_KEY = 'mysnowbuddy_settings';
 const UI_STATE_KEY = 'mysnowbuddy_ui_state';
 
 const DEFAULT_SETTINGS = {
-  toolbarEnabled: true,
   sidebarEnabled: true,
   paletteEnabled: true,
   instanceBadgeEnabled: true,
+  instanceTagEnabled: true,
+  guardsEnabled: true,
+  theme: 'system',
 };
 
+export const THEMES = ['system', 'light', 'dark'];
+export const nextTheme = (theme) => THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+
 const DEFAULT_UI_STATE = {
-  toolbarPosition: null, // { right, bottom } in px, set by dragging the rail
   recentCommands: [], // command ids, most recent first
 };
 
 export async function getSettings() {
   const res = await chrome.storage.local.get(SETTINGS_KEY);
   return { ...DEFAULT_SETTINGS, ...(res[SETTINGS_KEY] || {}) };
+}
+
+export async function saveSettings(patch) {
+  const next = { ...(await getSettings()), ...patch };
+  await chrome.storage.local.set({ [SETTINGS_KEY]: next });
+  return next;
+}
+
+/** Calls back with the full settings whenever they change; returns an unsubscribe function. */
+export function onSettingsChanged(callback) {
+  const listener = (changes, area) => {
+    if (area === 'local' && changes[SETTINGS_KEY]) {
+      callback({ ...DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) });
+    }
+  };
+  chrome.storage.onChanged.addListener(listener);
+  return () => chrome.storage.onChanged.removeListener(listener);
 }
 
 export async function getUiState() {

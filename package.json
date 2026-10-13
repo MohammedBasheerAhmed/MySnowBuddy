@@ -5,7 +5,8 @@
   "description": "SNUtils-style toolbar + AI chat sidebar browser extension for ServiceNow developers and admins.",
   "scripts": {
     "build": "node build.js",
-    "watch": "node build.js --watch"
+    "watch": "node build.js --watch",
+    "test": "node tests/run.js"
   },
   "dependencies": {
     "react": "^18.3.1",

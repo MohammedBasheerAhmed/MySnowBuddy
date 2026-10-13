@@ -106,6 +106,57 @@ Every surface now renders from one token set instead of ad-hoc hex values.
 - **Options page** — mirrors the tokens in `:root` (it is a normal page, not
   the shadow host), card-per-section layout, light and dark.
 
+### Prompt library — done (code complete, untested in browser)
+- `src/lib/promptLibrary.js` — 250 built-in prompts across 15 categories (12 core
+  here, the rest in `src/lib/builtinPrompts.js`), `{{variable}}` templating,
+  storage (`mysnowbuddy_prompt_library`), validation, JSON import/export.
+  `{{table}}`, `{{sys_id}}`, `{{script}}` (redacted), `{{field}}`, `{{instance}}`
+  fill from the page; any other name becomes an input the user fills in.
+- `src/sidebar/PromptLibraryPanel.jsx` — search, category filter, favourites,
+  use (fill + preview, Send to AI / Insert in chat), create/edit/delete,
+  Customize (copy a built-in), import/export.
+- Entry points: `/prompts`, the book button in the composer, and the
+  "Prompt library" palette command.
+- Imports always get fresh ids so they cannot overwrite existing prompts or
+  masquerade as built-ins.
+
+### Phase 6 — developer quality-of-life (done, code complete, untested in browser)
+Build and unit tests pass (36); none of the UI below has run on a live instance.
+- **Prompt library** now has kinds (prompts and code snippets, with built-in
+  snippets), usage tracking, a `{{selection}}` variable (text selected on the
+  page) and optional sync across browsers (`chrome.storage.sync`, ~80 KB).
+- **List filter tools** (`QueryPanel`): explain an encoded query, generate
+  GlideRecord code, count, preview, CSV/JSON export, copy sys_ids.
+- **Live log** (`LogTailPanel`, `logTail.js`): polls `syslog` with level and
+  text filters.
+- **Version diff** (`VersionPanel`, `versions.js`): field-level diff between
+  `sys_update_version` entries.
+- **Compare with another instance** (`RemoteRecordPanel`, `remoteRecord.js`,
+  `FETCH_REMOTE_RECORD` in the service worker): same record, other environment.
+- **Field inspector** (`FieldInspectorPanel`): dictionary view plus live value
+  and state of fields on the open form.
+- **ATF** (`AtfPanel`, `atf.js`): list suites, run one, poll progress, recent
+  results.
+- **Scope export** (`ScopeExportPanel`, `scopeExport.js`, `lib/zip.js`): one
+  file per script, downloaded as a ZIP.
+- **Apply AI code to the form** (`ApplyPanel`): shows a diff, writes via the
+  page bridge `setFieldValue` (the only bridge write), with undo.
+- **Script history and output** in the background script panel.
+- **Safety guards** (`guards.js`): warn when the current update set is a
+  Default one, confirm saves/deletes of configuration on PROD. Toggle in Options.
+- **Palette**: bookmarks, recent records, impersonation presets, favourite
+  prompts/snippets, open-by-name (type 3+ characters of a script name), go to
+  definition for selected text, and commands for each panel above.
+- **Options**: guards toggle, library sync toggle, known instances, presets.
+
+### Phase 6 — unverified against a live instance
+CI/CD ATF endpoints (`/api/sn_cicd/testsuite/run`, `/api/sn_cicd/progress/<id>`)
+and ATF result field names; `g_list.getQuery/getTableName`; `sys_update_version`
+fields (`name=<table>_<sys_id>`, `payload`); update set picker endpoint; classic
+save-button ids (`sysverb_*`); Default update set detection;
+`gs.secondsAgoStart` in the log tail; `sys_scope.scope` dot-walks in scope
+export; name-based remote record lookup.
+
 ### Phase 4 — done (code complete)
 Twelve developer-productivity features. Design principle: run deterministic
 checks locally first, then feed those findings to the model so it spends its
@@ -201,9 +252,32 @@ the toolbar menu was regrouped into Navigate / This record / Instance / Tools;
 - Git repo not initialized; no GitHub remote or branch protection
 - `npm audit` reports 1 moderate severity vulnerability (unaddressed)
 
+### UI refresh: floating toolbar removed
+- The floating rail (`toolbar.js`, `.msb-rail*` CSS, `toolbarEnabled`, saved
+  rail position) is gone. Entry points are the extension icon, `Alt+Shift+C`
+  (sidebar) and `Ctrl+Shift+Space` (palette).
+- The env badge moved into the sidebar header (still gated by
+  `instanceBadgeEnabled`), next to a palette button.
+- Sidebar empty state is now a 12-tool launcher grid. An open panel takes the
+  whole sidebar body (`.msb-sidebar--focus`) instead of stacking above the chat;
+  "Ask AI" from a panel closes it so the answer is visible.
+- `toolbar.css` now holds only the palette and toast styles (name kept so
+  `build.js` is unchanged).
+
+### SN Utils-style features (done, code complete, untested on a live instance)
+- `slashBar.js`: slash shortcuts in the palette (tn, tnn, sys, props, log, code, bg, xml, cs, stats, edit, sync).
+- `instanceTag.js`: tab title prefix, favicon badge, top bar, instance switcher commands.
+- `fieldTools.js`: Alt+click label copies the field name, Alt+Shift+click copies the value.
+- `scriptEditor.js` + `editor.css`: hand-written full-screen editor (no new dependencies, as npm installs are blocked); applies to the form field only.
+- Editor comfort pass: `lib/syntax.js` (bracket/string scanner, no eval under MV3 CSP), `lib/snippets.js` (Tab snippets), gutter lint markers, Run/Dry run, Ask AI (hides the editor, `Alt+Shift+E` returns), Compare, update set chip, F12 / Ctrl+click definition, Apply & save via the new `saveForm` bridge action (PROD confirm). Palette shows five recent records first. Unverified on a live instance.
+- `fileSync.js`: two-way sync of the script field with a local file for VS Code via the File System Access API. Directory handle held in memory only because page JS shares the origin's IndexedDB.
+- Palette polish: wider dialog, mode chip (Shortcut, Impersonate, sys_id), Enter hint on the active row.
+- List export already existed (CSV, Markdown, JSON, sys_id list in the query panel).
+- Unverified: editor behaviour across all browsers, `execCommand('insertText')` undo in a shadow-DOM textarea, sync polling on large scripts.
+
 ### Next steps
 1. Load `dist/` unpacked in Chrome and Edge; check for console errors
-2. Test each toolbar action and slash command against a personal dev instance
+2. Test each palette command and slash command against a personal dev instance
 3. Confirm the unverified assumptions listed above, starting with the page
    bridge, `sys.scripts.do`, the dry-run prototype patch, and `syslog.level`
 4. Fix the endpoints/selectors/field lists; record findings in `docs/decisions.md`

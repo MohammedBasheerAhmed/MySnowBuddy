@@ -24,6 +24,19 @@ import {
 } from './quickActions.js';
 import { searchTables, labelForTable } from './tableCatalog.js';
 import { queryTable } from './tableApi.js';
+import { addBookmark } from './stores.js';
+import { currentPageHref } from './context.js';
+import { resolveTarget } from '../lib/urlTarget.js';
+import { formDocuments } from './quickActions.js';
+
+// The page on screen as a root-relative path, plus a readable title.
+function currentPageBookmark() {
+  const url = resolveTarget(currentPageHref());
+  if (!url) throw new Error('This page cannot be bookmarked.');
+  const docs = formDocuments();
+  const title = (docs[docs.length - 1].title || document.title || url.pathname).replace(/\s*\|\s*ServiceNow.*$/i, '');
+  return { title, path: `${url.pathname}${url.search}` };
+}
 
 export const GROUPS = {
   record: 'This record',
@@ -43,7 +56,7 @@ export const GROUPS = {
  * @param {object} deps - { ctx, sidebar, toast, getCsrfToken, impersonate }
  */
 export function buildCommands(deps) {
-  const { ctx = {}, sidebar, toast, getCsrfToken, impersonate } = deps;
+  const { ctx = {}, sidebar, toast, getCsrfToken, impersonate, openScriptEditor, startFileSync, stopFileSync, isFileSyncActive } = deps;
   const table = ctx.table || '';
   const sysId = ctx.sysId || '';
   const commands = [];
@@ -57,6 +70,41 @@ export function buildCommands(deps) {
     sidebar.open();
     sidebar.runCommand(command);
   };
+
+  if (table && openScriptEditor) {
+    add({
+      id: 'tools.editor',
+      title: 'Edit script in full-screen editor',
+      hint: 'Alt+Shift+E \u00b7 highlighting, find and replace, Ctrl+S applies to the form',
+      group: GROUPS.record,
+      keywords: 'edit script editor code fullscreen monaco highlight replace',
+      run: () => openScriptEditor(),
+    });
+  }
+
+  if (table && startFileSync) {
+    add({
+      id: 'tools.fileSync',
+      title: 'Edit script in VS Code (sync to a folder)',
+      hint: 'Pick a folder; the script stays in sync with a local file',
+      group: GROUPS.record,
+      keywords: 'vscode vs code sync file local editor external',
+      run: () => startFileSync(),
+    });
+  }
+
+  if (stopFileSync && isFileSyncActive?.()) {
+    add({
+      id: 'tools.fileSyncStop',
+      title: 'Stop file sync',
+      group: GROUPS.record,
+      keywords: 'stop end file sync vscode',
+      run: () => {
+        stopFileSync();
+        toast.info('File sync stopped.');
+      },
+    });
+  }
 
   // --- This record ---------------------------------------------------------
   if (table && sysId) {
@@ -147,6 +195,24 @@ export function buildCommands(deps) {
     });
 
     add({
+      id: 'record.versionDiff',
+      title: 'Compare versions of this record',
+      hint: 'Field-level diff, no tokens',
+      group: GROUPS.record,
+      keywords: 'version history diff compare changes revert who changed',
+      run: openPanel(() => sidebar.openVersionPanel()),
+    });
+
+    add({
+      id: 'record.remote',
+      title: 'Compare with another instance',
+      hint: 'Same record, other environment',
+      group: GROUPS.record,
+      keywords: 'other instance environment dev test prod diff open same record',
+      run: openPanel(() => sidebar.openRemotePanel()),
+    });
+
+    add({
       id: 'record.updateEntry',
       title: 'Update set entry for this record',
       group: GROUPS.record,
@@ -183,6 +249,15 @@ export function buildCommands(deps) {
       url: newRecordUrl(table),
     });
 
+    add({
+      id: 'table.fields',
+      title: `Field inspector for ${table}`,
+      hint: 'Types, references, defaults',
+      group: GROUPS.table,
+      keywords: 'fields columns dictionary inspector types reference mandatory',
+      run: openPanel(() => sidebar.openFieldPanel()),
+    });
+
     tableConfigTargets(table).forEach((target) => {
       add({
         id: `table.cfg.${target.label.replace(/\s+/g, '').toLowerCase()}`,
@@ -211,6 +286,24 @@ export function buildCommands(deps) {
     group: GROUPS.analyze,
     keywords: 'diff dirty unsaved changes form',
     run: runSlash('/formdiff'),
+  });
+
+  add({
+    id: 'analyze.listTools',
+    title: 'List filter tools',
+    hint: 'Explain, GlideRecord code, count, export',
+    group: GROUPS.analyze,
+    keywords: 'filter query encoded glide record code export csv count list',
+    run: openPanel(() => sidebar.openQueryPanel()),
+  });
+
+  add({
+    id: 'analyze.logTail',
+    title: 'Live log',
+    hint: 'Watch the system log',
+    group: GROUPS.analyze,
+    keywords: 'log tail live syslog watch errors',
+    run: openPanel(() => sidebar.openLogTailPanel()),
   });
 
   add({
@@ -265,6 +358,24 @@ export function buildCommands(deps) {
   });
 
   add({
+    id: 'ai.prompts',
+    title: 'Prompt library',
+    hint: 'Saved and built-in prompts',
+    group: GROUPS.ai,
+    keywords: 'prompt library templates saved snippets',
+    run: openPanel(() => sidebar.openPromptPanel()),
+  });
+
+  add({
+    id: 'ai.snippets',
+    title: 'Code snippets',
+    hint: 'GlideRecord, dates, REST and more',
+    group: GROUPS.ai,
+    keywords: 'snippets code templates glide record examples',
+    run: openPanel(() => sidebar.openPromptPanel('snippets')),
+  });
+
+  add({
     id: 'ai.review',
     title: 'AI code review',
     group: GROUPS.ai,
@@ -307,11 +418,49 @@ export function buildCommands(deps) {
   });
 
   add({
+    id: 'tools.atf',
+    title: 'ATF: run suites and results',
+    group: GROUPS.tools,
+    keywords: 'atf test suite run results automated',
+    run: openPanel(() => sidebar.openAtfPanel()),
+  });
+
+  add({
+    id: 'tools.scopeExport',
+    title: 'Export a scope as ZIP',
+    hint: 'One file per script',
+    group: GROUPS.tools,
+    keywords: 'export scope application zip scripts git code review',
+    run: openPanel(() => sidebar.openScopePanel()),
+  });
+
+  add({
+    id: 'tools.bookmark',
+    title: 'Bookmark this page',
+    group: GROUPS.tools,
+    keywords: 'bookmark save favourite page link',
+    run: async () => {
+      const { title, path } = currentPageBookmark();
+      await addBookmark(window.location.hostname, { title, path });
+      toast.success(`Bookmarked "${title}"`);
+    },
+  });
+
+  add({
     id: 'tools.rest',
     title: 'REST builder',
     group: GROUPS.tools,
     keywords: 'rest api request http builder',
     run: openPanel(() => sidebar.openRestPanel()),
+  });
+
+  add({
+    id: 'tools.automate',
+    title: 'Automation',
+    hint: 'Navigate and click through screens',
+    group: GROUPS.tools,
+    keywords: 'automate automation macro script navigate click type steps browser',
+    run: openPanel(() => sidebar.openAutomationPanel()),
   });
 
   add({
@@ -324,6 +473,45 @@ export function buildCommands(deps) {
       const { enabled, count } = toggleTechnicalNames();
       toast.info(enabled ? `Showing ${count} field names` : 'Field names hidden');
     },
+  });
+
+  add({
+    id: 'tools.theme.toggle',
+    title: 'Toggle dark / light',
+    hint: 'Switch the theme right now',
+    group: GROUPS.tools,
+    keywords: 'theme appearance dark light mode toggle switch night',
+    run: async () => {
+      const next = await deps.toggleTheme();
+      toast.info(`Theme set to ${next}.`);
+    },
+  });
+
+  [
+    ['system', 'Theme: match system', 'follow the operating system light or dark setting'],
+    ['light', 'Theme: light', 'always use the light theme'],
+    ['dark', 'Theme: dark', 'always use the dark theme'],
+  ].forEach(([value, title, hint]) =>
+    add({
+      id: `tools.theme.${value}`,
+      title,
+      hint,
+      group: GROUPS.tools,
+      keywords: 'theme appearance dark light mode system color',
+      run: async () => {
+        await deps.setTheme(value);
+        toast.info(`Theme set to ${value === 'system' ? 'match system' : value}.`);
+      },
+    })
+  );
+
+  add({
+    id: 'tools.fieldNameTip',
+    title: 'Copy a field name or value',
+    hint: 'Alt+click a label for its name, Alt+Shift+click for its value',
+    group: GROUPS.tools,
+    keywords: 'field name value copy label dictionary',
+    run: () => toast.info('Alt+click a field label to copy its name. Alt+Shift+click copies its value.', { timeout: 8000 }),
   });
 
   add({

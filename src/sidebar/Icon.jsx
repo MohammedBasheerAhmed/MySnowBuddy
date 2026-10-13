@@ -30,9 +30,37 @@ const PATHS = {
     </>
   ),
   chevron: <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />,
+  book: (
+    <path
+      d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+  star: (
+    <path d="M12 4l2.4 5 5.4.7-4 3.8 1 5.4L12 16.3 7.2 18.9l1-5.4-4-3.8 5.4-.7z" strokeLinejoin="round" />
+  ),
+  command: (
+    <path
+      d="M9 9V7a2 2 0 1 0-2 2h10a2 2 0 1 0-2-2v10a2 2 0 1 0 2-2H7a2 2 0 1 0 2 2zM9 9h6v6H9z"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
   refresh: (
     <path d="M20 12a8 8 0 1 1-2.4-5.7M20 4v4h-4" strokeLinecap="round" strokeLinejoin="round" />
   ),
+  monitor: (
+    <path d="M4 5h16v11H4zM9 20h6M12 16v4" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  sun: (
+    <path
+      d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6L7 7M17 17l1.4 1.4M5.6 18.4L7 17M17 7l1.4-1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+  moon: <path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z" strokeLinecap="round" strokeLinejoin="round" />,
 };
 
 export default function Icon({ name, size = 16, className = '' }) {

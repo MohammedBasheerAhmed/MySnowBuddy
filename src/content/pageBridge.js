@@ -43,7 +43,8 @@ function injectBridge() {
 
 /**
  * Call an action exposed by src/page/bridge.js.
- * @param {string} action One of: getCsrfToken, getUserInfo, getFormMeta, getFormValues
+ * @param {string} action One of: getCsrfToken, getUserInfo, getFormMeta, getFormValues,
+ *   getScriptFields, getFieldState, setFieldValue, getListInfo
  * @param {Array} args Arguments forwarded to the action.
  * @param {{timeoutMs?: number}} options
  * @returns {Promise<any>}

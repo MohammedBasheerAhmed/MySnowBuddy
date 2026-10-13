@@ -9,6 +9,9 @@
 // open a navigation in a new tab, Esc to close.
 
 import { buildCommands, buildProviders, slashCommand, GROUPS } from './commands.js';
+import { buildStoredCommands, goToDefinitionCommand, openByNameProvider, STORED_GROUPS } from './storedCommands.js';
+import { slashNavProvider } from './slashBar.js';
+import { buildInstanceCommands } from './instanceTag.js';
 import { navigate } from './quickActions.js';
 import { recordCommandUse, getUiState } from './storage.js';
 import { createIcon } from './icons.js';
@@ -22,6 +25,9 @@ const GROUP_ICONS = {
   [GROUPS.navigate]: 'navigate',
   [GROUPS.instance]: 'instance',
   [GROUPS.tools]: 'tools',
+  [STORED_GROUPS.bookmarks]: 'navigate',
+  [STORED_GROUPS.recent]: 'clock',
+  [STORED_GROUPS.library]: 'ai',
 };
 
 const PROVIDER_DEBOUNCE_MS = 180;
@@ -53,11 +59,13 @@ export function createCommandPalette(deps) {
   input.type = 'text';
   input.spellcheck = false;
   input.autocomplete = 'off';
-  input.placeholder = 'Search actions, tables, sys_id, @user or /command';
+  input.placeholder = 'Search actions, or type /tn table, a sys_id, @user';
   input.setAttribute('aria-label', 'Command');
 
   const escHint = el('kbd', 'msb-palette__esc', 'Esc');
-  inputRow.append(icon, input, escHint);
+  const modeChip = el('span', 'msb-palette__mode');
+  modeChip.hidden = true;
+  inputRow.append(icon, input, modeChip, escHint);
 
   const resultsEl = el('div', 'msb-palette__results');
   resultsEl.setAttribute('role', 'listbox');
@@ -85,14 +93,35 @@ export function createCommandPalette(deps) {
 
   overlay.addEventListener('mousedown', (event) => {
     if (event.target.hasAttribute('data-msb-close')) close();
+    else if (event.target !== input) setTimeout(() => focusInput(), 0);
   });
 
   input.addEventListener('input', () => {
+    updateMode();
     render();
     scheduleProviders();
   });
 
-  input.addEventListener('keydown', onKeyDown);
+  function updateMode() {
+    const v = input.value;
+    const label = v.startsWith('/') ? 'Shortcut' : v.startsWith('@') ? 'Impersonate' : /^[0-9a-f]{32}$/i.test(v.trim()) ? 'sys_id' : '';
+    modeChip.textContent = label;
+    modeChip.hidden = !label;
+  }
+
+  // The page can swallow arrows and Enter before they reach the input, so catch them at the window.
+  const NAV_KEYS = new Set(['Escape', 'ArrowDown', 'ArrowUp', 'Enter', 'Home', 'End']);
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (overlay.hidden || event.isComposing) return;
+      const letter = event.key.toLowerCase();
+      if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p'))) return;
+      event.stopImmediatePropagation();
+      onKeyDown(event);
+    },
+    true
+  );
 
   function onKeyDown(event) {
     const key = event.key;
@@ -189,8 +218,9 @@ export function createCommandPalette(deps) {
         .map((id) => recentSet.get(id))
         .filter(Boolean)
         .forEach((cmd) => scored.push({ ...cmd, group: 'Recent', score: 10000 }));
+      commands.filter((cmd) => cmd.id.startsWith('recent.') && !recents.includes(cmd.id)).slice(0, 5).forEach((cmd) => scored.push({ ...cmd, score: 5000 }));
       commands.forEach((cmd) => {
-        if (recents.includes(cmd.id)) return;
+        if (recents.includes(cmd.id) || cmd.id.startsWith('recent.')) return;
         scored.push({ ...cmd, score: 0 });
       });
     } else {
@@ -218,9 +248,10 @@ export function createCommandPalette(deps) {
       const tips = el('div', 'msb-palette__emptyTips');
       [
         ['incident', 'open a table'],
+        ['/tn table', 'list with a filter'],
         ['a sys_id', 'jump to the record'],
         ['@user', 'impersonate'],
-        ['/lint', 'run a chat command'],
+        ['/', 'all shortcuts'],
       ].forEach(([token, meaning]) => {
         const tip = el('span', 'msb-palette__emptyTip');
         tip.appendChild(el('code', null, token));
@@ -285,10 +316,44 @@ export function createCommandPalette(deps) {
     });
   }
 
+  // ServiceNow (and the classic gsft_main iframe) can hold focus, so retry until the input has it.
+  function focusInput(attempt = 0) {
+    if (overlay.hidden) return;
+    window.focus();
+    input.focus({ preventScroll: true });
+    if (overlay.getRootNode().activeElement !== input && attempt < 8) {
+      setTimeout(() => focusInput(attempt + 1), 40);
+    }
+  }
+
+  document.addEventListener(
+    'focusin',
+    (event) => {
+      if (overlay.hidden) return;
+      if (event.target !== overlay.getRootNode().host) input.focus({ preventScroll: true });
+    },
+    true
+  );
+
   async function open(prefill = '') {
     const ctx = safeContext(getContext);
-    commands = buildCommands({ ...deps, ctx });
-    providers = buildProviders({ ...deps, ctx });
+    const stored = await buildStoredCommands({ ...deps, ctx }).catch(() => []);
+    const instances = await buildInstanceCommands().catch(() => []);
+    const definition = goToDefinitionCommand({ ctx, toast });
+    commands = [...buildCommands({ ...deps, ctx }), ...(definition ? [definition] : []), ...stored, ...instances];
+    providers = [
+      ...buildProviders({ ...deps, ctx }),
+      openByNameProvider(),
+      slashNavProvider({
+        ctx,
+        sidebar,
+        reopen: (text) => open(text),
+        openScriptEditor: deps.openScriptEditor,
+        startFileSync: deps.startFileSync,
+        toast,
+        getCsrfToken: deps.getCsrfToken,
+      }),
+    ];
     recents = (await getUiState()).recentCommands || [];
 
     contextEl.textContent = ctx.table
@@ -296,15 +361,18 @@ export function createCommandPalette(deps) {
       : '';
 
     overlay.hidden = false;
+    deps.onOpenChange?.(true);
     input.value = prefill;
+    updateMode();
     render();
     if (prefill) scheduleProviders();
     // Focus has to wait for the element to be laid out inside the shadow root.
-    requestAnimationFrame(() => input.focus());
+    focusInput();
   }
 
   function close() {
     overlay.hidden = true;
+    deps.onOpenChange?.(false);
     input.value = '';
     results = [];
     resultsEl.replaceChildren();
@@ -315,7 +383,14 @@ export function createCommandPalette(deps) {
     else close();
   }
 
-  return { element: overlay, open, close, toggle, isOpen: () => !overlay.hidden };
+  return {
+    element: overlay,
+    open,
+    close,
+    toggle,
+    isOpen: () => !overlay.hidden,
+    handleKey: (key) => !overlay.hidden && onKeyDown({ preventDefault() {}, ...key }),
+  };
 }
 
 function safeContext(getContext) {

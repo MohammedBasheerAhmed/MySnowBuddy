@@ -1,9 +1,12 @@
 import React, { forwardRef, useImperativeHandle, useState, useEffect, useRef } from 'react';
 import { redactSecrets } from '../providers/redact.js';
 import { useSpeechInput } from './useSpeechInput.js';
+import { useTheme } from './useTheme.js';
 import { lintScript, formatLintFindings } from '../lib/lint.js';
 import { analyzeScriptRisk, formatRiskSummary } from '../lib/scriptSafety.js';
 import { downloadText, suggestFilename } from '../lib/report.js';
+import { extractScriptOutput } from '../lib/logTail.js';
+import { loadHistory, recordRun, clearHistory } from '../lib/scriptHistory.js';
 import { buildLogTriagePrompt, buildTracePrompt } from '../content/logs.js';
 import { buildUpdateSetPrompt } from '../content/updateSets.js';
 import { buildAuditPrompt, formatAuditFindings } from '../content/securityAudit.js';
@@ -13,6 +16,16 @@ import ComparePanel from './ComparePanel.jsx';
 import SearchPanel from './SearchPanel.jsx';
 import UpdateSetPanel from './UpdateSetPanel.jsx';
 import RestPanel from './RestPanel.jsx';
+import PromptLibraryPanel from './PromptLibraryPanel.jsx';
+import QueryPanel from './QueryPanel.jsx';
+import LogTailPanel from './LogTailPanel.jsx';
+import ApplyPanel from './ApplyPanel.jsx';
+import RemoteRecordPanel from './RemoteRecordPanel.jsx';
+import VersionPanel from './VersionPanel.jsx';
+import FieldInspectorPanel from './FieldInspectorPanel.jsx';
+import AtfPanel from './AtfPanel.jsx';
+import ScopeExportPanel from './ScopeExportPanel.jsx';
+import AutomationPanel from './AutomationPanel.jsx';
 import Icon from './Icon.jsx';
 import MessageBody from './MessageBody.jsx';
 
@@ -21,11 +34,20 @@ const WIDTH_KEY = 'mysnowbuddy_sidebar_width';
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 720;
 
-const SUGGESTIONS = [
-  { command: '/lint', label: 'Review this script' },
-  { command: '/formdiff', label: 'Unsaved changes' },
-  { command: '/logs', label: 'Triage errors' },
-  { command: '/search', label: 'Code search' },
+const TOOLS = [
+  { command: '/lint', title: 'Review script', hint: 'Lint the script on this form' },
+  { command: '/formdiff', title: 'Unsaved changes', hint: 'Diff the form against the record' },
+  { command: '/logs', title: 'Triage errors', hint: 'Recent errors, explained' },
+  { command: '/search', title: 'Code search', hint: 'Find usages across the instance' },
+  { command: '/script', title: 'Script runner', hint: 'Background scripts, dry run first' },
+  { command: '/list', title: 'List filter', hint: 'Explain, count, export a query' },
+  { command: '/tail', title: 'Live log', hint: 'Follow the system log' },
+  { command: '/versions', title: 'Versions', hint: 'History and field diffs' },
+  { command: '/updateset', title: 'Update sets', hint: 'Collisions and coverage' },
+  { command: '/rest', title: 'REST builder', hint: 'Try Table API requests' },
+  { command: '/automate', title: 'Automation', hint: 'Navigate and click through screens' },
+  { command: '/remote', title: 'Other instance', hint: 'Compare this record elsewhere' },
+  { command: '/prompts', title: 'Prompts', hint: 'Saved and built-in prompts' },
 ];
 
 const SLASH_HELP = [
@@ -48,26 +70,48 @@ const SLASH_HELP = [
   '',
   'Panels',
   '  /search                global code search',
+  '  /list                  list filter: explain, GlideRecord code, count, export',
+  '  /tail                  live system log',
+  '  /versions              version history and field diff for this record',
+  '  /fields                field inspector for this table',
+  '  /remote                compare this record with another instance',
+  '  /tests                 run ATF suites and see results',
+  '  /scope                 export a scope as a ZIP of scripts',
   '  /updateset             update set collisions and coverage',
   '  /rest                  REST request builder',
+  '  /automate              navigate and click through screens',
   '  /compare               compare two instances',
+  '  /script                background script runner with history',
+  '  /prompts               prompt library: saved and built-in prompts',
+  '  /snippets              code snippet library',
   '',
   '  /clear                 clear conversation history',
 ].join('\n');
 
-const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
+const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpenPalette = null }, ref) {
+  const [theme, changeTheme] = useTheme();
+  const [themeMenu, setThemeMenu] = useState(false);
+  useEffect(() => {
+    if (!themeMenu) return undefined;
+    const close = () => setThemeMenu(false);
+    const timer = setTimeout(() => document.addEventListener('click', close), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', close);
+    };
+  }, [themeMenu]);
   const [visible, setVisible] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [context, setContext] = useState(null);
   const [notice, setNotice] = useState(null);
   const [showBgPanel, setShowBgPanel] = useState(false);
-  const [showCompare, setShowCompare] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
-  const [showUpdateSets, setShowUpdateSets] = useState(false);
-  const [showRest, setShowRest] = useState(false);
+  // One panel at a time: { name, ...params } or null.
+  const [panel, setPanel] = useState(null);
   const [bgScript, setBgScript] = useState('');
   const [bgResult, setBgResult] = useState(null);
+  const [bgOutput, setBgOutput] = useState('');
+  const [bgHistory, setBgHistory] = useState([]);
   const [bgDryRun, setBgDryRun] = useState(true);
   const [busy, setBusy] = useState(false);
   const [statusText, setStatusText] = useState(null);
@@ -157,11 +201,34 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
   }
 
   function closeAllPanels() {
-    setShowCompare(false);
-    setShowSearch(false);
-    setShowUpdateSets(false);
-    setShowRest(false);
+    setPanel(null);
+    setShowBgPanel(false);
   }
+
+  function openPanel(name, params = {}) {
+    setShowBgPanel(false);
+    setPanel({ name, ...params });
+  }
+
+  // Panels that read the open record get a snapshot of the page at open time.
+  function openWithContext(name, params = {}) {
+    const ctx = getContext();
+    setContext(ctx);
+    openPanel(name, { context: ctx, ...params });
+  }
+
+  function loadScriptIntoRunner(text) {
+    setBgScript(text);
+    setBgDryRun(true);
+    setBgOutput('');
+    setBgResult('Script loaded. Dry run is ON by default - review it before running.');
+    setPanel(null);
+    setShowBgPanel(true);
+  }
+
+  useEffect(() => {
+    if (showBgPanel) loadHistory().then(setBgHistory).catch(() => {});
+  }, [showBgPanel]);
 
   useImperativeHandle(ref, () => ({
     open: () => {
@@ -180,21 +247,24 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
       setTimeout(() => setNotice(null), 4000);
     },
     openBackgroundScriptPanel: () => setShowBgPanel(true),
-    openComparePanel: () => {
-      closeAllPanels();
-      setShowCompare(true);
-    },
-    openSearchPanel: () => {
-      closeAllPanels();
-      setShowSearch(true);
-    },
-    openUpdateSetPanel: () => {
-      closeAllPanels();
-      setShowUpdateSets(true);
-    },
-    openRestPanel: () => {
-      closeAllPanels();
-      setShowRest(true);
+    openComparePanel: () => openPanel('compare'),
+    openSearchPanel: () => openPanel('search'),
+    openUpdateSetPanel: () => openPanel('updateset'),
+    openRestPanel: () => openPanel('rest'),
+    openPromptPanel: (kind = 'prompts') => openWithContext('prompts', { kind }),
+    openQueryPanel: () => openPanel('query'),
+    openLogTailPanel: () => openPanel('logtail'),
+    openVersionPanel: () => openWithContext('versions'),
+    openFieldPanel: () => openWithContext('fields'),
+    openRemotePanel: () => openWithContext('remote'),
+    openAtfPanel: () => openPanel('atf'),
+    openScopePanel: () => openPanel('scope'),
+    openAutomationPanel: () => openPanel('automation'),
+    openApplyPanel: (code) => openWithContext('apply', { code }),
+    sendPrompt: (label, prompt) => {
+      setContext(getContext());
+      setVisible(true);
+      askAi(label, prompt);
     },
     runCommand: (command) => {
       setContext(getContext());
@@ -470,11 +540,25 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
 
   // Commands that just open a panel; no model call involved.
   const PANEL_COMMANDS = {
-    '/compare': () => setShowCompare(true),
-    '/search': () => setShowSearch(true),
-    '/updateset': () => setShowUpdateSets(true),
-    '/updatesets': () => setShowUpdateSets(true),
-    '/rest': () => setShowRest(true),
+    '/compare': () => openPanel('compare'),
+    '/search': () => openPanel('search'),
+    '/updateset': () => openPanel('updateset'),
+    '/updatesets': () => openPanel('updateset'),
+    '/rest': () => openPanel('rest'),
+    '/automate': () => openPanel('automation'),
+    '/prompts': () => openWithContext('prompts', { kind: 'prompts' }),
+    '/prompt': () => openWithContext('prompts', { kind: 'prompts' }),
+    '/snippets': () => openWithContext('prompts', { kind: 'snippets' }),
+    '/snippet': () => openWithContext('prompts', { kind: 'snippets' }),
+    '/list': () => openPanel('query'),
+    '/query': () => openPanel('query'),
+    '/tail': () => openPanel('logtail'),
+    '/versions': () => openWithContext('versions'),
+    '/fields': () => openWithContext('fields'),
+    '/remote': () => openWithContext('remote'),
+    '/tests': () => openPanel('atf'),
+    '/scope': () => openPanel('scope'),
+    '/script': () => setShowBgPanel(true),
   };
 
   async function handleSend(overrideText) {
@@ -572,6 +656,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
   // Send a prepared prompt to the model from a panel rather than the chat box.
   async function askAi(displayLabel, prompt) {
     if (busy) return;
+    // The answer lands in the chat, so leave the panel view.
+    closeAllPanels();
     setBusy(true);
     setStatusText('Waiting for the model...');
     try {
@@ -618,18 +704,29 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
 
     setBusy(true);
     setBgResult(null);
+    setBgOutput('');
     try {
-      await runnerRef.current(bgScript, { dryRun: bgDryRun });
+      const html = await runnerRef.current(bgScript, { dryRun: bgDryRun });
+      setBgOutput(extractScriptOutput(html));
+      recordRun({ script: bgScript, instance: window.location.hostname, scope: 'global', dryRun: bgDryRun })
+        .then(setBgHistory)
+        .catch(() => {});
       setBgResult(
         bgDryRun
           ? 'Dry run submitted. Writes were intercepted and logged - look for "[MySnowBuddy dry run]" entries in the system log.'
-          : 'Script executed. Check the ServiceNow logs/output for details.'
+          : 'Script executed.'
       );
     } catch (err) {
       setBgResult(`Error: ${err.message}`);
     } finally {
       setBusy(false);
     }
+  }
+
+  function insertIntoComposer(text) {
+    setInput(text);
+    baseInputRef.current = text;
+    setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
   function handleExportChat() {
@@ -653,7 +750,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
   if (!visible) return null;
 
   return (
-    <div className="msb-sidebar" style={{ '--msb-sidebar-width': `${width}px` }}>
+    <div
+      className={`msb-sidebar${panel || showBgPanel ? ' msb-sidebar--focus' : ''}`}
+      style={{ '--msb-sidebar-width': `${width}px` }}
+    >
       <div
         className="msb-sidebar__resizer"
         onPointerDown={startResize}
@@ -667,10 +767,59 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
           <Icon name="sparkle" size={16} />
         </span>
         <span className="msb-sidebar__titles">
-          <span className="msb-sidebar__title">MySnowBuddy</span>
+          <span className="msb-sidebar__title">
+            MySnowBuddy
+            {instance && (
+              <span
+                className={`msb-env msb-env--${instance.tone}`}
+                title={`Instance: ${instance.host}`}
+              >
+                {instance.label}
+              </span>
+            )}
+          </span>
           <span className="msb-sidebar__subtitle">{window.location.hostname}</span>
         </span>
         <div className="msb-sidebar__header-actions">
+          {onOpenPalette && (
+            <button onClick={onOpenPalette} title="Command palette (Ctrl+Shift+Space)" aria-label="Command palette">
+              <Icon name="command" />
+            </button>
+          )}
+          <span className="msb-sidebar__menuwrap">
+            <button
+              onClick={() => setThemeMenu((open) => !open)}
+              title="Theme"
+              aria-label="Theme"
+              aria-haspopup="menu"
+              aria-expanded={themeMenu}
+            >
+              <Icon name={theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'monitor'} />
+            </button>
+            {themeMenu && (
+              <div className="msb-sidebar__menu" role="menu">
+                {[
+                  ['system', 'Match system', 'monitor'],
+                  ['light', 'Light', 'sun'],
+                  ['dark', 'Dark', 'moon'],
+                ].map(([value, label, icon]) => (
+                  <button
+                    key={value}
+                    role="menuitemradio"
+                    aria-checked={theme === value}
+                    className={theme === value ? 'msb-sidebar__menu-item msb-sidebar__menu-item--on' : 'msb-sidebar__menu-item'}
+                    onClick={() => {
+                      changeTheme(value);
+                      setThemeMenu(false);
+                    }}
+                  >
+                    <Icon name={icon} size={14} />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </span>
           <button
             onClick={handleExportChat}
             title="Export conversation as markdown"
@@ -724,6 +873,41 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
             placeholder="Write a background script..."
           />
 
+          {bgHistory.length > 0 && (
+            <div className="msb-sidebar__bg-history">
+              <select
+                value=""
+                onChange={(e) => {
+                  const entry = bgHistory[Number(e.target.value)];
+                  if (entry) {
+                    setBgScript(entry.script);
+                    setBgOutput('');
+                    setBgDryRun(true);
+                  }
+                }}
+                aria-label="Script history"
+              >
+                <option value="">History ({bgHistory.length})</option>
+                {bgHistory.map((entry, i) => (
+                  <option key={entry.ts + i} value={i}>
+                    {new Date(entry.ts).toLocaleString()} {entry.dryRun ? '(dry) ' : ''}
+                    {entry.script.replace(/\s+/g, ' ').slice(0, 40)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Clear the saved script history?')) {
+                    clearHistory().then(() => setBgHistory([]));
+                  }
+                }}
+              >
+                Clear history
+              </button>
+            </div>
+          )}
+
           {bgScript.trim() && (
             <div className={`msb-sidebar__risk msb-sidebar__risk--${scriptRisk.highestSeverity || 'none'}`}>
               {formatRiskSummary(scriptRisk)}
@@ -749,19 +933,17 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
             <button onClick={() => setShowBgPanel(false)}>Close</button>
           </div>
           {bgResult && <div className="msb-sidebar__bg-result">{bgResult}</div>}
+          {bgOutput && <pre className="msb-sidebar__bg-output">{bgOutput}</pre>}
         </div>
       )}
 
-      {showCompare && (
-        <ComparePanel
-          onClose={() => setShowCompare(false)}
-          currentInstanceUrl={window.location.hostname}
-        />
+      {panel?.name === 'compare' && (
+        <ComparePanel onClose={closeAllPanels} currentInstanceUrl={window.location.hostname} />
       )}
 
-      {showSearch && (
+      {panel?.name === 'search' && (
         <SearchPanel
-          onClose={() => setShowSearch(false)}
+          onClose={closeAllPanels}
           runSearch={(term, options) => requireService('searchCode', 'Code search')(term, options)}
           onAskAi={(search) =>
             askAi(
@@ -783,17 +965,17 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
         />
       )}
 
-      {showUpdateSets && (
+      {panel?.name === 'updateset' && (
         <UpdateSetPanel
-          onClose={() => setShowUpdateSets(false)}
+          onClose={closeAllPanels}
           services={servicesRef.current}
           onAskAi={(data) => askAi('Assess deployment risk for this update set', buildUpdateSetPrompt(data))}
         />
       )}
 
-      {showRest && (
+      {panel?.name === 'rest' && (
         <RestPanel
-          onClose={() => setShowRest(false)}
+          onClose={closeAllPanels}
           runRequest={(request) => requireService('runRestRequest', 'REST builder')(request)}
           onAskAi={({ method, path, response }) =>
             askAi(
@@ -807,6 +989,83 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
         />
       )}
 
+      {panel?.name === 'prompts' && (
+        <PromptLibraryPanel
+          key={panel.kind}
+          initialKind={panel.kind}
+          onClose={closeAllPanels}
+          getContext={getContext}
+          onRun={(title, prompt) => askAi(title, prompt)}
+          onInsert={insertIntoComposer}
+          onUseScript={loadScriptIntoRunner}
+        />
+      )}
+
+      {panel?.name === 'query' && (
+        <QueryPanel
+          onClose={closeAllPanels}
+          services={servicesRef.current}
+          onUseScript={loadScriptIntoRunner}
+          onAskAi={({ table, query, explanation }) =>
+            askAi(
+              `Improve the filter on ${table}`,
+              'Review this ServiceNow list filter. Point out conditions that are slow on large tables ' +
+                '(leading wildcards, unindexed fields, dot-walks), anything that looks wrong, and a better ' +
+                'equivalent if one exists.\n\n' +
+                `Table: ${table}\nEncoded query: ${query}\n\nPlain English:\n${explanation}`
+            )
+          }
+        />
+      )}
+
+      {panel?.name === 'logtail' && (
+        <LogTailPanel
+          onClose={closeAllPanels}
+          services={servicesRef.current}
+          onAskAi={(text) =>
+            askAi(
+              'Explain these log entries',
+              'Explain these ServiceNow system log entries. Group related lines, identify the root cause of ' +
+                'any errors, and say what to check first.\n\n' +
+                text
+            )
+          }
+        />
+      )}
+
+      {panel?.name === 'apply' && (
+        <ApplyPanel
+          code={panel.code}
+          table={panel.context?.table}
+          services={servicesRef.current}
+          onClose={closeAllPanels}
+        />
+      )}
+
+      {panel?.name === 'remote' && (
+        <RemoteRecordPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
+      )}
+
+      {panel?.name === 'versions' && (
+        <VersionPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
+      )}
+
+      {panel?.name === 'fields' && (
+        <FieldInspectorPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
+      )}
+
+      {panel?.name === 'atf' && (
+        <AtfPanel
+          services={servicesRef.current}
+          onClose={closeAllPanels}
+          onAskAi={(label, prompt) => askAi(label, prompt)}
+        />
+      )}
+
+      {panel?.name === 'scope' && <ScopeExportPanel services={servicesRef.current} onClose={closeAllPanels} />}
+
+      {panel?.name === 'automation' && <AutomationPanel services={servicesRef.current} onClose={closeAllPanels} />}
+
       <div className="msb-sidebar__messages" ref={messagesRef}>
         {!messages.length && !statusText && (
           <div className="msb-sidebar__empty">
@@ -814,20 +1073,17 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
               <Icon name="sparkle" size={22} />
             </div>
             <h3>How can I help?</h3>
-            <p>
-              Ask about the record you are on, or start with a slash command. Press Ctrl+Shift+Space
-              anywhere for the command palette.
-            </p>
-            <div className="msb-sidebar__suggestions">
-              {SUGGESTIONS.map((s) => (
+            <p>Ask about the record you are on, or pick a tool. Type / in the box for every command.</p>
+            <div className="msb-sidebar__tools">
+              {TOOLS.map((t) => (
                 <button
-                  key={s.command}
+                  key={t.command}
                   type="button"
-                  className="msb-sidebar__suggestion"
-                  onClick={() => handleSend(s.command)}
+                  className="msb-sidebar__tool"
+                  onClick={() => handleSend(t.command)}
                 >
-                  <code>{s.command}</code>
-                  {s.label}
+                  <span className="msb-sidebar__tool-title">{t.title}</span>
+                  <span className="msb-sidebar__tool-hint">{t.hint}</span>
                 </button>
               ))}
             </div>
@@ -847,7 +1103,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
               </span>
               {m.role === 'user' ? 'You' : 'MySnowBuddy'}
             </div>
-            <MessageBody text={m.displayContent ?? m.content} />
+            <MessageBody
+              text={m.displayContent ?? m.content}
+              onApply={m.role === 'assistant' && !m.local ? (code) => openWithContext('apply', { code }) : undefined}
+            />
           </div>
         ))}
 
@@ -878,6 +1137,15 @@ const Sidebar = forwardRef(function Sidebar({ getContext }, ref) {
             placeholder={speech.listening ? 'Listening...' : 'Ask MySnowBuddy, or type / for commands'}
             disabled={busy}
           />
+          <button
+            className="msb-sidebar__mic"
+            onClick={() => openWithContext('prompts', { kind: 'prompts' })}
+            disabled={busy}
+            title="Prompt library"
+            aria-label="Open prompt library"
+          >
+            <Icon name="book" />
+          </button>
           {speech.supported && (
             <button
               className={`msb-sidebar__mic${speech.listening ? ' msb-sidebar__mic--active' : ''}`}

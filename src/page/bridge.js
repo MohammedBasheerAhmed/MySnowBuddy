@@ -10,10 +10,13 @@
 //   content -> page : 'msb-page-request'  detail { id, action, args }
 //   page -> content : 'msb-page-response' detail { id, ok, result, error }
 //
-// SECURITY: this bridge is read-only by design. It exposes no action that
-// writes to the record, submits the form, or executes caller-supplied code.
-// Do not add an "eval" style action here — that would let any script on the
-// page run arbitrary code through the extension.
+// SECURITY: this bridge exposes exactly two writes. `setFieldValue` only calls
+// g_form.setValue on a field that exists on the form. `saveForm` only calls
+// g_form.save(), the same as pressing the form's Save button, and the extension
+// asks the user first (with an extra confirmation on production). Both are what
+// the page's own client scripts can do. Do not add an "eval" style
+// action or anything that executes caller-supplied code - that would let any
+// script on the page run arbitrary code through the extension.
 
 (function () {
   if (window.__msbBridgeInstalled) return;
@@ -29,6 +32,25 @@
     try {
       var frame = window.frames['gsft_main'];
       if (frame && typeof frame.g_form !== 'undefined' && frame.g_form) return frame;
+    } catch (e) {
+      // Cross-origin frame; ignore.
+    }
+    return null;
+  }
+
+  var MAX_FIELD_CHARS = 500000;
+  var SCRIPT_FIELD_RE = /script|condition|advanced|html|css|template|link|filter/i;
+
+  function formFor(win) {
+    return win && win.g_form ? win.g_form : null;
+  }
+
+  // The list frame exposes g_list (GlideList2) for the list currently shown.
+  function resolveListWindow() {
+    if (typeof window.g_list !== 'undefined' && window.g_list) return window;
+    try {
+      var frame = window.frames['gsft_main'];
+      if (frame && typeof frame.g_list !== 'undefined' && frame.g_list) return frame;
     } catch (e) {
       // Cross-origin frame; ignore.
     }
@@ -107,6 +129,111 @@
         values: values,
         labels: labels,
       };
+    },
+
+    // Script-like fields on the form (long text or script-ish names), so the
+    // Apply button can offer them as targets.
+    getScriptFields: function () {
+      var win = resolveFormWindow();
+      var f = formFor(win);
+      if (!f || typeof f.getFieldNames !== 'function') return [];
+      var out = [];
+      var names = f.getFieldNames() || [];
+      for (var i = 0; i < names.length; i++) {
+        var name = names[i];
+        try {
+          var value = f.getValue(name);
+          var text = value === undefined || value === null ? '' : String(value);
+          if (SCRIPT_FIELD_RE.test(name) || text.indexOf('\n') !== -1 || text.length > 200) {
+            var label = name;
+            try {
+              label = f.getLabelOf(name) || name;
+            } catch (e) {
+              /* no label element */
+            }
+            out.push({ name: name, label: label, length: text.length });
+          }
+        } catch (e) {
+          // Unreadable field; skip it.
+        }
+      }
+      return out;
+    },
+
+    // Live state of one field, for the field inspector.
+    getFieldState: function (name) {
+      var f = formFor(resolveFormWindow());
+      if (!f) return null;
+      var state = { name: String(name) };
+      function attempt(key, fn) {
+        try {
+          state[key] = fn();
+        } catch (e) {
+          state[key] = null;
+        }
+      }
+      attempt('value', function () {
+        return f.getValue(name);
+      });
+      attempt('displayValue', function () {
+        return typeof f.getDisplayValue === 'function' ? f.getDisplayValue(name) : null;
+      });
+      attempt('label', function () {
+        return f.getLabelOf(name);
+      });
+      attempt('mandatory', function () {
+        return f.isMandatory(name);
+      });
+      attempt('readOnly', function () {
+        return f.isReadOnly ? f.isReadOnly(name) : null;
+      });
+      attempt('visible', function () {
+        return f.isVisible ? f.isVisible(name) : null;
+      });
+      return state;
+    },
+
+    // The only write on this bridge: set one existing form field. Nothing is
+    // saved; the user still has to submit the form.
+    setFieldValue: function (name, value) {
+      var f = formFor(resolveFormWindow());
+      if (!f) throw new Error('No form is open on this page.');
+      if (typeof name !== 'string' || typeof value !== 'string') throw new Error('Field name and value must be strings.');
+      if (value.length > MAX_FIELD_CHARS) throw new Error('Value is too large.');
+      var names = f.getFieldNames() || [];
+      if (names.indexOf(name) === -1) throw new Error('Field "' + name + '" is not on this form.');
+      if (typeof f.isReadOnly === 'function' && f.isReadOnly(name)) throw new Error('Field "' + name + '" is read-only.');
+      var previous = f.getValue(name);
+      f.setValue(name, value);
+      return { previous: previous === undefined || previous === null ? '' : String(previous) };
+    },
+
+    // Same as clicking Save on the form.
+    saveForm: function () {
+      var f = formFor(resolveFormWindow());
+      if (!f) throw new Error('No form is open on this page.');
+      if (typeof f.save !== 'function') throw new Error('This form cannot be saved from here.');
+      f.save();
+      return true;
+    },
+
+    // Table and active filter of the list on screen.
+    getListInfo: function () {
+      var win = resolveListWindow();
+      if (!win) return null;
+      var list = win.g_list;
+      var info = { table: null, query: null };
+      try {
+        if (typeof list.getTableName === 'function') info.table = list.getTableName();
+      } catch (e) {
+        /* not available on this release */
+      }
+      try {
+        if (typeof list.getQuery === 'function') info.query = list.getQuery();
+      } catch (e) {
+        /* not available on this release */
+      }
+      return info;
     },
   };
 

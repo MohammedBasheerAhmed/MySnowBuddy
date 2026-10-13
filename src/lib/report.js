@@ -7,9 +7,8 @@ function timestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 }
 
-/** Trigger a browser download of `text` as `filename`. */
-export function downloadText(filename, text, mimeType = 'text/markdown') {
-  const blob = new Blob([text], { type: `${mimeType};charset=utf-8` });
+/** Trigger a browser download of `blob` as `filename`. */
+export function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -20,6 +19,11 @@ export function downloadText(filename, text, mimeType = 'text/markdown') {
   document.body.removeChild(link);
   // Revoke on the next tick so the download has committed to the URL.
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Trigger a browser download of `text` as `filename`. */
+export function downloadText(filename, text, mimeType = 'text/markdown') {
+  downloadBlob(filename, new Blob([text], { type: `${mimeType};charset=utf-8` }));
 }
 
 export function suggestFilename(prefix, extension = 'md') {

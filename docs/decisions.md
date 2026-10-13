@@ -255,6 +255,33 @@ re-investigating something that's already been decided or flagged here.
   non-user, non-CI records will not resolve.
 
 ## Deferred / accepted for now
+
+### Phase 6 decisions and assumptions
+- **`setFieldValue` is a page-bridge write.** It exists only so "Apply" can put
+  AI-generated code into a script field. It never saves the form, only runs
+  after the user confirms a diff, and returns the previous value for undo. It
+  is the single write the bridge allows.
+- **Safety guards are best-effort.** Default update set detection and the
+  classic save-button ids (`sysverb_update/insert/delete*`) are unverified, and
+  the update set lookup is cached for 20 s. Disable with the Options toggle.
+- **Library sync uses `chrome.storage.sync`** (about 80 KB total, 8 KB per
+  item). Large libraries are chunked; when over quota, sync fails and the
+  local copy stays authoritative.
+- **Remote record fetch** (`FETCH_REMOTE_RECORD`) runs in the service worker,
+  is limited to `*.service-now.com`, and only accepts messages from a
+  ServiceNow tab. It looks the record up by name, because sys_ids differ per
+  instance.
+- **Script history stores scripts locally in plaintext** (`chrome.storage.local`).
+  Do not keep secrets in background scripts.
+- **Unverified endpoints:** `/api/sn_cicd/testsuite/run`,
+  `/api/sn_cicd/progress/<id>`, ATF result field names, `g_list.getQuery`,
+  `sys_update_version` fields, `gs.secondsAgoStart`, `sys_scope.scope`
+  dot-walks.
+- **Open-by-name** queries six artifact tables with `nameLIKE` (3 rows each)
+  on every keystroke past three characters; a table the user cannot read is
+  skipped.
+
+## Deferred / accepted for now
 - **Instance credentials are stored unencrypted** in `chrome.storage.local`.
   Extension storage is not a secure secret store. Documented as a limitation
   in the README and options page; the preferred path is being logged into both

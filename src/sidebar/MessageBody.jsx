@@ -17,11 +17,21 @@ function splitBlocks(text) {
   return blocks;
 }
 
-function CodeBlock({ value }) {
+function CodeBlock({ value, onApply }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="msb-sidebar__msg-code">
       <pre>{value}</pre>
+      {onApply && (
+        <button
+          type="button"
+          className="msb-sidebar__msg-apply"
+          title="Put this code in a script field on the open form (shows a diff first)"
+          onClick={() => onApply(value)}
+        >
+          Apply
+        </button>
+      )}
       <button
         type="button"
         title={copied ? 'Copied' : 'Copy code'}
@@ -38,14 +48,14 @@ function CodeBlock({ value }) {
   );
 }
 
-export default function MessageBody({ text }) {
+export default function MessageBody({ text, onApply }) {
   const value = String(text ?? '');
   const blocks = splitBlocks(value);
   return (
     <div className="msb-sidebar__msg-body">
       {blocks.map((block, i) =>
         block.type === 'code' ? (
-          <CodeBlock key={i} value={block.value} />
+          <CodeBlock key={i} value={block.value} onApply={onApply} />
         ) : (
           <span key={i}>{block.value.replace(/^\n+|\n+$/g, '')}</span>
         )

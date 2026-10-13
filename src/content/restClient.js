@@ -83,8 +83,8 @@ export async function runRestRequest({ method = 'GET', path, body = '', headers 
     }
   }
 
-  // State-changing verbs need the instance CSRF token.
-  if (upperMethod !== 'GET' && csrfToken) {
+  // Sent on GET too: without it a session-only request can trigger a browser login popup.
+  if (csrfToken) {
     requestHeaders['X-UserToken'] = csrfToken;
   }
 

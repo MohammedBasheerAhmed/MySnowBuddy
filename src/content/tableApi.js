@@ -2,6 +2,8 @@
 // under the user's own browser session/permissions — never attempt to
 // escalate or bypass ACLs here.
 
+import { sessionHeaders } from './sessionToken.js';
+
 // Hard ceiling on rows per request. Guards against a mistyped query pulling
 // tens of thousands of rows into the page and freezing the tab.
 const MAX_LIMIT = 1000;
@@ -20,7 +22,7 @@ export async function queryTable(table, query, fields = [], options = {}) {
   const response = await fetch(`/api/now/table/${encodeURIComponent(table)}?${params.toString()}`, {
     method: 'GET',
     credentials: 'same-origin',
-    headers: { Accept: 'application/json' },
+    headers: await sessionHeaders(),
   });
   if (!response.ok) {
     throw new Error(`Table API query on "${table}" failed (${response.status})`);
@@ -34,6 +36,34 @@ export async function fetchRecord(table, sysId, fields = []) {
   if (!sysId) return null;
   const rows = await queryTable(table, `sys_id=${sysId}`, fields, { limit: 1 });
   return rows[0] || null;
+}
+
+/** Number of rows matching `query`, via the Aggregate API (no rows transferred). */
+export async function countRecords(table, query = '') {
+  const params = new URLSearchParams({ sysparm_count: 'true' });
+  if (query) params.set('sysparm_query', query);
+  const response = await fetch(`/api/now/stats/${encodeURIComponent(table)}?${params.toString()}`, {
+    credentials: 'same-origin',
+    headers: await sessionHeaders(),
+  });
+  if (!response.ok) throw new Error(`Count on "${table}" failed (${response.status})`);
+  const data = await response.json();
+  const count = Number(data?.result?.stats?.count);
+  if (!Number.isFinite(count)) throw new Error('The instance returned no count.');
+  return count;
+}
+
+/** Page through a query until `max` rows (or the end). Pages run one at a time. */
+export async function queryAll(table, query, fields = [], { max = 2000, pageSize = 500, displayValue = false } = {}) {
+  const rows = [];
+  while (rows.length < max) {
+    const want = Math.min(pageSize, max - rows.length);
+    // eslint-disable-next-line no-await-in-loop -- sequential paging keeps load on the instance low.
+    const page = await queryTable(table, query, fields, { limit: want, offset: rows.length, displayValue });
+    rows.push(...page);
+    if (page.length < want) break;
+  }
+  return rows;
 }
 
 /**

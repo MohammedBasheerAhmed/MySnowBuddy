@@ -7,6 +7,7 @@
 // palette to bounce an authenticated user somewhere else.
 
 import { queryTable, fetchRecord } from './tableApi.js';
+import { sessionHeaders } from './sessionToken.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
 
@@ -114,10 +115,15 @@ const ENVIRONMENTS = [
  * neutral rather than guessed at — an instance wrongly labelled "DEV" is
  * worse than one labelled nothing.
  */
+/** Environment guess ({ env, label, tone }) from an instance name or label, or null. */
+export function classifyEnvironment(name) {
+  return ENVIRONMENTS.find((e) => e.test.test(name)) || null;
+}
+
 export function getInstanceInfo() {
   const host = window.location.hostname;
   const instance = host.split('.')[0] || host;
-  const match = ENVIRONMENTS.find((e) => e.test.test(instance));
+  const match = classifyEnvironment(instance);
   return {
     host,
     instance,
@@ -211,7 +217,7 @@ export async function getRecordInfo(table, sysId) {
  * inside the same-origin `gsft_main` iframe, which the content script can
  * reach through `contentDocument` even though it only mounts in the top frame.
  */
-function formDocuments() {
+export function formDocuments() {
   const docs = [document];
   const frame = document.getElementById('gsft_main');
   try {
@@ -259,7 +265,7 @@ export function toggleTechnicalNames() {
   return { enabled: count > 0, count };
 }
 
-function fieldNameFromLabel(label) {
+export function fieldNameFromLabel(label) {
   // Classic labels are `label.<table>.<field>`; the `for` attribute is
   // `<table>.<field>` or `sys_display.<table>.<field>` for references.
   const id = label.id || '';
@@ -296,11 +302,10 @@ export async function setCurrentUpdateSet(sysId, csrfToken) {
   const response = await fetch('/api/now/ui/concoursepicker/updateset', {
     method: 'PUT',
     credentials: 'same-origin',
-    headers: {
+    headers: await sessionHeaders({
       'Content-Type': 'application/json',
-      Accept: 'application/json',
-      'X-UserToken': csrfToken || '',
-    },
+      ...(csrfToken ? { 'X-UserToken': csrfToken } : {}),
+    }),
     body: JSON.stringify({ sysparm_sys_id: sysId }),
   });
   if (!response.ok) {
@@ -309,12 +314,30 @@ export async function setCurrentUpdateSet(sysId, csrfToken) {
   return true;
 }
 
+/**
+ * Switch the session's current application ("global" for the global scope). Same call as the
+ * platform's application picker; endpoint shape is unverified against a live instance.
+ */
+export async function setCurrentApplication(appId, csrfToken) {
+  const response = await fetch('/api/now/ui/concoursepicker/application', {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: await sessionHeaders({
+      'Content-Type': 'application/json',
+      ...(csrfToken ? { 'X-UserToken': csrfToken } : {}),
+    }),
+    body: JSON.stringify({ app_id: appId }),
+  });
+  if (!response.ok) throw new Error(`Application switch failed (${response.status}).`);
+  return true;
+}
+
 /** The update set currently selected for this session, if readable. */
 export async function getCurrentUpdateSet() {
   try {
     const response = await fetch('/api/now/ui/concoursepicker/updateset', {
       credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
+      headers: await sessionHeaders(),
     });
     if (!response.ok) return null;
     const data = await response.json();

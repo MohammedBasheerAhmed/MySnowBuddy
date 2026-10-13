@@ -53,6 +53,7 @@ function copyStatic() {
   const combinedCss = [
     fs.readFileSync(path.join(rootDir, 'src/content/theme.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/toolbar.css'), 'utf8'),
+    fs.readFileSync(path.join(rootDir, 'src/content/editor.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/sidebar.css'), 'utf8'),
   ].join('\n');
   fs.writeFileSync(path.join(outdir, 'content.css'), combinedCss);

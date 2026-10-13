@@ -1,7 +1,7 @@
 # MySnowBuddy
 
-AI-assisted developer toolkit for ServiceNow: an SNUtils-style utility toolbar,
-a context-aware chat sidebar, and a set of deterministic analysis tools for
+AI-assisted developer toolkit for ServiceNow: a command palette, a context-aware
+chat sidebar, and a set of deterministic analysis tools for
 code quality, deployment safety, and instance comparison. Manifest V3 browser
 extension (Chrome + Edge).
 
@@ -31,7 +31,7 @@ src/
   background/           Service worker, cross-instance client, compare engine
   providers/             AI provider adapter(s) + secret redaction helper
   page/                   Page-world bridge (reads g_form / g_ck)
-  content/                Content script: toolbar, context detection, and all
+  content/                Content script: command palette, context detection, and all
                            instance-facing features (search, update sets, logs,
                            form diff, dependencies, audit, REST)
   sidebar/                React chat sidebar + feature panels + speech input
@@ -97,15 +97,13 @@ What it covers beyond the analysis features below:
   email, events, users, groups, roles, applications, plugins, REST explorer,
   Flow Designer, Script Debugger
 
-### Toolbar
-Draggable rail in the bottom-right corner (position is remembered). It carries
-an environment badge derived from the instance name — PROD in red, TEST/STAGE
-in amber, DEV in green, neutral when the convention is unrecognised, so a
-production instance is obvious before you run anything — plus a palette
-launcher and pinned buttons for chat, code search, lint and copy sys_id.
-
 ### Chat sidebar
-Toggle with `Alt+Shift+C`, from the toolbar, or from the extension icon.
+Toggle with `Alt+Shift+C` or from the extension icon. The header shows an
+environment badge derived from the instance name — PROD in red, TEST/STAGE in
+amber, DEV in green, neutral when the convention is unrecognised, so a
+production instance is obvious before you run anything — and a button for the
+command palette. The empty state is a launcher grid for the main tools; opening
+one takes over the whole sidebar until you close it.
 Auto-detects the current table/record/script as context (shown as a "context
 chip").
 
@@ -205,8 +203,27 @@ Records are matched across instances by `name` (not `sys_id`, which differs
 per instance). Authentication uses your existing browser session for each
 instance, falling back to per-instance credentials stored in the options page.
 
+### Power-user tools
+- **Theme**: match system, light or dark. Change it from the sun/moon/monitor button in the sidebar header, the palette (`Theme: ...`), or the Appearance section of the options page. It applies to the sidebar, palette, editor and options page.
+- **Slash shortcuts in the palette**: type `/tn incident`, `/tnn`, `/sys <sys_id>`, `/props`, `/log`, `/code`, `/bg`, `/xml`, `/cs`, `/stats`, `/edit`, `/sync`. Type `/` to see the list.
+- **Instance tag**: the browser tab title and favicon carry the environment (PROD, TEST, DEV) and a coloured bar sits at the top of the page. The palette lists your known instances to jump between them. Setting: `instanceTagEnabled`.
+- **Field tools**: Alt+click a form field label to copy its name, Alt+Shift+click to copy its value.
+- **Full-screen script editor** (`/edit` or `Alt+Shift+E`): syntax highlighting, line numbers, find and replace, auto-indent, bracket and quote pairing, `Ctrl+/` comment, lint. `Ctrl+S` applies to the form field, `Ctrl+Enter` applies and closes, `Ctrl+Shift+S` (or Apply & save) applies and saves the record, with an extra confirmation on production. A syntax check runs before applying, and lint and syntax problems show as gutter markers while you type. Run and Dry run execute the script (or the selection) as a background script and show the output under the editor. Ask AI explains, fixes, tests or comments the script (or selection) in the chat sidebar, and Compare opens the other-instance comparison; `Alt+Shift+E` brings the editor back. `F12` or `Ctrl+click` jumps to a local function, Script Include or table. `Tab` after `gr`, `grget`, `gra`, `gdt`, `info`, `err`, `try`, `fn` or `ajax` expands a snippet. A chip shows the current update set (highlighted when it is Default). The palette lists the five latest records first when it opens.
+- **Edit in VS Code** (`/sync`): pick a local folder and the open script is kept in sync with `<table>/<name>.<field>.js`. Saving in the editor updates the form field; edits on the form update the file. Chrome and Edge only (File System Access API). The folder is chosen each time and never remembered, and sync stops when you leave the record.
+
+### Developer toolbox
+Available from the command palette and the sidebar:
+- **Prompt library and snippets** (250 built-in prompts, your own, optional sync).
+- **List filter tools**: explain a query, generate GlideRecord code, count, export.
+- **Live log**, **version diff**, **field inspector**, **ATF runner**, **scope export (ZIP)**.
+- **Compare with another instance** for the open record.
+- **Apply AI code** to the open form with a diff and undo.
+- **Bookmarks, recent records, impersonation presets, open by name, go to definition.**
+- **Safety guards** for Default update sets and saves on PROD.
+
 ### Options page
-OpenAI API key entry + validation, toolbar/sidebar toggles, and per-instance
+OpenAI API key entry + validation, sidebar/palette toggles, safety guards, library
+sync, known instances, impersonation presets, and per-instance
 credential management for Instance Compare.
 
 ## Known limitations

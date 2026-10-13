@@ -76,3 +76,31 @@ export function summarizeDiff(diff, contextLines = 2) {
 export function hasChanges(diff) {
   return diff.some((part) => part.type !== 'equal');
 }
+
+/**
+ * Like summarizeDiff but structured for rendering: unchanged runs far from a
+ * change collapse into { type: 'gap', count }.
+ */
+export function collapseDiff(diff, contextLines = 3) {
+  const keep = new Set();
+  diff.forEach((part, index) => {
+    if (part.type === 'equal') return;
+    for (let k = index - contextLines; k <= index + contextLines; k += 1) {
+      if (k >= 0 && k < diff.length) keep.add(k);
+    }
+  });
+
+  const out = [];
+  let skipped = 0;
+  diff.forEach((part, index) => {
+    if (keep.has(index)) {
+      if (skipped) out.push({ type: 'gap', count: skipped });
+      skipped = 0;
+      out.push(part);
+    } else {
+      skipped += 1;
+    }
+  });
+  if (skipped) out.push({ type: 'gap', count: skipped });
+  return out;
+}

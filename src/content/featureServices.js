@@ -10,5 +10,6 @@ import { myWorkServices } from './myWork.js';
 import { accessServices } from './accessDebugger.js';
 import { healthServices } from './healthScan.js';
 import { xrayServices } from './xray.js';
+import { impactServices } from './impact.js';
 
-export const FEATURE_SERVICES = { ...myWorkServices, ...accessServices, ...healthServices, ...xrayServices };
+export const FEATURE_SERVICES = { ...myWorkServices, ...accessServices, ...healthServices, ...xrayServices, ...impactServices };

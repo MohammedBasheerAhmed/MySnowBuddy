@@ -269,8 +269,30 @@ AI-assisted:
 | `/audit` | Runs the read-only security audit, then asks the model to prioritise the findings |
 
 Panels: `/search`, `/updateset`, `/rest`, `/compare`, `/why` (`/access`), `/xray`,
-`/health` (`/scan`), `/mywork` (`/me`), `/ship` (`/review-set`), `/push`. Plus `/help`
-and `/clear`. Every panel is also in the command palette.
+`/impact`, `/health` (`/scan`), `/mywork` (`/me`), `/ship` (`/review-set`), `/push`. Plus
+`/help` and `/clear`. Every panel is also in the command palette.
+
+### Change impact (`/impact`)
+Answers "what does changing this script affect?" before you edit it. Open a business
+rule, Script Include, client script, UI action, script action, scheduled job, Scripted
+REST resource, ACL, UI script or portal widget and run `/impact` (or `/impact
+IncidentUtils` for a Script Include by name). The panel shows:
+- **Who uses it**: every active script that calls the Script Include (GlideAjax callers
+  marked), fires the script action's event, or loads the UI script or widget.
+- **Runs alongside** (business rules): the other rules in the same phase on the table and
+  its parents, in run order, with this one highlighted.
+- **What it changes**: tables it reads, inserts, updates or deletes, the fields it sets,
+  events it fires and `setWorkflow(false)`, with line numbers; unsaved form text is used
+  when present. It follows the Script Include methods it calls one level deep.
+- **What runs as a result**: business rules, notifications, flow triggers and script
+  actions set off by those writes and events.
+- **Who else is editing it**: other in-progress or completed update sets holding the
+  record, plus version history, warnings and errors in the system log over the last 7
+  days, and (business rules) how many records the table changed in the last day.
+
+A risk summary on top ranks the signals (deletes, `current.update()` in a business rule,
+another developer's update set, wide use). Export it as markdown or ask the AI what to
+retest. It reads script text, so references built at run time are listed as not traced.
 
 ### Access debugger (`/why`, `/access`)
 Answers "why can't this user see or edit this?" without impersonating anyone.

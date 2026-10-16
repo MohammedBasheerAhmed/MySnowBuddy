@@ -282,6 +282,13 @@ re-investigating something that's already been decided or flagged here.
   demand (capped, cached per page) so typing never waits on the network. Only visible lines are redrawn. Scripts
   over 40K characters (or whose full check took over 350 ms) get syntax and API checks while typing plus a "Run the
   full check" button. `g_form.getFieldNames` was removed from the catalog (does not exist on current releases).
+- **Change impact** (`/impact`, 2026-10-16): static analysis of script text in `src/lib/impact.js` (comments
+  stripped, GlideRecord variables tracked by position so reassignment maps to the right table, GlideQuery chains,
+  `current` only traced with the subject's own table); Script Include methods it calls are followed one level deep
+  (method body only, at most 10 Script Includes). Every instance query in `src/content/impact.js` is filtered again
+  on its condition columns in the browser, because ServiceNow drops unknown conditions and returns every row. Each
+  section fails on its own into a "Not checked" note. Caps: 60 callers per table, 6 written tables, 300 business
+  rules, 25 log rows.
 - **Analysis panels as tools**: `explain_access`, `explain_field`, `check_update_set`, `scan_instance_health` are
   observe tier and return compact results (names and ids, never script bodies or the full finding list); the health
   scan stops after 2 minutes and returns a partial report (the MCP call limit is 3 minutes).
@@ -317,6 +324,11 @@ re-investigating something that's already been decided or flagged here.
   read back but not validated: `sys_ui_policy_action.disabled`, `sys_data_policy2.enforce_ui`,
   `sys_data_policy_rule.disabled`, `sys_script_client.inherited`/`ui_type`, `sys_dictionary_override.<x>_override`,
   `catalog_ui_policy.catalog_conditions`, `catalog_ui_policy_action.catalog_variable`, `sp_portal.url_suffix`.
+- **Change impact**: `sys_flow_record_trigger` with a `table` column (a missing table becomes a note); flow triggers
+  on parent tables firing for child records (not listed); `sysevent_email_action.generation_type` values `engine` /
+  `event` / `triggered`; `sp_instance.sp_column.sp_row.sp_container.sp_page` dot-walk; `syslog.message` containing
+  `<table>.<sys_id>` for script errors; `gs.daysAgoStart` / `gs.hoursAgoStart` in Table and Aggregate API queries;
+  `sys_script_client.field_name`; `sys_update_version.sys_recorded_at`.
 - **Script editor**: `sys_script_include.client_callable`, `item_option_new.cat_item` / `variable_set` (a wrong
   column returns unfiltered rows capped at 300); character-width measurement, popup placement, underline alignment
   and undo inside the shadow root in a real browser.

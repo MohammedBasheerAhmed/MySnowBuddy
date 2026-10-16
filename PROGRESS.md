@@ -4,7 +4,8 @@ Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
 ## RESUME HERE (Phase 8 built 2026-10-16; next step is live verification on the PDI)
-State: 486 tests pass, `npm run build` clean, `node preview/smoke.js` 9/9. Nothing is committed (no git). The extension is
+State: 503 tests pass, `npm run build` clean, `node preview/smoke.js` 9/9. Git: origin is
+github.com/MohammedBasheerAhmed/MySnowBuddy, branch main (see memory github-repo-push). The extension is
 loaded unpacked from D:\MySnowBuddy\dist in the user's Chrome; the user's PDI is https://dev364920.service-now.com
 (Australia p7). At the end of the 2026-10-16 session the PDI session was logged out and the loaded extension was the OLD
 build. Pre-Phase-8 source snapshot: scratchpad baseline-20261016-1206/mysnowbuddy.tar (see memory multi-agent-push-oct16).
@@ -19,8 +20,15 @@ build. Pre-Phase-8 source snapshot: scratchpad baseline-20261016-1206/mysnowbudd
    (create_record → update_record → undo → delete) and an update set switch + read-back.
 3. Still from Phase 7: confirm the "script" chip shows the field on a Client Script / Business Rule.
 
+**Added 2026-10-16 after Phase 8:** Change impact panel (`/impact`): src/lib/impact.js (pure), src/content/impact.js,
+src/sidebar/ImpactPanel.jsx + impact.css, registered in panelRegistry/featureServices; tests/impact.test.js (17 tests,
+503 total). Checked in the preview harness (light and dark) only. Its live assumptions are under "Change impact" in
+docs/decisions.md. REST builder presets were expanded (Import Set, CMDB, Attachment, Service Catalog, Batch, discovery).
+Next step for impact: the save-time breaking-change check for Script Includes (warn when a removed or renamed method
+is still called), then "find all references" in the editor.
+
 **Open work, in priority order**
-- Live verification above (Phase 8 and the ~35 older endpoints: concoursepicker, /api/sn_cicd, /impersonate.do,
+- Live verification above (Phase 8, `/impact` and the ~35 older endpoints: concoursepicker, /api/sn_cicd, /impersonate.do,
   /logout_impersonate.do, cache.do, threads.do, xmlstats.do, stats API).
 - Agent flow end to end needs an Anthropic API key (user has none yet).
 - Known gaps from Phase 8 reports: after a top-level page reload the sidebar agent loses its run (the MCP bridge recovers);

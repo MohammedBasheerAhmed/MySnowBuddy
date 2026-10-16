@@ -23,6 +23,7 @@
 import AccessDebuggerPanel from './AccessDebuggerPanel.jsx';
 import { MY_WORK_PANELS } from './MyWorkPanel.jsx';
 import HealthScanPanel from './HealthScanPanel.jsx';
+import ImpactPanel from './ImpactPanel.jsx';
 import XrayPanel from './XrayPanel.jsx';
 
 export const PANELS = [
@@ -74,6 +75,23 @@ PANELS.push({
   withContext: true,
   launcher: true,
   component: XrayPanel,
+});
+
+// Change impact (/impact): who uses a script, what it changes, what runs as a result:
+// src/sidebar/ImpactPanel.jsx, src/content/impact.js, src/lib/impact.js.
+PANELS.push({
+  name: 'impact',
+  title: 'Change impact',
+  hint: 'Before you edit a script: who uses it, what it changes, what runs as a result, who else is editing it',
+  launcherHint: 'What a script change affects',
+  icon: 'layers',
+  slash: ['/impact'],
+  help: 'what changing the script on this form affects (also /impact <ScriptInclude>)',
+  keywords: 'impact blast radius dependencies callers who uses where used references side effects downstream business rule script include change risk retest regression update set collision',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: ImpactPanel,
 });
 
 export function panelByName(name) {

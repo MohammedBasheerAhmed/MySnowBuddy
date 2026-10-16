@@ -34,12 +34,15 @@ export async function compareWithInstance({ host, table, sysId }) {
   const [local] = await queryTable(table, `sys_id=${sysId}`, [], { limit: 1 });
   if (!local) throw new Error('The local record could not be read.');
 
+  // Only tables with a name column can be matched by name (a condition on a missing column is ignored).
+  const name = typeof local.name === 'string' && local.name ? local.name : undefined;
   const response = await chrome.runtime.sendMessage({
     type: 'FETCH_REMOTE_RECORD',
-    payload: { instanceUrl: normalized, table, sysId, name: local.name },
+    payload: { instanceUrl: normalized, table, sysId, name },
   });
   if (!response?.ok) throw new Error(response?.error || 'Could not reach the other instance.');
   if (!response.record) return { host: normalized, found: false };
+  if (response.matchedBy === 'name' && text(response.record.name) !== name) return { host: normalized, found: false };
 
   const flatten = (record) => {
     const out = {};

@@ -1,10 +1,21 @@
 {
   "manifest_version": 3,
   "name": "MySnowBuddy",
-  "version": "0.5.0",
-  "description": "AI-assisted ServiceNow developer toolkit: command palette, code search, linting, conflict and update set checks, instance compare, security audit, REST builder and chat.",
-  "permissions": ["storage", "activeTab", "scripting"],
-  "host_permissions": ["https://*.service-now.com/*"],
+  "version": "0.8.0",
+  "description": "Control ServiceNow from your browser: an AI agent with approvals, a smart script editor, access debugger, page X-ray, health scan.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://*.service-now.com/*",
+    "http://127.0.0.1/*",
+    "https://api.anthropic.com/*",
+    "https://api.openai.com/*"
+  ],
   "background": {
     "service_worker": "background.bundle.js"
   },
@@ -30,16 +41,30 @@
   "options_page": "options.html",
   "content_scripts": [
     {
-      "matches": ["https://*.service-now.com/*"],
-      "js": ["content.bundle.js"],
+      "matches": [
+        "https://*.service-now.com/*"
+      ],
+      "js": [
+        "content.bundle.js"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content.css", "pagebridge.js"],
-      "matches": ["https://*.service-now.com/*"]
+      "resources": [
+        "content.css",
+        "pagebridge.js"
+      ],
+      "matches": [
+        "https://*.service-now.com/*"
+      ]
     }
-  ]
+  ],
+  "sandbox": {
+    "pages": [
+      "sandbox.html"
+    ]
+  }
 }

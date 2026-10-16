@@ -40,7 +40,7 @@ async function favouriteCommands({ ctx, sidebar, toast }) {
         group: STORED_GROUPS.library,
         keywords: `${entry.description || ''} favourite favorite ${kind}`,
         run: async () => {
-          const { text, missing } = renderTemplate(entry.template, contextValues(ctx, window.location.hostname));
+          const { text, missing } = renderTemplate(entry.template, contextValues(ctx, window.location.hostname), { kind });
           if (missing.length) {
             sidebar.open();
             sidebar.openPromptPanel(kind);

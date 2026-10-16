@@ -7,6 +7,12 @@ const DEFAULT_SETTINGS = {
   instanceBadgeEnabled: true,
   instanceTagEnabled: true,
   guardsEnabled: true,
+  agentEnabled: true,
+  agentAutonomy: 'ask',
+  mcpBridgeEnabled: false,
+  mcpToken: '',
+  mcpPort: 17345,
+  mcpAutonomy: 'ask',
   theme: 'system',
 };
 

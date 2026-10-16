@@ -8,6 +8,7 @@
 
 import { queryTable, fetchRecord } from './tableApi.js';
 import { sessionHeaders } from './sessionToken.js';
+import { instanceGuard } from '../lib/agent/policy.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
 
@@ -107,6 +108,9 @@ const ENVIRONMENTS = [
   { test: /(^|[-_.])(uat|preprod|stage|staging|stg)([-_.]|$)/i, env: 'stage', label: 'STAGE', tone: 'warn' },
   { test: /(^|[-_.])(test|tst|qa|sit)([-_.]|$)/i, env: 'test', label: 'TEST', tone: 'warn' },
   { test: /(^|[-_.])(dev|develop|sandbox|sbx|poc)([-_.]|$)/i, env: 'dev', label: 'DEV', tone: 'ok' },
+  // Looser fallbacks, tried last: "acmeprod", "acmeprd2" and the default developer-instance name "dev12345".
+  { test: /(prod|prd)\d*$/i, env: 'prod', label: 'PROD', tone: 'danger' },
+  { test: /^dev\d+$/i, env: 'dev', label: 'DEV', tone: 'ok' },
 ];
 
 /**
@@ -120,16 +124,39 @@ export function classifyEnvironment(name) {
   return ENVIRONMENTS.find((e) => e.test.test(name)) || null;
 }
 
+// Known-instance labels (palette "add instance"), cached so getInstanceInfo stays synchronous. A label can only
+// RAISE the write guard: a host the user labelled PROD is production for every writer (agent, MCP, My Work), even
+// when its hostname reads like dev or test. One rule for all of them: policy.instanceGuard.
+const KNOWN_INSTANCES_KEY = 'mysnowbuddy_known_instances';
+let knownLabels = new Map();
+export function rememberKnownInstances(list) {
+  knownLabels = new Map((Array.isArray(list) ? list : []).map((i) => [String(i?.host || '').toLowerCase(), String(i?.label || '')]));
+}
+try {
+  if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+    Promise.resolve(chrome.storage.local.get(KNOWN_INSTANCES_KEY))
+      .then((r) => rememberKnownInstances(r?.[KNOWN_INSTANCES_KEY]))
+      .catch(() => {});
+    chrome.storage.onChanged?.addListener((changes, area) => {
+      if (area === 'local' && changes[KNOWN_INSTANCES_KEY]) rememberKnownInstances(changes[KNOWN_INSTANCES_KEY].newValue);
+    });
+  }
+} catch {
+  // No extension storage here (tests, other contexts): hostname rules only.
+}
+
 export function getInstanceInfo() {
   const host = window.location.hostname;
   const instance = host.split('.')[0] || host;
   const match = classifyEnvironment(instance);
+  const guard = instanceGuard({ env: match ? match.env : 'unknown', label: knownLabels.get(host.toLowerCase()) || '' });
   return {
     host,
     instance,
-    env: match ? match.env : 'unknown',
+    env: guard.env,
+    guarded: guard.guarded,
     label: match ? match.label : instance.slice(0, 8).toUpperCase(),
-    tone: match ? match.tone : 'neutral',
+    tone: guard.raisedByLabel ? 'danger' : match ? match.tone : 'neutral',
   };
 }
 
@@ -169,14 +196,15 @@ export async function findRecordBySysId(sysId, contextTable = '') {
     try {
       // eslint-disable-next-line no-await-in-loop -- probes are ordered by
       // likelihood; we want to stop at the first hit, not query all of them.
-      const rows = await queryTable(table, `sys_id=${sysId}`, ['sys_id', 'sys_class_name', 'name'], {
+      const rows = await queryTable(table, `sys_id=${sysId}`, ['sys_id', 'sys_class_name', 'name', 'sys_name', 'short_description'], {
         limit: 1,
       });
       if (rows.length) {
-        return { table: rows[0].sys_class_name || table, sysId, name: rows[0].name || '' };
+        return { table: rows[0].sys_class_name || table, sysId, name: rows[0].name || rows[0].sys_name || rows[0].short_description || '' };
       }
     } catch (err) {
-      // Table not readable on this instance/role; try the next probe.
+      // Table not readable on this instance/role; try the next probe. An expired session fails every probe, so say so.
+      if (err?.code === 'SESSION_EXPIRED') throw err;
     }
   }
   return null;
@@ -361,7 +389,8 @@ export function tableConfigTargets(table) {
     { label: 'Client Scripts', url: listUrl('sys_script_client', `table=${table}`) },
     { label: 'UI Actions', url: listUrl('sys_ui_action', `table=${table}`) },
     { label: 'UI Policies', url: listUrl('sys_ui_policy', `table=${table}`) },
-    { label: 'ACLs', url: listUrl('sys_security_acl', `nameSTARTSWITH${table}`) },
+    // "incident" and "incident.field", not incident_task.* (nameSTARTSWITHincident matched those too).
+    { label: 'ACLs', url: listUrl('sys_security_acl', `name=${table}^ORnameSTARTSWITH${table}.`) },
     { label: 'Data Policies', url: listUrl('sys_data_policy2', `model_table=${table}`) },
     { label: 'Notifications', url: listUrl('sysevent_email_action', `collection=${table}`) },
     { label: 'Form Layouts', url: listUrl('sys_ui_section', `name=${table}`) },

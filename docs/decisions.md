@@ -178,7 +178,148 @@ re-investigating something that's already been decided or flagged here.
   splits on ``` fences and emits `<span>`/`<pre>` text nodes, so a model that
   returns markup cannot inject anything into the sidebar.
 
+### Phase 7 (agent, skills, verification)
+- **The agent loop runs in the content script; the model call runs in the service worker.** The loop needs
+  the page, the Table API session and the approval UI; the API key must stay in the worker. One `AGENT_STEP`
+  message = one model turn. Chat history stores the final text plus a trimmed run (no payloads).
+- **One tool contract, three consumers.** `src/lib/agent/toolSchemas.js` feeds the in-extension agent, the
+  MCP bridge (registered at connect, plus a build-time snapshot) and the docs. A tool absent from it is
+  unknown, and an unclassified tool name is treated as the most dangerous tier (`toolTier` defaults to write).
+- **Approval tiers, not a yes/no.** observe and draft run freely; run (dry run) asks unless "Auto dry runs";
+  write always asks and on PROD needs the instance name typed. Read-only autonomy denies run and write.
+  External MCP calls go through the same policy (`agentBridge.js`), shown in an in-page dialog.
+- **Verify-gated writes.** `save_artifact` refuses a script with high-severity findings and any column not in
+  the live dictionary, writes only six configuration tables, creates inactive by default, and records the
+  previous values for undo. `query_table` blocks credential-like tables and `javascript:`/`gs.` in queries
+  (an encoded query can execute server-side script).
+- **Tool results are data.** Redacted per value before JSON serialisation (escaped quotes defeat regex
+  redaction of scripts), key-name based redaction, size capped, and the system prompt tells the model not to
+  follow instructions found in them.
+- **Simulation runs in a sandbox page, not in the content script.** MV3 forbids eval in extension contexts and
+  the ServiceNow CSP would block a page-world approach. A manifest `sandbox` page may eval; an offscreen
+  document (`IFRAME_SCRIPTING`) hosts it so the page CSP is irrelevant. A runaway script is stopped by
+  closing the offscreen document after 6 s. The simulator is pure and takes the evaluator as a parameter,
+  which is how it is unit-tested in Node.
+- **A near-miss of a listed method is an error; an unlisted method is a note.** The catalog is deliberately
+  conservative. Edit distance <= 2 from a real method is almost certainly a typo and would throw; anything
+  further is reported low-severity. Wrong-side detection ignores generic names (`response`, `event`,
+  `request`, `JSON`, ...) that are ordinary locals or builtins on the other side.
+- **Anthropic specifics.** No temperature/top_p (rejected on current models), no forced tool choice, effort
+  via `output_config`, `anthropic-dangerous-direct-browser-access` header for browser contexts, assistant
+  blocks (including thinking) replayed verbatim within a tool loop. Default model Opus 5.5; Sonnet 5.5 and
+  Haiku 5.5 selectable. Non-streaming with max_tokens 16000 (a request stays well under the 5 minute worker
+  limit).
+- **MCP over loopback long-poll instead of native messaging or a WebSocket.** No dependencies, works from an
+  MV3 service worker (kept alive by an alarm), token-paired, Host/Origin checked. The MCP server is a separate
+  process the MCP client launches, so the extension connects out to it.
+- **Offline evals double as the verifier's regression suite.** Reference solutions must verify with no
+  warnings; each known-bad script must trigger a named rule.
+
+### Phase 8 (October 2026: control plane and analysis panels)
+- **Plugin points instead of editing Sidebar.jsx.** `src/sidebar/panelRegistry.js` (one entry gives a panel,
+  slash commands, a palette command and a /help line), `src/content/featureServices.js` (content services merged
+  into every panel's `services`), and build.js concatenates every `src/sidebar/*.css`. Build and test temp
+  folders are per process (`.build-tmp-PID`, `.test-dist-PID`) so parallel runs do not collide.
+- **Control plane.** `read_page`, `navigate`, `get_instance_info` are observe tier. `navigate` changes no data, so
+  it runs without approval, but it only opens real tables (checked against the instance), `/now/` routes and portal
+  pages, never processors or URLs with action parameters, and never leaves a dirty form. MCP clients still see it as
+  not read-only. Write tools: `click_ui_action` (exact match, pinned to the record shown on the card),
+  `create/update/delete_record` (dictionary-checked, diff on the card, undo; delete undo re-inserts with the same
+  sys_id but not journals/attachments/cascaded deletes), `run_background_script` (risk analysis + "was dry-run"),
+  `switch_update_set` / `switch_application_scope` (read back; undo switches back), `impersonate_user` /
+  `end_impersonation`; `run_atf` is run tier and is never auto-run.
+- **Sensitive-table policy** (`assessWrite` in policy.js): credential tables and password fields are refused before
+  any card is shown; deleting users/tables/columns is refused; role/ACL/property/code changes carry a warning;
+  script fields of BRs, client scripts, Script Includes and UI policies must go through `save_artifact`.
+- **External-agent ceiling** (Options: read only / read and draft / up to dry runs and tests / everything with
+  approval) is enforced in the service worker and again in the page. Default keeps the earlier behaviour. MCP-only
+  tools (`screenshot`, `list_tabs`) are in `MCP_ONLY_TOOLS`; the sidebar agent never sees them.
+- **Screenshots use the `activeTab` grant** (click the toolbar icon or Alt+Shift+C on that tab once) rather than
+  the all-sites permission. Screenshots are not redacted.
+- **Page reloads during an MCP call**: the page reports `AGENT_TOOL_STARTED` once an approved call starts, so the
+  bridge can say "it ran, here is the new page" versus "nothing ran".
+- **Page bridge**: request ids are random and a request accepts only its first reply; replies remain data to
+  validate, never authority. New read-only actions `getFormStatus` and `getSessionInfo`.
+- **Redaction boundary**: every model request goes through `redactMessages()` inside `sendChat`
+  (src/providers/index.js); only text is redacted, tool-call ids/arguments and thinking blocks pass unchanged. The MCP
+  path uses `redactDeep`, which also hides values of rows whose `name` is secret-named. Writes refuse values that
+  contain the `[REDACTED]` placeholder; verify raises `redacted-secret` when a script would save it.
+- **Per-function variable typing** (`src/lib/scopes.js`) for apiCheck, verify and lint's unbounded-query rule.
+- **tableApi.js**: an expired session (401, login redirect, login page served as 200, `X-Is-Logged-In: false`)
+  throws one message with `err.code = 'SESSION_EXPIRED'`; ServiceNow's error.message/detail is included in other
+  errors; GETs retry 429/503 twice (400 ms, 1200 ms or Retry-After capped at 5 s); writes never retry.
+- **Code search** filters `active=true` on the server (was client-side, so inactive matches used up the row limit).
+- **renderTemplate(template, values, { kind: 'snippets' })** escapes each value for its context (string literal,
+  comment, code); prompts are unchanged.
+- **Access debugger evaluation order**: table, parents, `*`; field: table.field, parent.field, *.field, table.*,
+  parent.*, *.*. The most specific matching name decides and one passing ACL there is enough; table and field must
+  both pass. Deny-Unless: every matching Deny-Unless ACL at that level must pass (assumption). Admin inherits every
+  role except elevated ones and `maint`. No table ACL match: `glide.sm.default_mode` decides; no field ACL match: the
+  field follows the record. Simple conditions are checked by querying `sys_id=X^condition` as the logged-in user;
+  `javascript:`, dynamic values, `^NQ` or unknown columns are "runtime". The runtime check script is test-enforced
+  read-only and refuses any user but the logged-in one.
+- **Health scan custom-vs-baseline**: a record is custom if `sys_update_xml` has `<table>_<sys_id>` for it or it is
+  in an `x_<glide.appcreator.company.code>_*` scope; customised baseline records count as custom; other vendors'
+  store apps count as baseline. `sys_metadata.sys_customer_update` is not used. Score = high x10, medium x3, low x1,
+  per category rated by its worst severity. Caps: 2,000 records per table, 10,000 update rows per table, scripts
+  over 150k characters skipped (noted). Rules dropped for precision: ES6 checks, unverified-method notes, ACL "no
+  answer", `setWorkflow(false)`.
+- **Ship check**: any check that hit a cap or failed downgrades the verdict, so a partial check never says Ready.
+- **Moving update set entries**: one at a time, re-read after each, stop at the first failure; blocked across scopes,
+  into Default sets and into sets that are not in progress; audited with undo.
+- **Push to instance**: never writes `sys_*` columns except `sys_id` on create (keeps later update sets aligned);
+  refuses flows/workflows, `sys_db_object`/`sys_dictionary`, apps, users, non-config tables, password properties and
+  creating records in a scoped app; typed-name gate uses `isGuardedEnv` plus any known-instance label containing
+  prod/production, enforced in UI and service worker; the target is re-read before writing. Cross-instance writes try
+  the browser session first and fall back to Basic Auth only on a 401 or a login page. `fetchRecords` now sends
+  `sysparm_exclude_reference_link=true` (references used to compare as "[object Object]").
+- **Page X-ray**: nothing is fetched until X-ray or its panel is opened; every condition column is checked against
+  `sys_dictionary` before use; queries capped (200 client scripts, 200 business rules, ...) and the cap is shown;
+  per-table cache 5 minutes, about 15 tables; MutationObserver throttled to 600 ms and ignores X-ray's own nodes;
+  chips are out of the tab order (the panel is the keyboard path); wildcard `*.field` ACLs are left to the access
+  debugger.
+- **Script editor**: `src/lib/completion.js` is pure and reports what data it is missing; the editor fetches it on
+  demand (capped, cached per page) so typing never waits on the network. Only visible lines are redrawn. Scripts
+  over 40K characters (or whose full check took over 350 ms) get syntax and API checks while typing plus a "Run the
+  full check" button. `g_form.getFieldNames` was removed from the catalog (does not exist on current releases).
+- **Analysis panels as tools**: `explain_access`, `explain_field`, `check_update_set`, `scan_instance_health` are
+  observe tier and return compact results (names and ids, never script bodies or the full finding list); the health
+  scan stops after 2 minutes and returns a partial report (the MCP call limit is 3 minutes).
+
 ## Unconfirmed — needs verification against a real ServiceNow instance
+
+### Phase 8 assumptions (none of these has run on a live instance yet)
+- **Control plane**: the "Me" dynamic filter `DYNAMIC90d1921e5f510100a9ad2572f2b477fe`; user preferences
+  `sys_update_set` and `apps.current_app` as the read-back; concoursepicker GET shapes and the update set PUT body;
+  `/impersonate.do` and `/logout_impersonate.do` driven by fetch; CI/CD `links.results.id` and suite result fields;
+  `sys_atf_test_result.parent`; `g_form.modified` / `modifiedFields` / `getGlideUIElement`; the classic DOM selectors
+  listed at the top of `src/content/controlPage.js`; workspace `now-button` clicks; navigating the classic frame
+  inside the Next Experience shell; that the Table API keeps a given sys_id on insert.
+- **Access debugger**: `sys_user_has_role` columns `inherited`, `granted_by`, `included_in_role`, `state`;
+  `sys_group_has_role.inherits`; `sys_user_role_contains` (role/contains); `sys_user_role.elevated_privilege`;
+  `glide.sm.default_mode`; `sys_script.action_query`; Deny-Unless columns (`decision_type`, `applies_to`,
+  `security_attribute`, `advanced`, checked at runtime); `sys_db_object` scope-access columns; the Access Analyzer
+  module title; `sys_id=javascript:gs.getUserID()` for the logged-in user; the runtime script's `can*()` output.
+- **Health scan**: `sys_upgrade_history_log` disposition/resolution_status and the "Skipped"/"Not Reviewed" labels;
+  `sys_security_acl.type` value `client_callable_script_include`; `sysauto_script.run_type='periodically'` and the
+  `run_period` format; `sys_update_set.is_default`/`application`; `sys_upgrade_history.to_version`; the company-code
+  property; `nameNOT LIKE`, `gs.daysAgoStart`, `sysparm_no_count` (every column is checked against sys_dictionary
+  at run time, values are not).
+- **Update sets and push**: Aggregate API group-by response shape; update names `<table>_<sys_id>` and
+  `sys_dictionary_<table>_<element>`; `sys_update_xml.application`; `javascript:gs.getUserID()` inside Table API
+  queries; moving entries by PATCHing `sys_update_xml.update_set`; whether a POST keeps the given `sys_id`; which
+  update set a REST write on the target lands in. A cross-instance write with only the session cookie most likely
+  gets a 401 (no target `g_ck`), so writes probably need Basic credentials in Options.
+- **Page X-ray**: form ids `label.<table>.<field>` / `element.<table>.<field>`, `status.*[mandatory]`,
+  `sys_readonly.*`, `sys_target`; list `th[name][glide_type]`, `tr[sys_id]` / `row_<table>_<id>`; catalog `IO:`,
+  `label_IO:`, `sp_formfield_IO:`; portal widget class `v<sys_id>` and instance id `x<sys_id>`; workspace URLs
+  `/now/<app>/record/<table>/<id>`; editor links `/sp_config?id=widget_editor&sys_id=` and `id=page_edit&p=`; columns
+  read back but not validated: `sys_ui_policy_action.disabled`, `sys_data_policy2.enforce_ui`,
+  `sys_data_policy_rule.disabled`, `sys_script_client.inherited`/`ui_type`, `sys_dictionary_override.<x>_override`,
+  `catalog_ui_policy.catalog_conditions`, `catalog_ui_policy_action.catalog_variable`, `sp_portal.url_suffix`.
+- **Script editor**: `sys_script_include.client_callable`, `item_option_new.cat_item` / `variable_set` (a wrong
+  column returns unfiltered rows capped at 300); character-width measurement, popup placement, underline alignment
+  and undo inside the shadow root in a real browser.
 - **Background script execution endpoint** (`src/content/tableApi.js`,
   `runBackgroundScript`): implemented against the historically documented
   `/sys.scripts.do` processor (requires security_admin/admin role). NOT yet
@@ -199,6 +340,18 @@ re-investigating something that's already been decided or flagged here.
 - **CMDB dedupe default query** (`src/content/cmdb.js`): uses
   `install_status!=7` (exclude retired) against `cmdb_ci`. Confirm this
   matches your instance's conventions.
+
+### Phase 7 assumptions
+- **API catalog contents** (all of `src/lib/apiCatalog/*.js`): written from memory. Highest-risk: methods marked
+  `globalOnly`/`scopedOnly`, client `unsupportedIn` lists, GlideQuery, FlowAPI, and any method an author
+  flagged as "moderately sure" (see the file notes).
+- **Artifact column names** in `ARTIFACTS` (`agentTools.js`) and the `save_artifact` examples (`sys_script_client.field`,
+  `ui_type`, `sys_script.collection/when`): unverified; `save_artifact` validates against `sys_dictionary`
+  at runtime, so a wrong guess becomes an error with a suggestion rather than a bad write.
+- **`getFormModel` in the page bridge** uses `g_form.isVisible/isReadOnly/getDisplayBox` guarded by existence checks.
+- **`/api/now/table` POST/PATCH/DELETE** with the session token for configuration tables, and that a created
+  record lands in the current update set.
+- **`chrome.offscreen`** on Edge (expected, Chromium 109+); `chrome.runtime.getContexts` used to detect an existing document.
 
 ### Phase 4 assumptions
 - **`syslog.level` numeric mapping** (`src/content/logs.js`): assumed

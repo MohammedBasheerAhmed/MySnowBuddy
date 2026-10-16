@@ -11,7 +11,15 @@ const RESPONSE_EVENT = 'msb-page-response';
 const DEFAULT_TIMEOUT_MS = 2500;
 
 let injectionPromise = null;
-let nextId = 0;
+
+// Unguessable request ids, so a page script cannot answer a request it has not seen. (A script that listens to
+// msb-page-request can still read the id, so bridge answers stay data to check, never authority.) Each id is
+// answered at most once: the listener is removed on the first response, and later ones for it are ignored.
+export function newRequestId() {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return `msb-${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+}
 
 function injectBridge() {
   if (injectionPromise) return injectionPromise;
@@ -43,8 +51,8 @@ function injectBridge() {
 
 /**
  * Call an action exposed by src/page/bridge.js.
- * @param {string} action One of: getCsrfToken, getUserInfo, getFormMeta, getFormValues,
- *   getScriptFields, getFieldState, setFieldValue, getListInfo
+ * @param {string} action One of: getCsrfToken, getUserInfo, getFormMeta, getFormValues, getFormModel,
+ *   getFormStatus, getSessionInfo, getScriptFields, getFieldState, setFieldValue, saveForm, getListInfo
  * @param {Array} args Arguments forwarded to the action.
  * @param {{timeoutMs?: number}} options
  * @returns {Promise<any>}
@@ -52,7 +60,7 @@ function injectBridge() {
 export async function callPage(action, args = [], { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   await injectBridge();
 
-  const id = `msb-${Date.now()}-${nextId++}`;
+  const id = newRequestId();
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -64,7 +72,7 @@ export async function callPage(action, args = [], { timeoutMs = DEFAULT_TIMEOUT_
 
     function onResponse(event) {
       const detail = event?.detail;
-      if (!detail || detail.id !== id) return;
+      if (settled || !detail || typeof detail !== 'object' || detail.id !== id) return;
       settled = true;
       cleanup();
       if (detail.ok) resolve(detail.result);

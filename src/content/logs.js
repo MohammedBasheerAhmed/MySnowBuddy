@@ -2,6 +2,7 @@
 // resolve stack traces back to the script record that produced them.
 
 import { queryTable } from './tableApi.js';
+import { assertNoInlineScript, hasInlineScript } from '../lib/queryGuard.js';
 
 // syslog.level is stored numerically. 0 = info/log, 1 = warning, 2 = error.
 // This mapping is consistent across recent releases but is worth confirming on
@@ -26,6 +27,7 @@ export async function fetchRecentLogs(options = {}) {
   }
   if (contains) {
     if (contains.includes('^')) throw new Error('Filter text cannot contain "^".');
+    assertNoInlineScript(contains, 'Filter text');
     clauses.push(`messageLIKE${contains.trim()}`);
   }
   clauses.push('ORDERBYDESCsys_created_on');
@@ -53,7 +55,7 @@ export async function fetchSlowTransactions({ minutes = 60, limit = 40 } = {}) {
   return queryTable(
     'syslog_transaction',
     `sys_created_on>=javascript:gs.minutesAgoStart(${windowMinutes})^ORDERBYDESCresponse_time`,
-    ['sys_id', 'sys_created_on', 'url', 'type', 'response_time', 'user_name', 'sql_count', 'sql_time'],
+    ['sys_id', 'sys_created_on', 'url', 'type', 'response_time', 'sys_created_by', 'sql_count', 'sql_time'],
     { limit }
   );
 }
@@ -166,9 +168,15 @@ export async function resolveStackTrace(text, { contextLines = 6 } = {}) {
   const resolved = [];
 
   for (const candidate of candidates) {
-    for (const def of TRACE_LOOKUP_TABLES) {
+    // The trace often names the table ("sys_script_client.X.script:12") or the kind ("Business Rule: X"):
+    // look there first, so a same-named record in another table does not win.
+    const hinted = TRACE_LOOKUP_TABLES.filter((d) => d.table === candidate.hint || d.label.toLowerCase() === String(candidate.hint || '').toLowerCase());
+    const order = [...hinted, ...TRACE_LOOKUP_TABLES.filter((d) => !hinted.includes(d))];
+    for (const def of order) {
       // eslint-disable-next-line no-await-in-loop -- traces are short; keeping
       // this sequential avoids hammering the instance with parallel lookups.
+      // The name was parsed out of pasted text: never let it carry script or break out of the condition.
+      if (candidate.name.includes('^') || hasInlineScript(candidate.name)) continue;
       const rows = await queryTable(
         def.table,
         `${def.nameField}=${candidate.name}`,
@@ -222,7 +230,7 @@ export function buildLogTriagePrompt({ groups, slow, minutes }) {
   const slowText = slow?.length
     ? slow
         .slice(0, 15)
-        .map((t) => `- ${t.response_time}ms (${t.sql_count || '?'} queries, ${t.sql_time || '?'}ms SQL) ${t.url} [${t.user_name}]`)
+        .map((t) => `- ${t.response_time}ms (${t.sql_count || '?'} queries, ${t.sql_time || '?'}ms SQL) ${t.url} [${t.sys_created_by}]`)
         .join('\n')
     : '- No transaction data available.';
 

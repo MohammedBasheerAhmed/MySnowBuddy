@@ -15,6 +15,7 @@ import { buildInstanceCommands } from './instanceTag.js';
 import { navigate } from './quickActions.js';
 import { recordCommandUse, getUiState } from './storage.js';
 import { createIcon } from './icons.js';
+import { trustedDom } from '../sidebar/trusted.js';
 
 const GROUP_ICONS = {
   Recent: 'clock',
@@ -88,8 +89,8 @@ export function createCommandPalette(deps) {
   let activeIndex = 0;
   let providers = [];
   let providerTimer = null;
-  let providerRunId = 0;
   let recents = [];
+  const searchProviders = latestOnly((term) => Promise.allSettled(providers.map((provider) => provider(term))));
 
   overlay.addEventListener('mousedown', (event) => {
     if (event.target.hasAttribute('data-msb-close')) close();
@@ -114,7 +115,8 @@ export function createCommandPalette(deps) {
   window.addEventListener(
     'keydown',
     (event) => {
-      if (overlay.hidden || event.isComposing) return;
+      // A page script's synthetic Enter must not run the selected command (impersonate, switch, ...).
+      if (overlay.hidden || event.isComposing || !event.isTrusted) return;
       const letter = event.key.toLowerCase();
       if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p'))) return;
       event.stopImmediatePropagation();
@@ -187,6 +189,8 @@ export function createCommandPalette(deps) {
 
   function scheduleProviders() {
     clearTimeout(providerTimer);
+    // Results still in flight are for the old text; they must not land after this keystroke.
+    searchProviders.cancel();
     const query = input.value;
     providerTimer = setTimeout(() => runProviders(query), PROVIDER_DEBOUNCE_MS);
   }
@@ -195,9 +199,8 @@ export function createCommandPalette(deps) {
     const term = query.trim();
     if (!term) return;
 
-    const runId = ++providerRunId;
-    const settled = await Promise.allSettled(providers.map((provider) => provider(term)));
-    if (runId !== providerRunId || overlay.hidden) return;
+    const settled = await searchProviders(term);
+    if (!settled || overlay.hidden) return;
 
     const dynamic = settled
       .filter((r) => r.status === 'fulfilled')
@@ -311,7 +314,7 @@ export function createCommandPalette(deps) {
       }
 
       item.addEventListener('mouseenter', () => setActive(index));
-      item.addEventListener('click', (event) => execute(cmd, event.shiftKey || event.ctrlKey || event.metaKey));
+      item.addEventListener('click', trustedDom((event) => execute(cmd, event.shiftKey || event.ctrlKey || event.metaKey)));
       resultsEl.appendChild(item);
     });
   }
@@ -391,6 +394,25 @@ export function createCommandPalette(deps) {
     isOpen: () => !overlay.hidden,
     handleKey: (key) => !overlay.hidden && onKeyDown({ preventDefault() {}, ...key }),
   };
+}
+
+/**
+ * Latest-wins wrapper for an async search. A run superseded by a newer one, or
+ * cancelled because the query changed, resolves to null, so stale results are
+ * never painted (before, a slow run for "inc" could land after the user typed
+ * "incident" and stay on screen when the newer run found nothing).
+ */
+export function latestOnly(fn) {
+  let seq = 0;
+  const run = async (...args) => {
+    const id = ++seq;
+    const result = await fn(...args);
+    return id === seq ? result : null;
+  };
+  run.cancel = () => {
+    seq += 1;
+  };
+  return run;
 }
 
 function safeContext(getContext) {

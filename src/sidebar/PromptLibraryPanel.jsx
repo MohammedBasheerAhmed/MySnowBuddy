@@ -188,11 +188,12 @@ export default function PromptLibraryPanel({ onClose, getContext, onRun, onInser
   // Everything the selected prompt still needs before it can be sent.
   const rendered = useMemo(() => {
     if (!selected) return null;
-    const { text, missing } = renderTemplate(selected.template, { ...pageValues, ...values });
+    // Snippets escape each value for the string literal it lands in; prompts insert it as typed.
+    const { text, missing } = renderTemplate(selected.template, { ...pageValues, ...values }, { kind });
     const missingContext = missing.filter((name) => name in CONTEXT_VARIABLES);
     const missingInputs = missing.filter((name) => !(name in CONTEXT_VARIABLES));
     return { text, missingContext, missingInputs };
-  }, [selected, pageValues, values]);
+  }, [selected, pageValues, values, kind]);
 
   const canSend = rendered && !rendered.missingContext.length && !rendered.missingInputs.length;
 

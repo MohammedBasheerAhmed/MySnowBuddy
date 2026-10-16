@@ -1,11 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import { updateSetToMarkdown, downloadText, suggestFilename } from '../lib/report.js';
+import ShipCheck from './ShipCheck.jsx';
 
 /**
- * Update Set deployment review: collision detection between live update sets,
- * plus detection of configuration changes that were never captured.
+ * Update Set deployment review: the pre-commit ship check, collision detection
+ * between live update sets, and configuration changes that were never captured.
  */
 export default function UpdateSetPanel({ onClose, services, onAskAi }) {
+  const [tab, setTab] = useState(typeof services?.shipCheckLoad === 'function' ? 'ship' : 'collisions');
+
+  return (
+    <div className="msb-panel">
+      <div className="msb-panel__header">
+        <strong>Update set review</strong>
+        <button onClick={onClose} aria-label="Close">{'✕'}</button>
+      </div>
+      <div className="msb-mw-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'ship'} onClick={() => setTab('ship')}>
+          Ship check
+        </button>
+        <button role="tab" aria-selected={tab === 'collisions'} onClick={() => setTab('collisions')}>
+          Collisions &amp; coverage
+        </button>
+      </div>
+      {tab === 'ship' ? (
+        // The sidebar wires this panel's onAskAi through buildUpdateSetPrompt(), which passes a ready prompt through.
+        <ShipCheck services={services} onAskAi={onAskAi ? (_label, prompt) => onAskAi({ prompt }) : undefined} />
+      ) : (
+        <CollisionsAndCoverage services={services} onAskAi={onAskAi} />
+      )}
+    </div>
+  );
+}
+
+/** The original review: collisions between live update sets and uncaptured changes. */
+function CollisionsAndCoverage({ services, onAskAi }) {
   const [sets, setSets] = useState([]);
   const [selected, setSelected] = useState('');
   const [days, setDays] = useState(7);
@@ -81,12 +110,7 @@ export default function UpdateSetPanel({ onClose, services, onAskAi }) {
   const hasResults = collisionResult || coverage;
 
   return (
-    <div className="msb-panel">
-      <div className="msb-panel__header">
-        <strong>Update Set Review</strong>
-        <button onClick={onClose} aria-label="Close">{'\u2715'}</button>
-      </div>
-
+    <div>
       <div className="msb-panel__form">
         <label>
           Update set
@@ -155,7 +179,7 @@ export default function UpdateSetPanel({ onClose, services, onAskAi }) {
 
           {collisionResult.truncated && (
             <div className="msb-panel__warning">
-              Only the first 300 entries were checked for collisions.
+              The collision check is incomplete: {collisionResult.truncatedReason || 'not every entry was checked'}.
             </div>
           )}
 

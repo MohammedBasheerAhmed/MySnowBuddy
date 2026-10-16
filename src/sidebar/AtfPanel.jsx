@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { flattenValue } from '../lib/export.js';
 import { redactSecrets } from '../providers/redact.js';
+import { trusted } from './trusted.js';
 
 const POLL_MS = 3000;
 const MAX_POLLS = 200;
@@ -152,7 +153,7 @@ export default function AtfPanel({ services, onClose, onAskAi }) {
                 <span className="msb-prompts__title">{s.name}</span>
                 {s.description && <span className="msb-prompts__desc">{s.description}</span>}
               </div>
-              <button className="msb-panel__link" onClick={() => handleRun(s)} disabled={s.active === 'false'}>
+              <button className="msb-panel__link" onClick={trusted(() => handleRun(s))} disabled={s.active === 'false'}>
                 Run
               </button>
             </div>

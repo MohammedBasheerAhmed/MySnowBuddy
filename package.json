@@ -1,12 +1,15 @@
 {
   "name": "mysnowbuddy",
-  "version": "0.1.0",
+  "version": "0.8.0",
   "private": true,
   "description": "SNUtils-style toolbar + AI chat sidebar browser extension for ServiceNow developers and admins.",
   "scripts": {
     "build": "node build.js",
     "watch": "node build.js --watch",
-    "test": "node tests/run.js"
+    "test": "node tests/run.js",
+    "preview": "node preview/serve.js",
+    "eval": "node tests/evals/run.js",
+    "smoke": "node preview/smoke.js"
   },
   "dependencies": {
     "react": "^18.3.1",

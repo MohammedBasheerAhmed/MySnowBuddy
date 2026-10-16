@@ -6,6 +6,7 @@
 // matching lines client-side for display.
 
 import { queryTable } from './tableApi.js';
+import { assertNoInlineScript } from '../lib/queryGuard.js';
 
 /**
  * Script-bearing artifacts. `fields` are pulled for display; `scriptFields`
@@ -62,9 +63,9 @@ export const SEARCHABLE_ARTIFACTS = [
   {
     table: 'sys_transform_script',
     label: 'Transform Script',
-    fields: ['sys_id', 'sys_transform_map', 'when'],
+    fields: ['sys_id', 'map.name', 'when'],
     scriptFields: ['script'],
-    nameField: 'sys_transform_map',
+    nameField: 'map.name',
   },
   {
     table: 'sys_processor',
@@ -120,6 +121,7 @@ function assertSafeTerm(term) {
   if (/[\^]/.test(term)) {
     throw new Error('Search term cannot contain "^" (it is an encoded-query separator).');
   }
+  assertNoInlineScript(term, 'Search term');
   return term.trim();
 }
 
@@ -131,8 +133,12 @@ function escapeRegExp(text) {
 function extractMatches(script, term, { wholeWord, maxPerField = 8 }) {
   if (!script) return [];
 
+  // A word boundary only makes sense next to a word character: "getValue(" ends in "(", and
+  // \b after it would demand a letter, so the search found nothing.
+  const before = /^[\w$]/.test(term) ? '(?<![\\w$])' : '';
+  const after = /[\w$]$/.test(term) ? '(?![\\w$])' : '';
   const pattern = wholeWord
-    ? new RegExp(`\\b${escapeRegExp(term)}\\b`, 'i')
+    ? new RegExp(`${before}${escapeRegExp(term)}${after}`, 'i')
     : new RegExp(escapeRegExp(term), 'i');
 
   const matches = [];
@@ -178,13 +184,13 @@ export async function searchCode(term, options = {}) {
         .map((field) => `${field}LIKE${safeTerm}`)
         .join('^OR');
 
-      // `activeOnly` must be ANDed around the OR group, so it goes in its own
-      // parenthesis-free prefix using ServiceNow's ^NQ-free ordering rules:
-      // conditions before the first ^OR are ANDed with the whole OR block only
-      // when expressed as a separate query, so we filter active client-side
-      // instead to keep the encoded query unambiguous.
+      // `active=true^aLIKEx^ORbLIKEx` means active AND (a OR b): an ^OR term binds to the
+      // condition before it. Filtering on the server matters: filtered afterwards, inactive
+      // matches used up the row limit and active ones were never seen.
+      const hasActive = artifact.fields.includes('active');
+      const query = activeOnly && hasActive ? `active=true^${likeClause}` : likeClause;
       const fields = [...new Set([...artifact.fields, ...artifact.scriptFields])];
-      const rows = await queryTable(artifact.table, likeClause, fields, { limit: limitPerTable });
+      const rows = await queryTable(artifact.table, query, fields, { limit: limitPerTable });
 
       rows.forEach((row) => {
         if (activeOnly && 'active' in row && String(row.active) === 'false') return;

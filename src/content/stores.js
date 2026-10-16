@@ -27,6 +27,18 @@ async function writeList(name, list) {
 
 const clip = (value, max) => String(value ?? '').trim().slice(0, max);
 
+const NOUNS = { presets: 'impersonation presets', instances: 'instances', customCommands: 'custom commands' };
+
+// Lists that append new entries at the end: writeList keeps the first CAPS entries, so a full
+// list would silently drop the entry just added. Refuse it with a clear message instead.
+async function appendEntry(name, rest, entry) {
+  if (rest.length >= CAPS[name]) {
+    throw new Error(`You can keep up to ${CAPS[name]} ${NOUNS[name]}. Remove one first.`);
+  }
+  await writeList(name, [...rest, entry]);
+  return entry;
+}
+
 // --- Bookmarks (per instance, root-relative paths only) ----------------------
 
 export async function listBookmarks(host) {
@@ -79,8 +91,7 @@ export async function addPreset({ label, userName }) {
   if (!user) throw new Error('A user name is required.');
   const list = await readList('presets');
   const entry = { id: crypto.randomUUID(), label: clip(label, 60) || user, userName: user };
-  await writeList('presets', [...list.filter((p) => p.userName !== user), entry]);
-  return entry;
+  return appendEntry('presets', list.filter((p) => p.userName !== user), entry);
 }
 
 export async function removePreset(id) {
@@ -97,8 +108,7 @@ export async function addCustomCommand({ verb, template }) {
   const clean = normalizeCustomCommand({ verb, template });
   const list = await readList('customCommands');
   const entry = { id: crypto.randomUUID(), ...clean, label: clean.template };
-  await writeList('customCommands', [...list.filter((c) => c.verb !== clean.verb), entry]);
-  return entry;
+  return appendEntry('customCommands', list.filter((c) => c.verb !== clean.verb), entry);
 }
 
 export async function removeCustomCommand(id) {
@@ -125,8 +135,7 @@ export async function addInstance({ label, host }) {
   const normalized = normalizeHost(host);
   const list = await readList('instances');
   const entry = { id: crypto.randomUUID(), label: clip(label, 40) || normalized.split('.')[0], host: normalized };
-  await writeList('instances', [...list.filter((i) => i.host !== normalized), entry]);
-  return entry;
+  return appendEntry('instances', list.filter((i) => i.host !== normalized), entry);
 }
 
 export async function removeInstance(id) {

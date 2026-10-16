@@ -16,15 +16,41 @@ export function getCsrfToken() {
 // against a real ServiceNow dev instance — see docs/decisions.md.
 const KNOWN_SCRIPT_FIELD_HINTS = ['script', 'condition', 'advanced', 'client_script'];
 
-function findScriptField() {
-  const candidates = formDocuments().flatMap((doc) => Array.from(doc.querySelectorAll('textarea')));
+// Classic form inputs are named "<table>.<column>", so "sys_script_client.description" contains "script"
+// through the TABLE name. Only the column part may be matched, and empty fields never win.
+const NOT_SCRIPT_COLUMNS = new Set(['isolate_script', 'description', 'messages', 'comments', 'short_description']);
+const columnOf = (el) => {
+  const name = (el.name || el.id || '').toLowerCase();
+  return name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : name;
+};
+
+/** Rank of a textarea as "the" script field of the form; 0 = not a script field. */
+function scriptFieldRank(el) {
+  const column = columnOf(el);
+  if (NOT_SCRIPT_COLUMNS.has(column) || !el.value || !el.value.trim()) return 0;
+  if (column === 'script' || column === 'operation_script') return 4;
+  if (column.endsWith('_script') || column.startsWith('script_')) return 3;
+  if (KNOWN_SCRIPT_FIELD_HINTS.some((hint) => column.includes(hint))) return 2;
+  // A long value in a real form field (table-prefixed name) is still likely code; help-panel textareas are not.
+  return (el.name || '').includes('.') && el.value.length > 40 ? 1 : 0;
+}
+
+/** The textarea most likely to hold the form's script, or null. Pure, so it can be tested without a page. */
+export function pickScriptField(candidates) {
+  let best = null;
+  let bestRank = 0;
   for (const el of candidates) {
-    const name = (el.name || el.id || '').toLowerCase();
-    if (KNOWN_SCRIPT_FIELD_HINTS.some((hint) => name.includes(hint))) {
-      return el;
+    const rank = scriptFieldRank(el);
+    if (rank > bestRank) {
+      best = el;
+      bestRank = rank;
     }
   }
-  return candidates.find((el) => el.value && el.value.length > 40) || null;
+  return best;
+}
+
+function findScriptField() {
+  return pickScriptField(formDocuments().flatMap((doc) => Array.from(doc.querySelectorAll('textarea'))));
 }
 
 /** URL of the page actually on screen: the classic content frame when present, else the top page. */
@@ -90,7 +116,8 @@ export async function readFormScript() {
     const fields = await callPage('getScriptFields');
     if (!Array.isArray(fields) || !fields.length) return null;
     const best =
-      fields.find((f) => f.name === 'script') ||
+      // An empty `script` (e.g. a client UI action's server script) must not hide a filled script field.
+      fields.find((f) => f.name === 'script' && f.length > 0) ||
       fields.find((f) => /script/i.test(f.name) && f.length > 0) ||
       [...fields].sort((a, b) => b.length - a.length)[0];
     if (!best || !best.length) return null;

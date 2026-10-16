@@ -72,3 +72,21 @@ test('GlideAggregate with and without grouping', () => {
 test('conditionsOnly strips sort and group', () => {
   assert.equal(conditionsOnly('a=1^ORDERBYb^GROUPBYc^d=2'), 'a=1^d=2');
 });
+
+test('operators whose names contain IN or ON are not split inside the operator', () => {
+  const p = parseEncodedQuery('nameEMPTYSTRING^short_descriptionNOT LIKEemail^sys_updated_onRELATIVEGT@hour@ago@3^priorityGT_FIELDurgency');
+  assert.deepEqual(
+    p.groups[0].map((c) => [c.field, c.op, c.value]),
+    [
+      ['name', 'EMPTYSTRING', ''],
+      ['short_description', 'NOT LIKE', 'email'],
+      ['sys_updated_on', 'RELATIVEGT', '@hour@ago@3'],
+      ['priority', 'GT_FIELD', 'urgency'],
+    ]
+  );
+  // Never turned into addQuery('nameEMPTYSTR', 'IN', 'G'); exotic operators round-trip as an encoded query.
+  const code = toGlideRecord('incident', 'nameEMPTYSTRING');
+  assert.ok(code.includes("addEncodedQuery('nameEMPTYSTRING')") && !code.includes("'IN'"), code);
+  assert.ok(explainQuery('nameEMPTYSTRING').includes('name is an empty string'));
+  assert.ok(explainQuery('short_descriptionNOT LIKEemail').includes('short_description does not contain email'));
+});

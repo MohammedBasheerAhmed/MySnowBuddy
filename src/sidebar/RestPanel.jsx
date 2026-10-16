@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { toRestMessageSnippet } from '../content/restClient.js';
 import { downloadText, suggestFilename } from '../lib/report.js';
+import { trusted } from './trusted.js';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -28,6 +29,8 @@ export default function RestPanel({ onClose, runRequest, onAskAi }) {
   const isWrite = method !== 'GET';
 
   async function handleSend() {
+    // Enter in the path field bypasses the disabled button, so guard here too (no double POST/DELETE).
+    if (busy || !path.trim()) return;
     setBusy(true);
     setError(null);
     setResponse(null);
@@ -63,7 +66,7 @@ export default function RestPanel({ onClose, runRequest, onAskAi }) {
       <div className="msb-panel__form">
         <label>
           Preset
-          <select value="" onChange={(e) => applyPreset(Number(e.target.value))}>
+          <select value="" onChange={(e) => e.target.value !== '' && applyPreset(Number(e.target.value))}>
             <option value="">Choose a starting point...</option>
             {PRESETS.map((preset, index) => (
               <option key={preset.label} value={index}>
@@ -89,9 +92,9 @@ export default function RestPanel({ onClose, runRequest, onAskAi }) {
             className="msb-panel__path"
             value={path}
             onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => {
+            onKeyDown={trusted((e) => {
               if (e.key === 'Enter') handleSend();
-            }}
+            })}
             placeholder="/api/now/table/incident"
           />
         </div>
@@ -119,7 +122,7 @@ export default function RestPanel({ onClose, runRequest, onAskAi }) {
           </div>
         )}
 
-        <button className="msb-panel__run" onClick={handleSend} disabled={busy || !path.trim()}>
+        <button className="msb-panel__run" onClick={trusted(handleSend)} disabled={busy || !path.trim()}>
           {busy ? 'Sending...' : `Send ${method}`}
         </button>
       </div>

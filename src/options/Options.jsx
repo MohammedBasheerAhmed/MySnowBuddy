@@ -11,15 +11,11 @@ import {
   removeCustomCommand,
 } from '../content/stores.js';
 import { getSyncEnabled, setSyncEnabled } from '../lib/promptLibrary.js';
+import { ProviderSection, AgentSection, McpSection } from './AgentSettings.jsx';
 
-const KEY_STORAGE = 'mysnowbuddy_openai_key';
 const SETTINGS_STORAGE = 'mysnowbuddy_settings';
 
 export default function Options() {
-  const [apiKey, setApiKey] = useState('');
-  const [savedIndicator, setSavedIndicator] = useState(false);
-  const [validation, setValidation] = useState(null);
-  const [validating, setValidating] = useState(false);
   const [settings, setSettings] = useState({
     sidebarEnabled: true,
     paletteEnabled: true,
@@ -38,30 +34,21 @@ export default function Options() {
   }
 
   useEffect(() => {
-    chrome.storage.local.get([KEY_STORAGE, SETTINGS_STORAGE]).then((res) => {
-      if (res[KEY_STORAGE]) setApiKey(res[KEY_STORAGE]);
+    chrome.storage.local.get([SETTINGS_STORAGE]).then((res) => {
       if (res[SETTINGS_STORAGE]) setSettings((s) => ({ ...s, ...res[SETTINGS_STORAGE] }));
     });
   }, []);
 
-  async function handleSave() {
-    await chrome.storage.local.set({ [KEY_STORAGE]: apiKey });
-    setSavedIndicator(true);
-    setTimeout(() => setSavedIndicator(false), 2000);
-  }
-
-  async function handleValidate() {
-    setValidating(true);
-    setValidation(null);
-    const result = await chrome.runtime.sendMessage({ type: 'VALIDATE_API_KEY', payload: { apiKey } });
-    setValidation(result);
-    setValidating(false);
+  // Merge a patch into the shared settings object (read fresh so two sections never overwrite each other).
+  async function updateSettings(patch) {
+    const stored = (await chrome.storage.local.get(SETTINGS_STORAGE))[SETTINGS_STORAGE] || {};
+    const next = { ...stored, ...patch };
+    setSettings((s) => ({ ...s, ...patch }));
+    await chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
   }
 
   async function toggleSetting(key) {
-    const next = { ...settings, [key]: !settings[key] };
-    setSettings(next);
-    await chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
+    await updateSettings({ [key]: !settings[key] });
   }
 
   const theme = settings.theme || 'system';
@@ -71,9 +58,7 @@ export default function Options() {
   }, [theme]);
 
   async function changeTheme(value) {
-    const next = { ...settings, theme: value };
-    setSettings(next);
-    await chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
+    await updateSettings({ theme: value });
   }
 
   return (
@@ -93,32 +78,11 @@ export default function Options() {
         </div>
       </header>
 
-      <section>
-        <h2>OpenAI API Key</h2>
-        <p className="msb-options__hint">
-          Stored only in this browser (chrome.storage.local). Never synced, never sent anywhere except directly to
-          OpenAI.
-        </p>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder="sk-..."
-          autoComplete="off"
-        />
-        <div className="msb-options__actions">
-          <button onClick={handleSave}>Save</button>
-          <button onClick={handleValidate} disabled={validating || !apiKey}>
-            {validating ? 'Validating...' : 'Test Key'}
-          </button>
-          {savedIndicator && <span className="msb-options__saved">Saved \u2713</span>}
-        </div>
-        {validation && (
-          <div className={validation.ok ? 'msb-options__valid' : 'msb-options__invalid'}>
-            {validation.ok ? 'Key is valid \u2713' : `Validation failed: ${validation.error}`}
-          </div>
-        )}
-      </section>
+      <ProviderSection />
+
+      <AgentSection settings={settings} update={updateSettings} />
+
+      <McpSection settings={settings} update={updateSettings} />
 
       <section>
         <h2>Appearance</h2>
@@ -162,13 +126,7 @@ export default function Options() {
           <input
             type="checkbox"
             checked={settings.instanceTagEnabled !== false}
-            onChange={() =>
-              setSettings((s) => {
-                const next = { ...s, instanceTagEnabled: s.instanceTagEnabled === false };
-                chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
-                return next;
-              })
-            }
+            onChange={() => updateSettings({ instanceTagEnabled: settings.instanceTagEnabled === false })}
           />
           Tag the browser tab: [DEV] title prefix, coloured favicon and a stripe at the top of the page
         </label>
@@ -176,13 +134,7 @@ export default function Options() {
           <input
             type="checkbox"
             checked={settings.guardsEnabled !== false}
-            onChange={() =>
-              setSettings((s) => {
-                const next = { ...s, guardsEnabled: s.guardsEnabled === false };
-                chrome.storage.local.set({ [SETTINGS_STORAGE]: next });
-                return next;
-              })
-            }
+            onChange={() => updateSettings({ guardsEnabled: settings.guardsEnabled === false })}
           />
           Safety guards: warn about the Default update set and confirm saves on PROD
         </label>
@@ -196,6 +148,10 @@ export default function Options() {
         <h2>Known instances</h2>
         <p className="msb-options__hint">
           Used by "Compare with another instance". Only *.service-now.com hosts are accepted.
+        </p>
+        <p className="msb-options__hint">
+          Also offered by Push to instance (/push). A label with the word "prod" or "production" makes every push to that
+          instance ask you to type its name, whatever its hostname looks like.
         </p>
         <PairList
           load={listInstances}
@@ -265,13 +221,17 @@ export default function Options() {
           Optional. Only needed for instances you are NOT already logged into in this browser. Stored in
           chrome.storage.local and sent only to that instance over HTTPS.
         </p>
+        <p className="msb-options__hint">
+          Push to instance writes to the target with your browser session first; ServiceNow usually refuses that without the
+          target page&apos;s token, and the push then uses the credentials saved here.
+        </p>
         <InstanceCredentials />
       </section>
 
       <section>
         <h2>Known limitations (v1)</h2>
         <ul>
-          <li>Secret redaction before sending script content to OpenAI is regex-based — a safety net, not a guarantee.</li>
+          <li>Secret redaction before sending script content to the AI provider is regex-based — a safety net, not a guarantee.</li>
           <li>Context detection selectors are heuristic and may need refinement per ServiceNow UI version.</li>
           <li>The environment badge is guessed from the instance name, so an unusual naming convention shows a neutral badge rather than a wrong one.</li>
           <li>Update set switching from the palette uses the platform picker API and is unconfirmed against a live instance — see docs/decisions.md.</li>

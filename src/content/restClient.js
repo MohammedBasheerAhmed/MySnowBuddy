@@ -129,7 +129,7 @@ export function toRestMessageSnippet({ method = 'GET', path, body = '' }) {
     "var request = new sn_ws.RESTMessageV2();",
     `request.setHttpMethod('${upper}');`,
     "request.setEndpoint(gs.getProperty('glide.servlet.uri') + " +
-      `'${(path || '').replace(/^\//, '')}');`,
+      `'${(path || '').replace(/^\//, '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")}');`,
     "request.setRequestHeader('Accept', 'application/json');",
   ];
 

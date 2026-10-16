@@ -32,7 +32,7 @@ export async function exportScope(scope, { onProgress = () => {} } = {}) {
     onProgress(`Reading ${def.label} (${i + 1}/${SCOPE_ARTIFACTS.length})...`);
     try {
       // eslint-disable-next-line no-await-in-loop -- tables are read one at a time to limit load.
-      const records = await queryAll(def.table, `sys_scope.scope=${scope}^ORDERBYname`, scopeFields(def), { max: MAX_PER_TABLE });
+      const records = await queryAll(def.table, `sys_scope.scope=${scope}^ORDERBY${def.meta[0]}`, scopeFields(def), { max: MAX_PER_TABLE });
       if (records.length >= MAX_PER_TABLE) truncated.push(def.label);
       sets.push({ def, records });
     } catch {

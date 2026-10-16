@@ -28,6 +28,10 @@ import { addBookmark } from './stores.js';
 import { currentPageHref } from './context.js';
 import { resolveTarget } from '../lib/urlTarget.js';
 import { formDocuments } from './quickActions.js';
+import { PANELS } from '../sidebar/panelRegistry.js';
+import { toggleXray, xrayServices } from './xray.js';
+
+const xrayStatus = () => xrayServices.xrayStatus();
 
 // The page on screen as a root-relative path, plus a readable title.
 function currentPageBookmark() {
@@ -251,10 +255,10 @@ export function buildCommands(deps) {
 
     add({
       id: 'table.fields',
-      title: `Field inspector for ${table}`,
+      title: `Table explorer for ${table}: columns, choices, list layouts`,
       hint: 'Types, references, defaults',
       group: GROUPS.table,
-      keywords: 'fields columns dictionary inspector types reference mandatory',
+      keywords: 'fields columns dictionary inspector explorer choices labels list layout types reference mandatory',
       run: openPanel(() => sidebar.openFieldPanel()),
     });
 
@@ -455,6 +459,30 @@ export function buildCommands(deps) {
   });
 
   add({
+    id: 'tools.api',
+    title: 'API explorer',
+    hint: 'Search the verified client and server API catalog',
+    group: GROUPS.tools,
+    keywords: 'api catalog reference docs gliderecord g_form gs methods lookup verified',
+    run: openPanel(() => sidebar.openApiPanel()),
+  });
+  add({
+    id: 'tools.testbench',
+    title: 'Client script test bench',
+    hint: 'Simulate a client script against a fake form',
+    group: GROUPS.tools,
+    keywords: 'client script test simulate sandbox g_form onchange onload onsubmit bench',
+    run: openPanel(() => sidebar.openTestPanel()),
+  });
+  add({
+    id: 'tools.verify',
+    title: 'Verify the script on this form',
+    hint: 'Syntax, API catalog, lint and structure checks (no AI tokens)',
+    group: GROUPS.tools,
+    keywords: 'verify check validate script lint api catalog hallucination',
+    run: runSlash('/verify'),
+  });
+  add({
     id: 'tools.automate',
     title: 'Automation',
     hint: 'Navigate and click through screens',
@@ -473,6 +501,17 @@ export function buildCommands(deps) {
       const { enabled, count } = toggleTechnicalNames();
       toast.info(enabled ? `Showing ${count} field names` : 'Field names hidden');
     },
+  });
+
+  // Page X-ray (src/content/xray.js) shows its own toast for on and off.
+  add({
+    id: 'analyze.xrayToggle',
+    title: xrayStatus().on ? 'Turn off page X-ray' : 'Turn on page X-ray',
+    hint: 'Alt+Shift+X · field logic chips, list columns, catalog variables, portal widgets',
+    group: GROUPS.analyze,
+    icon: 'xray',
+    keywords: 'xray x-ray inspect annotate overlay field chips logic why read only mandatory hidden widget portal catalog variable columns',
+    run: () => toggleXray(),
   });
 
   add({
@@ -654,6 +693,18 @@ export function buildCommands(deps) {
       url,
     });
   });
+
+  // Panels registered in src/sidebar/panelRegistry.js.
+  PANELS.forEach((p) =>
+    add({
+      id: `panel.${p.name}`,
+      title: p.title,
+      hint: p.hint,
+      group: GROUPS[p.group] || GROUPS.tools,
+      keywords: [p.keywords, ...(p.slash || [])].filter(Boolean).join(' '),
+      run: openPanel(() => sidebar.openPanel(p.name)),
+    })
+  );
 
   return commands;
 }

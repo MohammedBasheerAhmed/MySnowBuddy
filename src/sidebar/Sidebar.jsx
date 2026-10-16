@@ -2,6 +2,7 @@ import React, { forwardRef, useImperativeHandle, useState, useEffect, useRef } f
 import { redactSecrets } from '../providers/redact.js';
 import { useSpeechInput } from './useSpeechInput.js';
 import { useTheme } from './useTheme.js';
+import { trusted, isTrustedEvent } from './trusted.js';
 import { lintScript, formatLintFindings } from '../lib/lint.js';
 import { analyzeScriptRisk, formatRiskSummary } from '../lib/scriptSafety.js';
 import { downloadText, suggestFilename } from '../lib/report.js';
@@ -26,35 +27,68 @@ import FieldInspectorPanel from './FieldInspectorPanel.jsx';
 import AtfPanel from './AtfPanel.jsx';
 import ScopeExportPanel from './ScopeExportPanel.jsx';
 import AutomationPanel from './AutomationPanel.jsx';
+import ApiExplorerPanel from './ApiExplorerPanel.jsx';
+import TestBenchPanel from './TestBenchPanel.jsx';
+import { PANELS, panelByName, panelForSlash, panelHelpLines } from './panelRegistry.js';
+import AgentRun from './AgentRun.jsx';
 import Icon from './Icon.jsx';
-import MessageBody from './MessageBody.jsx';
+import MessageBody, { HelpBody } from './MessageBody.jsx';
+import { runAgent } from '../lib/agent/agentLoop.js';
+import { TOOL_SCHEMAS } from '../lib/agent/toolSchemas.js';
+import { approvalMode, isGuardedEnv, AUTONOMY_LEVELS, DEFAULT_AUTONOMY } from '../lib/agent/policy.js';
+import { buildSystemPrompt } from '../lib/agent/systemPrompt.js';
+import { newRun, reduceRun } from '../lib/agent/runState.js';
+import { selectSkills } from '../lib/skills/index.js';
+import { kindForTable } from '../lib/verify.js';
+import { getSettings, saveSettings, onSettingsChanged } from '../content/storage.js';
+import { getInstanceInfo } from '../content/quickActions.js';
 
-const HISTORY_KEY = 'mysnowbuddy_chat_history';
+// One transcript per instance: a consultant's client A chat must never load (or reach the model) on client B.
+const HISTORY_KEY = `mysnowbuddy_chat_history:${window.location.hostname}`;
 const WIDTH_KEY = 'mysnowbuddy_sidebar_width';
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 720;
 
 const TOOLS = [
-  { command: '/lint', title: 'Review script', hint: 'Lint the script on this form' },
-  { command: '/formdiff', title: 'Unsaved changes', hint: 'Diff the form against the record' },
-  { command: '/logs', title: 'Triage errors', hint: 'Recent errors, explained' },
-  { command: '/search', title: 'Code search', hint: 'Find usages across the instance' },
-  { command: '/script', title: 'Script runner', hint: 'Background scripts, dry run first' },
-  { command: '/list', title: 'List filter', hint: 'Explain, count, export a query' },
-  { command: '/tail', title: 'Live log', hint: 'Follow the system log' },
-  { command: '/versions', title: 'Versions', hint: 'History and field diffs' },
-  { command: '/updateset', title: 'Update sets', hint: 'Collisions and coverage' },
-  { command: '/rest', title: 'REST builder', hint: 'Try Table API requests' },
-  { command: '/automate', title: 'Automation', hint: 'Navigate and click through screens' },
-  { command: '/remote', title: 'Other instance', hint: 'Compare this record elsewhere' },
-  { command: '/prompts', title: 'Prompts', hint: 'Saved and built-in prompts' },
+  { command: '/verify', icon: 'shield', title: 'Verify script', hint: 'Syntax, API catalog and lint' },
+  { command: '/testclient', icon: 'flask', title: 'Test bench', hint: 'Simulate a client script' },
+  { command: '/api', icon: 'braces', title: 'API explorer', hint: 'Verified client and server APIs' },
+  { command: '/search', icon: 'search', title: 'Code search', hint: 'Find usages across the instance' },
+  { command: '/logs', icon: 'log', title: 'Triage errors', hint: 'Recent errors, explained' },
+  { command: '/script', icon: 'play', title: 'Script runner', hint: 'Background scripts, dry run first' },
+  { command: '/updateset', icon: 'layers', title: 'Update sets', hint: 'Collisions and coverage' },
+  { command: '/formdiff', icon: 'edit', title: 'Unsaved changes', hint: 'Diff the form against the record' },
+  { command: '/list', icon: 'table', title: 'List filter', hint: 'Explain, count, export a query' },
+  { command: '/tail', icon: 'clock', title: 'Live log', hint: 'Follow the system log' },
+  { command: '/rest', icon: 'bolt', title: 'REST builder', hint: 'Try Table API requests' },
+  { command: '/prompts', icon: 'book', title: 'Prompts', hint: 'Saved and built-in prompts' },
+  ...PANELS.filter((p) => p.launcher && p.slash?.length).map((p) => ({ command: p.slash[0], icon: p.icon, title: p.title, hint: p.launcherHint || p.hint })),
 ];
+
+const SUGGESTIONS = {
+  'client-script': [
+    'What client-side logic already runs on this table?',
+    'Make a field mandatory when another field has a certain value',
+    'Fill a field from the selected reference with GlideAjax',
+    'Review and test the client script on this form',
+  ],
+  'server-script': [
+    'Review the script on this form',
+    'Write a business rule that stops duplicate records',
+    'Why are errors spiking? Check the logs',
+    'Find every script that calls a given Script Include',
+  ],
+};
 
 const SLASH_HELP = [
   'Analysis (no AI tokens used)',
   '  /lint                  deterministic review of the script on this form',
   '  /formdiff              show unsaved form changes vs the saved record',
   '  /deps <ScriptInclude>  callers and callees as a dependency graph',
+  '  /verify                syntax + API catalog + lint + structure check of the script on this form',
+  '  /skills                which skill pack is active, and the agent tools',
+  '  /changes               what the agent changed on this instance (undo with /undo)',
+  '  /undo                  undo the last change the agent made',
   '',
   'AI-assisted',
   '  /review                lint + AI review of the script on this form',
@@ -68,6 +102,12 @@ const SLASH_HELP = [
   '  /document              generate technical documentation for this record',
   '  /audit                 security and configuration audit',
   '',
+  'Agent',
+  '  (just type)            the agent reads the instance, writes, verifies and tests, and asks before changing anything',
+  '  /chat <text>           plain chat, no tools',
+  '  /agent on|off          turn agent mode on or off',
+  '  /model                 show the model in use and open settings',
+  '',
   'Panels',
   '  /search                global code search',
   '  /list                  list filter: explain, GlideRecord code, count, export',
@@ -77,6 +117,8 @@ const SLASH_HELP = [
   '  /remote                compare this record with another instance',
   '  /tests                 run ATF suites and see results',
   '  /scope                 export a scope as a ZIP of scripts',
+  '  /api [text]            verified API explorer (client + server)',
+  '  /testclient            simulate a client script against a fake form',
   '  /updateset             update set collisions and coverage',
   '  /rest                  REST request builder',
   '  /automate              navigate and click through screens',
@@ -84,6 +126,7 @@ const SLASH_HELP = [
   '  /script                background script runner with history',
   '  /prompts               prompt library: saved and built-in prompts',
   '  /snippets              code snippet library',
+  ...panelHelpLines(),
   '',
   '  /clear                 clear conversation history',
 ].join('\n');
@@ -123,6 +166,11 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   const historyLoaded = useRef(false);
   const baseInputRef = useRef('');
   const handleSendRef = useRef(null);
+  const [agentEnabled, setAgentEnabled] = useState(true);
+  const [autonomy, setAutonomy] = useState(DEFAULT_AUTONOMY);
+  const [providerInfo, setProviderInfo] = useState(null);
+  const abortRef = useRef(null);
+  const approvalsRef = useRef(new Map());
 
   const scriptRisk = analyzeScriptRisk(bgScript);
 
@@ -150,15 +198,46 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
   useEffect(() => {
     chrome.storage.local.get(HISTORY_KEY).then((res) => {
-      if (res[HISTORY_KEY]) setMessages(res[HISTORY_KEY]);
+      if (res[HISTORY_KEY]) {
+        setMessages(
+          res[HISTORY_KEY].map((m) =>
+            m.run?.status === 'running'
+              ? { ...m, run: { ...m.run, status: 'aborted', thinking: false, steps: m.run.steps.map((st) => (st.status === 'running' || st.status === 'awaiting' ? { ...st, status: 'declined' } : st)) } }
+              : m
+          )
+        );
+      }
       historyLoaded.current = true;
     });
   }, []);
 
   useEffect(() => {
     if (!historyLoaded.current) return;
-    chrome.storage.local.set({ [HISTORY_KEY]: messages });
+    chrome.storage.local.set({ [HISTORY_KEY]: messages }).catch(() => {});
   }, [messages]);
+
+  useEffect(() => {
+    const apply = (settings) => {
+      setAgentEnabled(settings.agentEnabled !== false);
+      setAutonomy(AUTONOMY_LEVELS.some((l) => l.id === settings.agentAutonomy) ? settings.agentAutonomy : DEFAULT_AUTONOMY);
+    };
+    getSettings().then(apply);
+    const off = onSettingsChanged(apply);
+    const refreshProvider = () =>
+      chrome.runtime
+        .sendMessage({ type: 'GET_PROVIDER_INFO' })
+        .then((info) => info?.ok && setProviderInfo(info))
+        .catch(() => {});
+    refreshProvider();
+    const onStorage = (changes, area) => {
+      if (area === 'local' && Object.keys(changes).some((k) => k.startsWith('mysnowbuddy_') && /key|provider|models/.test(k))) refreshProvider();
+    };
+    chrome.storage.onChanged.addListener(onStorage);
+    return () => {
+      off();
+      chrome.storage.onChanged.removeListener(onStorage);
+    };
+  }, []);
 
   useEffect(() => {
     chrome.storage.local.get(WIDTH_KEY).then((res) => {
@@ -170,7 +249,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   // Stick to the bottom as the conversation grows.
   useEffect(() => {
     const node = messagesRef.current;
-    if (node) node.scrollTop = node.scrollHeight;
+    // The empty state is read from the top; only a live conversation sticks to the bottom.
+    if (node) node.scrollTop = messages.length ? node.scrollHeight : 0;
   }, [messages, statusText, visible]);
 
   // Auto-grow the composer up to the CSS max-height.
@@ -217,6 +297,15 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     openPanel(name, { context: ctx, ...params });
   }
 
+  // Panels from panelRegistry.js; their extra params arrive as `params`.
+  function openRegisteredPanel(name, params = {}) {
+    const entry = panelByName(name);
+    if (!entry) return false;
+    if (entry.withContext) openWithContext(name, { params });
+    else openPanel(name, { params });
+    return true;
+  }
+
   function loadScriptIntoRunner(text) {
     setBgScript(text);
     setBgDryRun(true);
@@ -229,6 +318,22 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   useEffect(() => {
     if (showBgPanel) loadHistory().then(setBgHistory).catch(() => {});
   }, [showBgPanel]);
+
+  // The sidebar stays open while the user navigates (Next Experience never reloads), so the context chips
+  // (table, sys_id, script) follow the page instead of showing whatever was open when the sidebar opened.
+  useEffect(() => {
+    if (!visible) return undefined;
+    const key = (c) => (c ? `${c.table}|${c.sysId}|${c.isList}|${c.scriptFieldLabel}|${(c.scriptBody || '').length}` : '');
+    const timer = setInterval(() => {
+      try {
+        const next = getContext();
+        setContext((prev) => (key(prev) === key(next) ? prev : next));
+      } catch {
+        // The page is mid-navigation; try again on the next tick.
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [visible, getContext]);
 
   useImperativeHandle(ref, () => ({
     open: () => {
@@ -260,7 +365,13 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     openAtfPanel: () => openPanel('atf'),
     openScopePanel: () => openPanel('scope'),
     openAutomationPanel: () => openPanel('automation'),
+    openApiPanel: (query = '') => openPanel('api', { query }),
+    openTestPanel: () => openPanel('testbench'),
     openApplyPanel: (code) => openWithContext('apply', { code }),
+    openPanel: (name, params = {}) => {
+      setVisible(true);
+      return openRegisteredPanel(name, params);
+    },
     sendPrompt: (label, prompt) => {
       setContext(getContext());
       setVisible(true);
@@ -285,11 +396,11 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     return fn;
   }
 
-  function pushLocal(userText, assistantText) {
+  function pushLocal(userText, assistantText, extra = {}) {
     setMessages((prev) => [
       ...prev,
       { role: 'user', content: userText, displayContent: userText },
-      { role: 'assistant', content: assistantText, displayContent: assistantText, local: true },
+      { role: 'assistant', content: assistantText, displayContent: assistantText, local: true, ...extra },
     ]);
   }
 
@@ -323,6 +434,75 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       setStatusText(`Building the dependency graph for ${name}...`);
       const buildDependencies = requireService('buildDependencies', 'Dependency graph');
       return { text: formatDependencyGraph(await buildDependencies(name)) };
+    }
+
+    if (rawInput.startsWith('/verify')) {
+      setStatusText('Reading the record...');
+      const read = requireService('readFormScript', 'Verify');
+      const found = await read();
+      if (!found?.body) return { text: 'No script was found on this page. Open a Business Rule, Script Include, Client Script, ACL or UI Policy.' };
+      const kind = kindForTable(ctx?.table);
+      if (!kind) return { text: `/verify understands script records (Business Rule, Script Include, Client Script, ACL, UI Policy, ...). ${ctx?.table || 'This page'} is not one of them.` };
+      const record = await requireService('fetchArtifactRecord')(ctx).catch(() => null);
+      setStatusText('Verifying...');
+      const res = await requireService('agentExecute')('verify_script', {
+        code: found.body,
+        kind,
+        when: record?.when || undefined,
+        clientType: record?.type || undefined,
+        table: record?.collection || record?.table || undefined,
+      });
+      const lines = [res.summary + (res.fieldNamesChecked ? '' : ' (field names not checked: no table schema available)')];
+      res.findings.forEach((f) => {
+        lines.push(`[${f.severity.toUpperCase()}] line ${f.line} - ${f.message}`, `    Fix: ${f.fix}`);
+      });
+      return { text: lines.join('\n') };
+    }
+
+    if (rawInput.startsWith('/skills')) {
+      const { primary, secondary, reason } = selectSkills(ctx || {});
+      return {
+        text: [
+          `Active skill: ${primary.title} (${reason}).`,
+          primary.summary,
+          '',
+          'Tools it uses: ' + primary.tools.join(', '),
+          '',
+          `Also available: ${secondary.title}. ${secondary.digest}`,
+          '',
+          'The agent loads the full guide itself. External agents can read it as an MCP resource.',
+        ].join('\n'),
+      };
+    }
+
+    if (rawInput.startsWith('/changes')) {
+      const list = await requireService('auditList')();
+      if (!list.length) return { text: 'The agent has not changed anything on this instance yet.' };
+      return {
+        text: list
+          .slice(0, 15)
+          .map((e) => `${new Date(e.ts).toLocaleString()}  ${e.ok ? '' : '[denied] '}${e.summary || e.tool}${e.undone ? '  (undone)' : e.undo ? '  (can undo)' : ''}`)
+          .join('\n'),
+      };
+    }
+
+    if (rawInput.startsWith('/undo')) {
+      // Same approval card (and typed name on a guarded instance) as an agent's undo, for exactly the change shown.
+      const result = await requireService('agentUndo')();
+      return { text: result.undone ? `Undone: ${result.undone}` : 'Undo cancelled. Nothing was changed.' };
+    }
+
+    if (rawInput.startsWith('/model')) {
+      const info = providerInfo;
+      setTimeout(() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' }), 0);
+      return { text: info ? `Using ${info.label} - ${info.model}${info.hasKey ? '' : ' (no API key yet)'}. Opening settings...` : 'Opening settings...' };
+    }
+
+    if (rawInput.startsWith('/agent')) {
+      const arg = rawInput.replace('/agent', '').trim().toLowerCase();
+      if (arg !== 'on' && arg !== 'off') return { text: `Agent mode is ${agentEnabled ? 'on' : 'off'}. Use /agent on or /agent off.` };
+      await saveSettings({ agentEnabled: arg === 'on' });
+      return { text: arg === 'on' ? 'Agent mode on. Plain messages now use tools.' : 'Agent mode off. Plain messages go to the model without tools.' };
     }
 
     return null;
@@ -559,17 +739,38 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     '/tests': () => openPanel('atf'),
     '/scope': () => openPanel('scope'),
     '/script': () => setShowBgPanel(true),
+    '/testclient': () => openPanel('testbench'),
+    '/bench': () => openPanel('testbench'),
   };
 
   async function handleSend(overrideText) {
-    const trimmed = (typeof overrideText === 'string' ? overrideText : input).trim();
+    let trimmed = (typeof overrideText === 'string' ? overrideText : input).trim();
     if (!trimmed || busy) return;
+
+    // /chat skips the agent: a plain model call with no tools.
+    let plainChat = false;
+    if (/^\/chat(\s|$)/.test(trimmed)) {
+      trimmed = trimmed.replace(/^\/chat\s*/, '');
+      plainChat = true;
+      if (!trimmed) {
+        setInput('');
+        pushLocal('/chat', 'Usage: /chat <message>. It talks to the model directly, without tools.');
+        return;
+      }
+    }
+
+    if (/^\/api(\s|$)/.test(trimmed)) {
+      setInput('');
+      closeAllPanels();
+      openPanel('api', { query: trimmed.replace(/^\/api\s*/, '') });
+      return;
+    }
 
     if (speech.listening) speech.stop();
 
     if (trimmed === '/help') {
       setInput('');
-      pushLocal(trimmed, SLASH_HELP);
+      pushLocal(trimmed, SLASH_HELP, { help: true });
       return;
     }
 
@@ -587,10 +788,19 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       return;
     }
 
+    const registered = panelForSlash(trimmed.split(/\s+/)[0]);
+    if (registered) {
+      setInput('');
+      closeAllPanels();
+      openRegisteredPanel(registered.name, { args: trimmed.replace(/^\S+\s*/, '') });
+      return;
+    }
+
     setInput('');
     baseInputRef.current = '';
 
-    const ctx = context || getContext();
+    // Always read the page as it is now: the sidebar stays open across in-app navigation.
+    const ctx = getContext();
     setBusy(true);
 
     try {
@@ -601,6 +811,12 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       }
 
       const asyncCommand = await buildAsyncCommandPrompt(trimmed, ctx);
+
+      // Plain messages go to the agent, which can look things up, verify and test.
+      if (!asyncCommand && agentEnabled && !plainChat && !trimmed.startsWith('/')) {
+        await runAgentTurn(trimmed, ctx);
+        return;
+      }
 
       // Some commands resolve entirely locally (e.g. /logs with no hits).
       if (asyncCommand?.skipAi) {
@@ -650,6 +866,84 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     } finally {
       setBusy(false);
       setStatusText(null);
+    }
+  }
+
+  function decideApproval(stepId, approved) {
+    const resolve = approvalsRef.current.get(stepId);
+    if (!resolve) return;
+    approvalsRef.current.delete(stepId);
+    resolve({ approved });
+  }
+
+  function stopAgent() {
+    abortRef.current?.abort();
+    approvalsRef.current.forEach((resolve) => resolve({ approved: false, note: 'stopped' }));
+    approvalsRef.current.clear();
+  }
+
+  // One agent turn: the model looks things up, drafts, verifies and tests with
+  // tools; anything that changes something waits here for the user.
+  async function runAgentTurn(text, ctx) {
+    const inst = instance || getInstanceInfo();
+    const { text: systemText, skill } = buildSystemPrompt({ context: ctx, instance: inst, autonomy });
+    const runId = `r${Date.now().toString(36)}`;
+
+    const history = messages
+      .filter((m) => !m.local && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content)
+      .slice(-12)
+      .map((m) => ({ role: m.role, content: m.content.slice(0, 6000) }));
+    while (history.length && history[0].role !== 'user') history.shift();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setMessages((prev) => [
+      ...prev,
+      { role: 'user', content: text, displayContent: text },
+      { role: 'assistant', kind: 'agent', run: newRun(runId, { id: skill.id, title: skill.title }), content: '', displayContent: '' },
+    ]);
+
+    const onEvent = (event) => setMessages((prev) => prev.map((m) => (m.run?.id === runId ? { ...m, run: reduceRun(m.run, event) } : m)));
+
+    const tools = TOOL_SCHEMAS.filter((t) => autonomy !== 'readonly' || t.tier === 'observe' || t.tier === 'draft').map(({ name, description, inputSchema }) => ({
+      name,
+      description,
+      inputSchema,
+    }));
+
+    const callModel = async ({ messages: convo, tools: offered }) => {
+      const res = await chrome.runtime.sendMessage({ type: 'AGENT_STEP', payload: { messages: convo, tools: offered, effort: 'medium' } });
+      if (!res?.ok) throw new Error(res?.error || 'The AI provider did not answer.');
+      return res.reply;
+    };
+
+    const requestApproval = ({ id, tool, args }) =>
+      new Promise((resolve) => {
+        approvalsRef.current.set(id, resolve);
+        requireService('agentPreview')(tool, args)
+          // `{}` / `{error}` still mark the preview as settled, so Approve never stays locked (or opens unseen).
+          .then((preview) => onEvent({ type: 'approval_preview', id, preview: preview ?? {} }))
+          .catch((err) => onEvent({ type: 'approval_preview', id, preview: { error: err?.message || 'The preview failed.' } }));
+      });
+
+    setStatusText(null);
+    try {
+      const result = await runAgent({
+        messages: [{ role: 'system', content: systemText }, ...history, { role: 'user', content: text }],
+        tools,
+        callModel,
+        executeTool: (name, args) => requireService('agentExecute')(name, args),
+        // Read fresh for every call: the guard follows the user's instance label, which can change during a run.
+        approvalMode: (name, args) => approvalMode({ tool: name, args, autonomy, isProd: isGuardedEnv(getInstanceInfo().env) }),
+        requestApproval,
+        onEvent,
+        signal: controller.signal,
+      });
+      setMessages((prev) => prev.map((m) => (m.run?.id === runId ? { ...m, content: result.finalText, displayContent: result.finalText } : m)));
+    } finally {
+      abortRef.current = null;
+      approvalsRef.current.clear();
     }
   }
 
@@ -749,6 +1043,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
   if (!visible) return null;
 
+  const heroSkill = selectSkills(context || {});
+
   return (
     <div
       className={`msb-sidebar${panel || showBgPanel ? ' msb-sidebar--focus' : ''}`}
@@ -778,7 +1074,14 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               </span>
             )}
           </span>
-          <span className="msb-sidebar__subtitle">{window.location.hostname}</span>
+          <span className="msb-sidebar__subtitle">
+            {window.location.hostname}
+            {providerInfo?.modelLabel && (
+              <button type="button" className="msb-sidebar__model" title="Change the model in settings" onClick={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' })}>
+                {providerInfo.modelLabel}
+              </button>
+            )}
+          </span>
         </span>
         <div className="msb-sidebar__header-actions">
           {onOpenPalette && (
@@ -841,6 +1144,16 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       </div>
 
       {notice && <div className="msb-sidebar__notice">{notice}</div>}
+
+      {providerInfo && !providerInfo.hasKey && (
+        <div className="msb-sidebar__keybanner">
+          <Icon name="lock" size={14} />
+          <span>Add your {providerInfo.label} API key to start.</span>
+          <button type="button" onClick={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' })}>
+            Open settings
+          </button>
+        </div>
+      )}
 
       {context && (
         <div className="msb-sidebar__context-chip">
@@ -915,7 +1228,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
           )}
 
           <label className="msb-sidebar__dryrun">
-            <input type="checkbox" checked={bgDryRun} onChange={(e) => setBgDryRun(e.target.checked)} />
+            <input type="checkbox" checked={bgDryRun} onChange={trusted((e) => setBgDryRun(e.target.checked))} />
             Dry run (intercept GlideRecord writes and log them instead)
           </label>
 
@@ -927,7 +1240,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
           )}
 
           <div className="msb-sidebar__bg-actions">
-            <button onClick={handleRunBackgroundScript} disabled={busy || !bgScript.trim()}>
+            <button onClick={trusted(handleRunBackgroundScript)} disabled={busy || !bgScript.trim()}>
               {bgDryRun ? 'Dry run' : 'Run for real'}
             </button>
             <button onClick={() => setShowBgPanel(false)}>Close</button>
@@ -1066,31 +1379,92 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
       {panel?.name === 'automation' && <AutomationPanel services={servicesRef.current} onClose={closeAllPanels} />}
 
+      {panel?.name === 'api' && <ApiExplorerPanel key={panel.query} initialQuery={panel.query || ''} onClose={closeAllPanels} />}
+
+      {panel?.name === 'testbench' && (
+        <TestBenchPanel services={servicesRef.current} onClose={closeAllPanels} onAskAi={(label, prompt) => askAi(label, prompt)} />
+      )}
+
+      {(() => {
+        const entry = panel && panelByName(panel.name);
+        if (!entry) return null;
+        const Panel = entry.component;
+        return (
+          <Panel
+            key={`${panel.name}:${panel.params?.args || ''}`}
+            context={panel.context || null}
+            params={panel.params || {}}
+            services={servicesRef.current}
+            onClose={closeAllPanels}
+            onAskAi={(label, prompt) => askAi(label, prompt)}
+            onUseScript={loadScriptIntoRunner}
+            onInsert={insertIntoComposer}
+          />
+        );
+      })()}
+
       <div className="msb-sidebar__messages" ref={messagesRef}>
         {!messages.length && !statusText && (
-          <div className="msb-sidebar__empty">
-            <div className="msb-sidebar__empty-mark" aria-hidden="true">
+          <div className="msb-hero">
+            <div className="msb-hero__mark" aria-hidden="true">
               <Icon name="sparkle" size={22} />
             </div>
-            <h3>How can I help?</h3>
-            <p>Ask about the record you are on, or pick a tool. Type / in the box for every command.</p>
+            <h3>{agentEnabled ? 'What are we building?' : 'How can I help?'}</h3>
+            <p>
+              {agentEnabled
+                ? 'I read this instance, write scripts, verify them against the real API catalog, test client scripts in a sandbox, and only change things you approve.'
+                : 'Ask about the record you are on, or pick a tool. Type / for every command.'}
+            </p>
+            {agentEnabled && (
+              <>
+                <div className="msb-hero__skill">
+                  <Icon name={heroSkill.primary.id === 'client-script' ? 'braces' : 'database'} size={13} />
+                  <span>
+                    <b>{heroSkill.primary.title} skill</b> active <em>{heroSkill.reason}</em>
+                  </span>
+                </div>
+                <div className="msb-hero__prompts">
+                  {(SUGGESTIONS[heroSkill.primary.id] || []).map((text) => (
+                    <button key={text} type="button" className="msb-hero__prompt" onClick={trusted(() => handleSend(text))}>
+                      <Icon name="sparkle" size={12} />
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="msb-hero__label">Tools</div>
             <div className="msb-sidebar__tools">
               {TOOLS.map((t) => (
-                <button
-                  key={t.command}
-                  type="button"
-                  className="msb-sidebar__tool"
-                  onClick={() => handleSend(t.command)}
-                >
-                  <span className="msb-sidebar__tool-title">{t.title}</span>
-                  <span className="msb-sidebar__tool-hint">{t.hint}</span>
+                <button key={t.command} type="button" className="msb-sidebar__tool" onClick={() => handleSend(t.command)}>
+                  <span className="msb-sidebar__tool-icon" aria-hidden="true">
+                    <Icon name={t.icon} size={15} />
+                  </span>
+                  <span className="msb-sidebar__tool-text">
+                    <span className="msb-sidebar__tool-title">{t.title}</span>
+                    <span className="msb-sidebar__tool-hint">{t.hint}</span>
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {messages.map((m, i) => (
+        {messages.map((m, i) =>
+          m.kind === 'agent' ? (
+            <div key={i} className="msb-sidebar__message msb-sidebar__message--assistant msb-sidebar__message--agent">
+              <div className="msb-sidebar__msg-role">
+                <span className="msb-sidebar__msg-avatar" aria-hidden="true">
+                  AI
+                </span>
+                MySnowBuddy
+              </div>
+              <AgentRun run={m.run} instance={instance || getInstanceInfo()} onDecision={decideApproval} />
+              {m.displayContent && (
+                <MessageBody text={m.displayContent} onApply={m.run.status !== 'running' ? (code) => openWithContext('apply', { code }) : undefined} />
+              )}
+            </div>
+          ) : (
           <div
             key={i}
             className={`msb-sidebar__message msb-sidebar__message--${m.role}${
@@ -1103,12 +1477,17 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               </span>
               {m.role === 'user' ? 'You' : 'MySnowBuddy'}
             </div>
-            <MessageBody
-              text={m.displayContent ?? m.content}
-              onApply={m.role === 'assistant' && !m.local ? (code) => openWithContext('apply', { code }) : undefined}
-            />
+            {m.help ? (
+              <HelpBody text={m.displayContent ?? m.content} />
+            ) : (
+              <MessageBody
+                text={m.displayContent ?? m.content}
+                onApply={m.role === 'assistant' && !m.local ? (code) => openWithContext('apply', { code }) : undefined}
+              />
+            )}
           </div>
-        ))}
+          )
+        )}
 
         {statusText && (
           <div className="msb-sidebar__status">
@@ -1129,9 +1508,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               baseInputRef.current = e.target.value;
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // Enter that confirms an IME candidate (CJK etc.) must not send the half-typed message.
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                handleSend();
+                if (isTrustedEvent(e)) handleSend(); // never on a page script's synthetic Enter
               }
             }}
             placeholder={speech.listening ? 'Listening...' : 'Ask MySnowBuddy, or type / for commands'}
@@ -1157,18 +1537,45 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               <Icon name={speech.listening ? 'stop' : 'mic'} />
             </button>
           )}
-          <button
-            className="msb-sidebar__send"
-            onClick={() => handleSend()}
-            disabled={busy || !input.trim()}
-            title="Send"
-            aria-label="Send"
-          >
-            <Icon name="send" />
-          </button>
+          {busy && abortRef.current ? (
+            <button className="msb-sidebar__send msb-sidebar__send--stop" onClick={stopAgent} title="Stop the agent" aria-label="Stop the agent">
+              <Icon name="stop" />
+            </button>
+          ) : (
+            <button
+              className="msb-sidebar__send"
+              onClick={trusted(() => handleSend())}
+              disabled={busy || !input.trim()}
+              title="Send"
+              aria-label="Send"
+            >
+              <Icon name="send" />
+            </button>
+          )}
         </div>
         <div className="msb-sidebar__composer-hint">
-          <kbd>Enter</kbd> send <kbd>Shift</kbd>+<kbd>Enter</kbd> newline <kbd>/help</kbd> commands
+          <span>
+            <kbd>Enter</kbd> send <kbd>/</kbd> commands
+          </span>
+          {agentEnabled && (
+            <label className="msb-autonomy" title={AUTONOMY_LEVELS.find((l) => l.id === autonomy)?.hint}>
+              <Icon name="shield" size={11} />
+              <select
+                value={autonomy}
+                onChange={(e) => {
+                  setAutonomy(e.target.value);
+                  saveSettings({ agentAutonomy: e.target.value });
+                }}
+                aria-label="How much the agent may do without asking"
+              >
+                {AUTONOMY_LEVELS.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       </div>
     </div>

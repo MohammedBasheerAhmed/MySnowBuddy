@@ -119,3 +119,144 @@ test('script history dedupes and caps', () => {
   for (let i = 0; i < 50; i += 1) list = pushHistory(list, { script: `s${i}` }, 5);
   assert.equal(list.length, 5);
 });
+
+// ---- regressions from the full-repo bug hunt (libraries) -------------------------------
+
+test('verify: catalog variables, aggregate counts and varied secret names', () => {
+  const { verifyScript } = require('../src/lib/verify.js');
+  const bad = (r) => r.findings.filter((f) => f.severity === 'high' || f.severity === 'error');
+  const br = verifyScript({ kind: 'business_rule', when: 'before', table: 'sc_req_item', fields: ['number', 'short_description'], code: 'var v = current.variables.u_foo;' });
+  assert.ok(!br.findings.some((f) => /variables/.test(f.message)), 'current.variables is not a dictionary field');
+  const agg = verifyScript({ kind: 'background_script', code: "var ga = new GlideAggregate('incident'); ga.addAggregate('COUNT'); ga.query(); if (ga.next()) gs.info(ga.getAggregate('COUNT'));" });
+  assert.ok(!agg.findings.some((f) => f.ruleId === 'no-unbounded-query'), 'whole-table COUNT is the cheap pattern');
+  for (const code of ["var client_secret = 'abcd1234';", "var accessToken = 'abcd1234';", '{"password": "hunter22"}']) {
+    assert.ok(verifyScript({ kind: 'background_script', code }).findings.some((f) => f.ruleId === 'no-embedded-credentials'), code);
+  }
+  assert.ok(bad(verifyScript({ kind: 'background_script', code: "var gr = new GlideRecord('incident'); gr.query();" })).some((f) => f.ruleId === 'no-unbounded-query'), 'the real unbounded case is still caught');
+});
+
+test('conditionsOnly keeps the ^^ escape', () => {
+  const { conditionsOnly } = require('../src/lib/query.js');
+  assert.equal(conditionsOnly('short_description=a^^b^ORcaller_id=1^ORDERBYnumber'), 'short_description=a^^b^ORcaller_id=1');
+});
+
+test('simulator stops when a callback keeps scheduling itself', async () => {
+  const { runClientScript } = require('../src/lib/mockForm.js');
+  const run = await Promise.race([
+    runClientScript({ script: "function onChange(){ g_form.getReference('caller_id', function cb(){ g_form.getReference('caller_id', cb); }); }", type: 'onChange', scenario: { fields: { caller_id: { value: 'x' } } } }),
+    new Promise((resolve) => setTimeout(() => resolve('HUNG'), 3000)),
+  ]);
+  assert.notEqual(run, 'HUNG');
+});
+
+// ---- simulator fidelity (regressions from the bug hunt) ---------------------------------
+
+const sim = (code, clientType, scenario) => require('../src/lib/mockForm.js').runClientScript({ code, clientType, scenario });
+
+test('simulator: GlideAjax responseText is XML, getAnswer follows getXMLWait', async () => {
+  const jsonParse = await sim(
+    `function onChange(){ var ga = new GlideAjax('U'); ga.addParam('sysparm_name','m'); ga.getXML(function(r){ var o = JSON.parse(r.responseText); g_form.setValue('f', o.x); }); }`,
+    'onChange',
+    { fields: { f: { value: '' } }, ajax: { 'U.m': { x: '1' } } }
+  );
+  assert.equal(jsonParse.ok, false, 'JSON.parse on the XML string fails on a real form, so it must fail here');
+  const viaAttr = await sim(
+    `function onChange(){ var ga = new GlideAjax('U'); ga.addParam('sysparm_name','m'); ga.getXML(function(r){ g_form.setValue('f', r.responseXML.documentElement.getAttribute('answer')); }); }`,
+    'onChange',
+    { fields: { f: { value: '' } }, ajax: { 'U.m': 'hello' } }
+  );
+  assert.equal(viaAttr.finalFields.f.value, 'hello');
+  const wait = await sim(
+    `function onLoad(){ var ga = new GlideAjax('U'); ga.addParam('sysparm_name','m'); ga.getXMLWait(); g_form.setValue('f', ga.getAnswer()); }`,
+    'onLoad',
+    { fields: { f: { value: '' } }, ajax: { 'U.m': 'sync' } }
+  );
+  assert.equal(wait.finalFields.f.value, 'sync');
+});
+
+test('simulator: client GlideRecord honours operators, re-queries, exposes columns', async () => {
+  const records = { sys_user: [{ name: 'A', active: 'true' }, { name: 'B', active: 'false' }] };
+  const op = await sim(`function onLoad(){ var gr = new GlideRecord('sys_user'); gr.addQuery('active','!=','true'); gr.query(); while (gr.next()) g_form.addInfoMessage(gr.name); }`, 'onLoad', { records });
+  assert.deepEqual(op.messages.map((m) => m.text), ['B'], 'operator respected and gr.name works');
+  const twice = await sim(`function onLoad(){ var gr = new GlideRecord('sys_user'); gr.query(); var n=0; while(gr.next()) n++; gr.query(); while(gr.next()) n++; g_form.addInfoMessage(String(n)); }`, 'onLoad', { records });
+  assert.equal(twice.messages[0].text, '4', 'a second query() starts over');
+  const get = await sim(`function onLoad(){ var gr = new GlideRecord('sys_user'); if (gr.get('name','B')) g_form.addInfoMessage(gr.getValue('active') + gr.getRowCount()); }`, 'onLoad', { records });
+  assert.equal(get.messages[0].text, 'false1');
+});
+
+test('simulator: timers and callbacks are tracked', async () => {
+  const late = await sim(`function onChange(){ setTimeout(function(){ g_form.setValue('x','late'); }, 300); }`, 'onChange', { fields: { x: { value: '' } } });
+  assert.equal(late.finalFields.x.value, 'late');
+  assert.ok(late.warnings.some((w) => w.code === 'timer'));
+  const cell = await sim(`function onCellEdit(a,b,c,d,callback){ g_form.addInfoMessage('hi'); }`, 'onCellEdit', {});
+  assert.ok(cell.warnings.some((w) => w.code === 'cell-callback-missing'));
+  const cellOk = await sim(`function onCellEdit(a,b,c,d,callback){ callback(true); }`, 'onCellEdit', {});
+  assert.ok(!cellOk.warnings.some((w) => w.code === 'cell-callback-missing'));
+  const modal = await sim(`function onLoad(){ g_modal.confirm('T','Sure?', function(ok){ g_form.addInfoMessage('ok=' + ok); }); }`, 'onLoad', {});
+  assert.equal(modal.messages[0].text, 'ok=true');
+});
+
+test('simulator: unknown fields are not created, odd arguments do not throw', async () => {
+  const run = await sim(`function onLoad(){ g_form.getValue('typo'); g_form.addInfoMessage(String(g_form.hasField('typo'))); }`, 'onLoad', { fields: { real: { value: '1' } } });
+  assert.equal(run.messages[0].text, 'false');
+  assert.ok(!('typo' in run.finalFields));
+  const odd = await sim(`function onLoad(){ var o = {}; o.self = o; g_form.setValue('real', undefined); g_form.addInfoMessage(o); }`, 'onLoad', { fields: { real: { value: '1' } } });
+  assert.equal(odd.ok, true);
+  assert.ok(odd.calls.some((c) => c.includes('undefined')));
+});
+
+test('page bridge finds form fields even when g_form.getFieldNames is missing (current releases)', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const src = fs.readFileSync(require('node:path').join(__dirname, '../src/page/bridge.js'), 'utf8');
+  const listeners = {};
+  const document = { addEventListener: (type, fn) => (listeners[type] = fn), dispatchEvent: () => true };
+  const form = {
+    elements: [{ fieldName: 'name', tableName: 'sys_script' }, { fieldName: 'script', tableName: 'sys_script' }, { fieldName: 'name', tableName: 'sys_script' }],
+    getValue: (n) => (n === 'script' ? '(function(){\n  gs.info("x");\n})();' : 'My rule'),
+    getLabelOf: (n) => n.toUpperCase(),
+    getTableName: () => 'sys_script',
+    getUniqueValue: () => 'a'.repeat(32),
+    isNewRecord: () => false,
+  };
+  const responses = [];
+  const win = { g_form: form, frames: {}, CustomEvent: function (type, init) { this.type = type; this.detail = init && init.detail; } };
+  win.document = document;
+  win.window = win;
+  vm.runInNewContext(src, { window: win, document, CustomEvent: win.CustomEvent, setTimeout });
+  document.dispatchEvent = (e) => responses.push(e.detail);
+  const call = (action, args = []) => {
+    responses.length = 0;
+    listeners['msb-page-request']({ detail: { id: 'x', action, args } });
+    return responses.find((r) => r.id === 'x');
+  };
+  const scripts = call('getScriptFields');
+  assert.equal(scripts.ok, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(scripts.result.map((f) => f.name))), ['script'], 'the script field is found, once');
+  assert.equal(call('getFormModel').result.fieldCount, 2);
+  assert.equal(call('getFormValues').result.values.name, 'My rule');
+});
+
+test('script field detection ignores the table prefix and empty fields (client scripts showed "none detected")', () => {
+  // Mirrors the real sys_script_client form: the empty description textarea is named sys_script_client.description,
+  // which contains "script" through the TABLE name, and a help panel adds unprefixed textareas.
+  const { pickScriptField } = require('../src/content/context.js');
+  const el = (name, value) => ({ name, id: name, value });
+  const script = el('sys_script_client.script', 'function onChange() {}');
+  const form = [
+    el('sys_script_client.description', ''),
+    el('sys_script_client.messages', ''),
+    el('doc', 'a help text that is longer than forty characters in total'),
+    el('method', 'x'.repeat(217)),
+    el('sys_script_client.isolate_script', 'true'),
+    script,
+  ];
+  assert.equal(pickScriptField(form), script, 'the real script column, not the empty description whose table prefix contains "script"');
+  assert.equal(pickScriptField(form.slice(0, 5)), null, 'help-panel textareas and empty fields are never the script');
+  const br = el('sys_script.script', 'current.x = 1;');
+  assert.equal(pickScriptField([el('sys_script.description', ''), el('sys_script.condition', 'current.a == 1'), br]), br, 'script beats condition');
+  const onlyCondition = el('sys_script.condition', 'current.a == 1');
+  assert.equal(pickScriptField([el('sys_script.script', ''), onlyCondition]), onlyCondition, 'an empty script field falls back to a non-empty condition');
+  const widget = el('sp_widget.client_script', 'function(){}');
+  assert.equal(pickScriptField([widget]), widget);
+});

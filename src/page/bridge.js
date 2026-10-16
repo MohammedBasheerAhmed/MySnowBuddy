@@ -35,6 +35,20 @@
     } catch (e) {
       // Cross-origin frame; ignore.
     }
+    // The Next Experience shell keeps the classic frame inside shadow DOM, where the named lookup can miss it:
+    // try the direct child frames (read-only probe, first match wins).
+    try {
+      for (var i = 0; i < window.frames.length && i < 20; i++) {
+        try {
+          var child = window.frames[i];
+          if (child && child.g_form && typeof child.g_form.getValue === 'function') return child;
+        } catch (e) {
+          /* cross-origin child */
+        }
+      }
+    } catch (e) {
+      /* no frames */
+    }
     return null;
   }
 
@@ -43,6 +57,49 @@
 
   function formFor(win) {
     return win && win.g_form ? win.g_form : null;
+  }
+
+  // Names of every field on the form. g_form.getFieldNames() is not present on current releases (verified on
+  // Australia), and the whole bridge used to give up without it, so nothing could read or set a form field.
+  // g_form.elements is an array of { fieldName, tableName, ... } on those releases.
+  function fieldNames(f) {
+    var out = [];
+    var seen = {};
+    function add(name) {
+      if (typeof name !== 'string' || !name || seen[name]) return;
+      seen[name] = true;
+      out.push(name);
+    }
+    try {
+      if (typeof f.getFieldNames === 'function') (f.getFieldNames() || []).forEach(add);
+    } catch (e) {
+      /* fall through to the other sources */
+    }
+    if (out.length) return out;
+    try {
+      var els = f.elements;
+      if (els && els.length) for (var i = 0; i < els.length; i++) add(els[i] && els[i].fieldName);
+    } catch (e) {
+      /* not available */
+    }
+    if (out.length) return out;
+    try {
+      if (typeof f.getEditableFields === 'function') (f.getEditableFields() || []).forEach(add);
+    } catch (e) {
+      /* not available */
+    }
+    return out;
+  }
+
+  // g_user.roles is an array on current releases and a comma-separated string on some older ones.
+  function rolesOf(u) {
+    try {
+      if (Array.isArray(u.roles)) return u.roles.slice(0, 200).map(String);
+      if (typeof u.roles === 'string' && u.roles) return u.roles.split(',').map(function (r) { return r.trim(); }).filter(Boolean).slice(0, 200);
+    } catch (e) {
+      /* not available */
+    }
+    return null;
   }
 
   // The list frame exposes g_list (GlideList2) for the list currently shown.
@@ -77,7 +134,7 @@
         firstName: win.g_user.firstName || null,
         lastName: win.g_user.lastName || null,
         userId: win.g_user.userID || null,
-        roles: win.g_user.hasRoleExactly ? undefined : win.g_user.roles || null,
+        roles: rolesOf(win.g_user),
       };
     },
 
@@ -99,9 +156,8 @@
       var win = resolveFormWindow();
       if (!win) return null;
       var f = win.g_form;
-      if (typeof f.getFieldNames !== 'function') return null;
-
-      var names = f.getFieldNames() || [];
+      var names = fieldNames(f);
+      if (!names.length) return null;
       var values = {};
       var labels = {};
       for (var i = 0; i < names.length; i++) {
@@ -131,14 +187,111 @@
       };
     },
 
+    // Every field on the form with its label, type, state and value, for the AI agent.
+    // Read-only. Values are capped so one large field cannot flood the model.
+    getFormModel: function () {
+      var win = resolveFormWindow();
+      var f = formFor(win);
+      if (!f) return null;
+      var names = fieldNames(f);
+      if (!names.length) return null;
+      var fields = [];
+      for (var i = 0; i < names.length && i < 400; i++) {
+        var name = names[i];
+        var row = { name: name };
+        try { row.label = f.getLabelOf(name); } catch (e) { /* no label element */ }
+        try {
+          var v = f.getValue(name);
+          row.value = v === undefined || v === null ? '' : String(v).slice(0, 300);
+        } catch (e) { /* unreadable */ }
+        try { if (f.getDisplayBox) { var box = f.getDisplayBox(name); if (box && box.value) row.display = String(box.value).slice(0, 120); } } catch (e) { /* not a reference */ }
+        try { row.mandatory = !!f.isMandatory(name); } catch (e) { /* skip */ }
+        try { if (f.isReadOnly) row.readOnly = !!f.isReadOnly(name); } catch (e) { /* skip */ }
+        try { if (f.isVisible) row.visible = !!f.isVisible(name); } catch (e) { /* skip */ }
+        try { var ge = f.getGlideUIElement && f.getGlideUIElement(name); if (ge && ge.type) row.type = String(ge.type); } catch (e) { /* no element info */ }
+        fields.push(row);
+      }
+      var user = null;
+      try {
+        var gu = win.g_user || window.g_user;
+        if (gu) user = { userName: gu.userName, roles: typeof gu.roles === 'string' ? gu.roles : undefined };
+      } catch (e) { /* no g_user */ }
+      return {
+        table: typeof f.getTableName === 'function' ? f.getTableName() : null,
+        sysId: typeof f.getUniqueValue === 'function' ? f.getUniqueValue() : null,
+        isNewRecord: typeof f.isNewRecord === 'function' ? f.isNewRecord() : null,
+        fieldCount: names.length,
+        fields: fields,
+        user: user,
+      };
+    },
+
+    // Read-only: whether the open form has unsaved changes, and its section names. Used by navigate (never leave
+    // unsaved work) and read_page. Page scripts can already see all of this on g_form.
+    getFormStatus: function () {
+      var f = formFor(resolveFormWindow());
+      if (!f) return null;
+      var dirty = null;
+      var changed = [];
+      try {
+        if (typeof f.isDirty === 'function') dirty = !!f.isDirty();
+      } catch (e) { /* not on this release */ }
+      try {
+        if (f.modifiedFields && typeof f.modifiedFields === 'object') {
+          for (var key in f.modifiedFields) {
+            if (Object.prototype.hasOwnProperty.call(f.modifiedFields, key) && f.modifiedFields[key]) changed.push(String(key).replace(/^[^.]*\./, ''));
+          }
+        }
+      } catch (e) { /* not available */ }
+      if (dirty === null && typeof f.modified === 'boolean') dirty = f.modified;
+      if (changed.length) dirty = true;
+      var sections = null;
+      try {
+        if (typeof f.getSectionNames === 'function') sections = (f.getSectionNames() || []).slice(0, 40).map(String);
+      } catch (e) { /* not available */ }
+      return {
+        table: typeof f.getTableName === 'function' ? f.getTableName() : null,
+        sysId: typeof f.getUniqueValue === 'function' ? f.getUniqueValue() : null,
+        isNewRecord: typeof f.isNewRecord === 'function' ? f.isNewRecord() : null,
+        dirty: dirty,
+        changedFields: changed.slice(0, 40),
+        sections: sections,
+      };
+    },
+
+    // Read-only: who the session is (g_user), for get_instance_info. hasRoleExactly reflects the roles active in
+    // this session, so an elevated security_admin shows up only while it is elevated.
+    getSessionInfo: function () {
+      var win = resolveFormWindow() || window;
+      var u = win.g_user || window.g_user;
+      if (!u) return null;
+      var roles = rolesOf(u);
+      function exactly(role) {
+        try {
+          return typeof u.hasRoleExactly === 'function' ? !!u.hasRoleExactly(role) : null;
+        } catch (e) {
+          return null;
+        }
+      }
+      return {
+        userName: u.userName || null,
+        userId: u.userID || null,
+        firstName: u.firstName || null,
+        lastName: u.lastName || null,
+        roles: roles,
+        admin: exactly('admin'),
+        securityAdmin: exactly('security_admin'),
+      };
+    },
+
     // Script-like fields on the form (long text or script-ish names), so the
     // Apply button can offer them as targets.
     getScriptFields: function () {
       var win = resolveFormWindow();
       var f = formFor(win);
-      if (!f || typeof f.getFieldNames !== 'function') return [];
+      if (!f) return [];
       var out = [];
-      var names = f.getFieldNames() || [];
+      var names = fieldNames(f);
       for (var i = 0; i < names.length; i++) {
         var name = names[i];
         try {
@@ -190,6 +343,11 @@
       attempt('visible', function () {
         return f.isVisible ? f.isVisible(name) : null;
       });
+      // The field type lets the extension hide password-typed values whatever the field is called.
+      attempt('type', function () {
+        var ge = f.getGlideUIElement && f.getGlideUIElement(name);
+        return ge && ge.type ? String(ge.type) : null;
+      });
       return state;
     },
 
@@ -200,7 +358,7 @@
       if (!f) throw new Error('No form is open on this page.');
       if (typeof name !== 'string' || typeof value !== 'string') throw new Error('Field name and value must be strings.');
       if (value.length > MAX_FIELD_CHARS) throw new Error('Value is too large.');
-      var names = f.getFieldNames() || [];
+      var names = fieldNames(f);
       if (names.indexOf(name) === -1) throw new Error('Field "' + name + '" is not on this form.');
       if (typeof f.isReadOnly === 'function' && f.isReadOnly(name)) throw new Error('Field "' + name + '" is read-only.');
       var previous = f.getValue(name);

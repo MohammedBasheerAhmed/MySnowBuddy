@@ -1,7 +1,7 @@
 // Deterministic (non-AI) conflict detection. Runs entirely locally against
 // records fetched from the current instance via the Table API, under the
 // user's own session/permissions.
-import { queryTable } from './tableApi.js';
+import { queryTable, queryAll } from './tableApi.js';
 
 // Artifact types we know how to check, keyed by the ServiceNow table.
 const SUPPORTED = {
@@ -48,7 +48,8 @@ export async function fetchRelatedRecords(table, current) {
     query += `^sys_id!=${current.sys_id}`;
   }
 
-  return queryTable(table, query, def.fields);
+  // The default page size (50) would compare against an arbitrary slice of a busy table and miss conflicts.
+  return queryAll(table, query, def.fields, { max: 2000 });
 }
 
 export async function fetchCurrentRecord(table, sysId) {

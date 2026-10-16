@@ -1,0 +1,552 @@
+/* --- My work, ship check, move entries, push to instance (src/sidebar/MyWorkPanel.jsx and friends) ---
+   Tokens only (src/content/theme.css), so light and dark both work. */
+
+.msb-mw-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.msb-mw-card {
+  margin-top: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-mw-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.msb-mw-row + .msb-mw-row {
+  margin-top: 4px;
+}
+
+.msb-mw-label {
+  flex: 0 0 74px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--msb-fg-muted);
+}
+
+.msb-mw-value {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+  color: var(--msb-fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* fg-faint text is under 4.5:1 on the light surfaces, so muted. */
+.msb-mw-muted {
+  font-size: var(--msb-text-xs);
+  font-weight: 400;
+  color: var(--msb-fg-muted);
+}
+
+.msb-mw-section {
+  margin-top: 14px;
+}
+
+.msb-mw-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--msb-fg-muted);
+}
+
+.msb-mw-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  overflow: hidden;
+}
+
+.msb-mw-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-mw-item:first-child {
+  border-top: none;
+}
+
+.msb-mw-item__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.msb-mw-item__title {
+  font-size: var(--msb-text-md);
+  color: var(--msb-fg);
+  overflow-wrap: anywhere;
+}
+
+.msb-mw-item__meta {
+  margin-top: 2px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.msb-mw-item__actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.msb-mw-group {
+  padding: 6px 10px;
+  border-top: 1px solid var(--msb-border);
+  background: var(--msb-bg-subtle);
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  color: var(--msb-fg-soft);
+}
+
+.msb-mw-group:first-child {
+  border-top: none;
+}
+
+.msb-mw-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-subtle);
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.msb-mw-badge--accent {
+  border-color: var(--msb-accent-line);
+  background: var(--msb-accent-soft);
+  color: var(--msb-accent);
+}
+
+.msb-mw-badge--warn {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-mw-badge--danger {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-mw-badge--ok {
+  border-color: var(--msb-ok-line);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+}
+
+.msb-mw-small-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.msb-mw-small-btn:hover:not(:disabled) {
+  background: var(--msb-bg-sunken);
+  border-color: var(--msb-border-strong);
+}
+
+.msb-mw-small-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.msb-mw-small-btn:focus-visible,
+.msb-mw-check__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+.msb-mw-signed-in {
+  margin-top: 4px;
+}
+
+.msb-mw-inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Picker and its two buttons share one height. */
+.msb-mw-inline-form select {
+  flex: 1 1 160px;
+  min-width: 0;
+  height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.msb-mw-inline-form .msb-panel__run,
+.msb-mw-inline-form .msb-panel__secondary {
+  height: 28px;
+}
+
+/* Verdict and checklist */
+.msb-mw-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  font-size: var(--msb-text-lg);
+  font-weight: 700;
+}
+
+.msb-mw-verdict__counts {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+}
+
+.msb-mw-verdict--ready {
+  border-color: var(--msb-ok-line);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+}
+
+.msb-mw-verdict--warnings {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-mw-verdict--blockers {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-mw-check {
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-mw-check:first-child {
+  border-top: none;
+}
+
+.msb-mw-check__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: var(--msb-fg);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.msb-mw-check__toggle:hover:not(:disabled) {
+  background: var(--msb-bg-subtle);
+}
+
+.msb-mw-check__toggle:disabled {
+  cursor: default;
+}
+
+.msb-mw-check__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.msb-mw-check__icon--block {
+  color: var(--msb-danger);
+}
+
+.msb-mw-check__icon--warn {
+  color: var(--msb-warn);
+}
+
+.msb-mw-check__icon--info {
+  color: var(--msb-fg-muted);
+}
+
+.msb-mw-check__icon--ok {
+  color: var(--msb-ok);
+}
+
+.msb-mw-check__title {
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+}
+
+/* "· show" moves to the next line as one piece. */
+.msb-mw-check__toggle .msb-mw-muted {
+  white-space: nowrap;
+}
+
+.msb-mw-check__detail {
+  margin-top: 2px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+  line-height: 1.45;
+}
+
+.msb-mw-check__items {
+  margin: 0;
+  padding: 0 10px 8px 34px;
+  list-style: none;
+}
+
+.msb-mw-check__items li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--msb-border);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-mw-check__items li:first-child {
+  border-top: none;
+}
+
+.msb-mw-check__item-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.msb-mw-check__item-text strong {
+  color: var(--msb-fg);
+  font-weight: 600;
+}
+
+/* Confirmation boxes (move, push) */
+.msb-mw-confirm {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border-strong);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-mw-confirm__title {
+  font-size: var(--msb-text-md);
+  font-weight: 700;
+  color: var(--msb-fg);
+}
+
+.msb-mw-confirm ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-mw-confirm li {
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.msb-mw-confirm__blocked {
+  color: var(--msb-danger);
+}
+
+.msb-mw-confirm__typed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-danger);
+}
+
+.msb-mw-confirm__typed input {
+  padding: 6px 8px;
+  border: 1px solid var(--msb-danger-line);
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-md);
+}
+
+.msb-mw-confirm__typed input:focus {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+/* Labels name the target host, so these buttons may wrap rather than overflow. */
+.msb-mw-confirm .msb-panel__run,
+.msb-mw-danger-btn {
+  height: auto;
+  min-height: 30px;
+  padding: 5px 14px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.msb-mw-danger-btn {
+  border: none;
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-danger-solid);
+  color: var(--msb-on-danger);
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.msb-mw-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.msb-mw-danger-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+.msb-mw-confirm > .msb-mw-ok:first-child {
+  margin-top: 0;
+}
+
+.msb-mw-ok {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-ok-line);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+}
+
+.msb-mw-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 3px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-sunken);
+}
+
+.msb-mw-tabs button {
+  flex: 1;
+  height: 26px;
+  border: none;
+  border-radius: var(--msb-radius-xs);
+  background: transparent;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* bg-raised plus a hairline, so the chosen tab still stands out on the dark sunken track. */
+.msb-mw-tabs button[aria-selected='true'] {
+  background: var(--msb-bg-raised);
+  color: var(--msb-fg);
+  box-shadow: var(--msb-shadow-sm), inset 0 0 0 1px var(--msb-border);
+}
+
+.msb-mw-tabs button:hover:not([aria-selected='true']) {
+  color: var(--msb-fg-soft);
+}
+
+.msb-mw-tabs button:focus-visible {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+.msb-mw-findings {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-mw-findings li {
+  margin: 2px 0;
+}
+
+.msb-mw-sev--high {
+  color: var(--msb-danger);
+  font-weight: 600;
+}
+
+.msb-mw-sev--medium {
+  color: var(--msb-warn);
+  font-weight: 600;
+}
+
+.msb-mw-sev--low {
+  color: var(--msb-fg-muted);
+  font-weight: 600;
+}
+
+/* Instance Compare: push button next to a modified record */
+.msb-compare__modified > .msb-mw-row {
+  margin-bottom: 5px;
+}
+
+.msb-mw-row > .msb-compare__modified-toggle {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+/* Push: "same record, different letter case" confirmation; the box sits on the first line of the text. */
+.msb-mw-case-check {
+  align-items: flex-start;
+  margin-top: 8px;
+  line-height: 1.45;
+}
+
+.msb-mw-case-check input[type='checkbox'] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.msb-mw-checkbox {
+  margin-top: 3px;
+  accent-color: var(--msb-accent);
+}

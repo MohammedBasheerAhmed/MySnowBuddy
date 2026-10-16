@@ -69,7 +69,7 @@
   height: 26px;
   border-radius: var(--msb-radius-sm);
   background: var(--msb-gradient);
-  color: #fff;
+  color: var(--msb-on-gradient);
   box-shadow: var(--msb-shadow-sm);
 }
 
@@ -138,6 +138,13 @@
   font-size: var(--msb-text-xs);
   color: var(--msb-fg-faint);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* At narrow widths the model chip shrinks with an ellipsis instead of being cut off mid-letter. */
+.msb-sidebar__subtitle > .msb-sidebar__model {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -385,14 +392,15 @@
   width: 18px;
   height: 18px;
   border-radius: var(--msb-radius-xs);
-  background: var(--msb-fg-faint);
-  color: #fff;
+  background: var(--msb-fg-muted);
+  color: var(--msb-bg);
   font-size: 9px;
   font-weight: 800;
 }
 
 .msb-sidebar__message--assistant .msb-sidebar__msg-avatar {
   background: var(--msb-gradient);
+  color: var(--msb-on-gradient);
 }
 
 .msb-sidebar__msg-body {
@@ -492,7 +500,7 @@
   margin: 0 auto 12px;
   border-radius: var(--msb-radius);
   background: var(--msb-gradient);
-  color: #fff;
+  color: var(--msb-on-gradient);
   box-shadow: var(--msb-shadow);
 }
 
@@ -586,6 +594,11 @@
   resize: none;
 }
 
+/* The row shows the focus ring (:focus-within); a second ring on the textarea itself doubled it. */
+.msb-sidebar__input-row textarea:focus-visible {
+  box-shadow: none;
+}
+
 .msb-sidebar__input-row textarea::placeholder {
   color: var(--msb-fg-faint);
 }
@@ -616,8 +629,8 @@
 }
 
 .msb-sidebar__mic--active {
-  background: var(--msb-danger);
-  color: #fff;
+  background: var(--msb-danger-solid);
+  color: var(--msb-on-danger);
   animation: msb-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1057,7 +1070,9 @@
   gap: 8px 12px;
 }
 
-.msb-panel__check {
+.msb-panel__check,
+.msb-panel__form .msb-panel__check {
+  /* The second selector beats ".msb-panel__form label" (stacked, uppercase field captions). */
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -1068,6 +1083,11 @@
   text-transform: none;
   color: var(--msb-fg-soft);
   cursor: pointer;
+}
+
+.msb-panel__check input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--msb-accent);
 }
 
 .msb-panel__picker {
@@ -1583,6 +1603,53 @@ details[open] > summary.msb-panel__result-toggle::before {
   border-style: dashed;
 }
 
+/* /help: commands and descriptions in two columns (MessageBody.jsx HelpBody). */
+.msb-help {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  white-space: normal;
+}
+
+.msb-help__title {
+  margin-bottom: 4px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--msb-fg-muted);
+}
+
+.msb-help__list {
+  display: grid;
+  /* One command column width in every section, so all descriptions start at the same place. */
+  grid-template-columns: 9.5em minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 0;
+  font-size: var(--msb-text-sm);
+  line-height: 1.45;
+}
+
+.msb-help__list dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.msb-help__list dt code {
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg);
+}
+
+.msb-help__list dd {
+  margin: 0;
+  color: var(--msb-fg-soft);
+}
+
+.msb-help__list .msb-help__wide {
+  grid-column: 1 / -1;
+}
+
 .msb-prompts__ctx {
   display: inline-flex;
   gap: 5px;
@@ -1604,3 +1671,22 @@ details[open] > summary.msb-panel__result-toggle::before {
   background: var(--msb-warn-soft);
   color: var(--msb-warn);
 }
+
+/* --- Table explorer -------------------------------------------------------- */
+.msb-xp__card { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.msb-xp__tabs { display: flex; align-items: center; gap: 4px; margin-top: 6px; border-bottom: 1px solid var(--msb-border); }
+.msb-xp__tab { padding: 5px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--msb-fg-muted); font-size: var(--msb-text-sm); font-weight: 500; cursor: pointer; }
+.msb-xp__tab:hover { color: var(--msb-fg); }
+.msb-xp__tab--on { color: var(--msb-accent); border-bottom-color: var(--msb-accent); }
+.msb-xp__copyall { margin-left: auto; }
+.msb-xp__chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.msb-xp__actions { display: flex; gap: 12px; margin-top: 4px; }
+.msb-xp__detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--msb-border); display: flex; flex-direction: column; gap: 6px; }
+.msb-xp__doc { color: var(--msb-fg-soft); font-size: var(--msb-text-sm); }
+.msb-xp__section { display: flex; flex-direction: column; gap: 4px; }
+.msb-xp__caption { color: var(--msb-fg-muted); font-size: var(--msb-text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.msb-xp__table { width: 100%; border-collapse: collapse; font-size: var(--msb-text-sm); }
+.msb-xp__table th { text-align: left; padding: 3px 6px; color: var(--msb-fg-muted); font-weight: 500; border-bottom: 1px solid var(--msb-border); }
+.msb-xp__table td { padding: 3px 6px; border-bottom: 1px solid var(--msb-border); color: var(--msb-fg-soft); vertical-align: top; }
+.msb-xp__inactive td { opacity: 0.55; }
+.msb-xp__pad { padding: 8px 12px; }

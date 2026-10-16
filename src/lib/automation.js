@@ -123,7 +123,7 @@ export function describeStep(step) {
 }
 
 const RISKY_RE =
-  /\b(delete|remove|impersonat\w*|execute|submit|save|update|insert|approve|reject|publish|commit|activate|deactivate|rollback|retire)\b|sysverb_(update|insert|delete)/i;
+  /\b(delet\w*|remov\w*|impersonat\w*|execut\w*|submit\w*|sav(e|es|ed|ing)|updat\w*|insert\w*|approv\w*|reject\w*|publish\w*|commit\w*|activat\w*|deactivat\w*|rollback|retir\w*|resolv\w*|clos(e|es|ed|ing)|cancel\w*|order|checkout|assign\w*|reopen\w*|unlock\w*|reset\w*|place)\b|sysverb_(update|insert|delete)/i;
 
 /** True when the label of a clickable element suggests it changes data. */
 export function isRiskyLabel(label) {

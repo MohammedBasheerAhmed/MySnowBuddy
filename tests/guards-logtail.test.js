@@ -50,3 +50,19 @@ test('collapseDiff folds long unchanged runs into a gap', () => {
   assert.ok(rows.some((r) => r.type !== 'equal' && r.type !== 'gap'));
   assert.ok(rows.length < 20);
 });
+
+test('script output with an out-of-range character reference does not throw', () => {
+  assert.equal(extractScriptOutput('<pre>*** Script: a &#x110000; b &#99999999999; c &#65;</pre>'), 'a &#x110000; b &#99999999999; c A');
+});
+
+test('the live log tail refuses a javascript: filter like the other log queries', () => {
+  const { startLogTail } = require('../src/content/logTail.js');
+  let tail = null;
+  try {
+    assert.throws(() => {
+      tail = startLogTail({ contains: 'javascript:gs.setProperty("a", "b")', onRows() {}, onError() {} });
+    }, /javascript/i);
+  } finally {
+    tail?.stop();
+  }
+});

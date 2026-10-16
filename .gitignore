@@ -3,3 +3,9 @@ dist/
 *.log
 .DS_Store
 .test-dist/
+.test-dist-*/
+
+.build-tmp/
+.build-tmp-*/
+mcp/generated/
+preview/.out/

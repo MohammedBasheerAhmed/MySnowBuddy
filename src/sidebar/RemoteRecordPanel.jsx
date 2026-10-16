@@ -1,17 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { remoteRecordUrl } from '../content/remoteRecord.js';
 import { FieldChanges } from './DiffView.jsx';
+import PushArtifact from './PushArtifact.jsx';
 
-/** Compare the record on screen with the same record on another instance. */
-export default function RemoteRecordPanel({ context, services, onClose }) {
-  const [host, setHost] = useState('');
+/** A known-instance label ("prod") or a short name ("dev123") becomes a full host. */
+function resolveHost(text, known) {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  const byLabel = known.find((i) => String(i.label || '').toLowerCase() === value.toLowerCase());
+  if (byLabel) return byLabel.host;
+  return /[.:/]/.test(value) ? value : `${value}.service-now.com`;
+}
+
+/**
+ * Compare the record on screen with the same record on another instance, and
+ * optionally push it there (preview first). `initialHost` and `pushFirst` come
+ * from the /push command.
+ */
+export default function RemoteRecordPanel({ context, services, onClose, initialHost = '', pushFirst = false }) {
+  const [host, setHost] = useState(initialHost);
   const [known, setKnown] = useState([]);
+  const [knownLoaded, setKnownLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [pushHost, setPushHost] = useState(pushFirst && initialHost.trim() ? initialHost.trim() : '');
 
   useEffect(() => {
-    services.listInstances?.().then(setKnown).catch(() => {});
+    Promise.resolve(services.listInstances?.())
+      .then((list) => setKnown(Array.isArray(list) ? list : []))
+      .catch(() => {})
+      .finally(() => setKnownLoaded(true));
   }, [services]);
 
   const hasRecord = context?.table && context?.sysId;
@@ -20,8 +39,9 @@ export default function RemoteRecordPanel({ context, services, onClose }) {
     setBusy(true);
     setError(null);
     setResult(null);
+    setPushHost('');
     try {
-      setResult(await services.compareWithInstance({ host, table: context.table, sysId: context.sysId }));
+      setResult(await services.compareWithInstance({ host: resolveHost(host, known), table: context.table, sysId: context.sysId }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -30,15 +50,19 @@ export default function RemoteRecordPanel({ context, services, onClose }) {
   }
 
   function openThere(sysId) {
-    window.open(remoteRecordUrl(result?.host || host, context.table, sysId), '_blank', 'noopener,noreferrer');
+    try {
+      window.open(remoteRecordUrl(result?.host || resolveHost(host, known), context.table, sysId), '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (
     <div className="msb-panel">
       <div className="msb-panel__header">
-        <strong>Same record on another instance</strong>
+        <strong>{pushFirst ? 'Push to another instance' : 'Same record on another instance'}</strong>
         <button onClick={onClose} aria-label="Close">
-          {'\u2715'}
+          {'✕'}
         </button>
       </div>
 
@@ -50,7 +74,10 @@ export default function RemoteRecordPanel({ context, services, onClose }) {
           <input
             list="msb-known-instances"
             value={host}
-            onChange={(e) => setHost(e.target.value)}
+            onChange={(e) => {
+              setHost(e.target.value);
+              setPushHost('');
+            }}
             placeholder="myinstance-dev.service-now.com"
           />
           <datalist id="msb-known-instances">
@@ -63,13 +90,20 @@ export default function RemoteRecordPanel({ context, services, onClose }) {
         </label>
 
         <div className="msb-panel__hint">
-          Reads one record, using your session on that instance or the credentials saved for it in Options.
-          Nothing is written.
+          Compare reads one record, using your session on that instance or the credentials saved for it in Options. Push shows a
+          preview and writes nothing until you confirm.
         </div>
 
         <div className="msb-panel__actions">
           <button className="msb-panel__run" onClick={handleCompare} disabled={busy || !hasRecord || !host.trim()}>
             {busy ? 'Comparing...' : 'Compare'}
+          </button>
+          <button
+            className="msb-panel__secondary"
+            onClick={() => setPushHost(host.trim())}
+            disabled={busy || !hasRecord || !host.trim() || pushHost === host.trim()}
+          >
+            Push this record...
           </button>
           <button
             className="msb-panel__secondary"
@@ -82,6 +116,18 @@ export default function RemoteRecordPanel({ context, services, onClose }) {
       </div>
 
       {error && <div className="msb-panel__error">{error}</div>}
+
+      {hasRecord && pushHost && knownLoaded && (
+        <PushArtifact
+          key={`${resolveHost(pushHost, known)}|${context.table}|${context.sysId}`}
+          table={context.table}
+          sysId={context.sysId}
+          targetHost={resolveHost(pushHost, known)}
+          services={services}
+          recordName={context.title || ''}
+          onClose={() => setPushHost('')}
+        />
+      )}
 
       {result && !result.found && (
         <div className="msb-panel__warning">

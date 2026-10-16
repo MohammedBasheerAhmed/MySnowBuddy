@@ -24,7 +24,8 @@ export function createPageWatcher(getContext) {
   }
 
   setInterval(check, POLL_MS);
-  check();
+  // Deferred so the caller can subscribe first; otherwise the page that is already open is never reported.
+  setTimeout(check, 0);
 
   return {
     subscribe(fn) {

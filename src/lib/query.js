@@ -2,7 +2,23 @@
 // into GlideRecord / GlideAggregate code. Everything here is deterministic and
 // local, so none of it costs AI tokens.
 
+// Longer operators first, and every operator that contains "IN" / "ON" / "LIKE" before those:
+// field names are matched lazily, so nameEMPTYSTRING used to parse as nameEMPTYSTR IN G.
 const OPERATORS = [
+  'EMPTYSTRING',
+  'NOT LIKE',
+  'DATEPART',
+  'RELATIVEGT',
+  'RELATIVELT',
+  'RELATIVEGE',
+  'RELATIVELE',
+  'RELATIVEEE',
+  'MORETHAN',
+  'LESSTHAN',
+  'GT_OR_EQUALS_FIELD',
+  'LT_OR_EQUALS_FIELD',
+  'GT_FIELD',
+  'LT_FIELD',
   'NOT IN',
   'NOTLIKE',
   'NOTON',
@@ -121,10 +137,24 @@ const PHRASES = {
   CHANGESFROM: 'changes from',
   CHANGESTO: 'changes to',
   ANYTHING: 'is anything',
+  EMPTYSTRING: 'is an empty string',
+  'NOT LIKE': 'does not contain',
+  DATEPART: 'falls on',
+  RELATIVEGT: 'is after (relative)',
+  RELATIVELT: 'is before (relative)',
+  RELATIVEGE: 'is on or after (relative)',
+  RELATIVELE: 'is on or before (relative)',
+  RELATIVEEE: 'is on (relative)',
+  MORETHAN: 'is more than',
+  LESSTHAN: 'is less than',
+  GT_FIELD: 'is greater than the field',
+  LT_FIELD: 'is less than the field',
+  GT_OR_EQUALS_FIELD: 'is greater than or equal to the field',
+  LT_OR_EQUALS_FIELD: 'is less than or equal to the field',
 };
 
 function describeValue(op, value) {
-  if (op === 'ISEMPTY' || op === 'ISNOTEMPTY' || op === 'VALCHANGES' || op === 'ANYTHING') return '';
+  if (op === 'ISEMPTY' || op === 'ISNOTEMPTY' || op === 'VALCHANGES' || op === 'ANYTHING' || op === 'EMPTYSTRING') return '';
   if (op === 'BETWEEN') return value.split('@').join(' and ');
   if (op === 'IN' || op === 'NOT IN') return value.split(',').join(', ');
   if (/^javascript:/i.test(value)) return `(computed) ${value}`;
@@ -243,8 +273,11 @@ export function toGlideAggregate(table, query, { groupBy = [], variable = 'ga' }
 
 /** Strip sort/group clauses so a query can be used for counting. */
 export function conditionsOnly(query) {
+  // "^^" is an escaped literal caret, not a separator: protect it while splitting.
   return String(query || '')
+    .replace(/\^\^/g, '\u0001')
     .split('^')
     .filter((t) => t && !t.startsWith('ORDERBY') && !t.startsWith('GROUPBY'))
-    .join('^');
+    .join('^')
+    .replace(/\u0001/g, '^^');
 }

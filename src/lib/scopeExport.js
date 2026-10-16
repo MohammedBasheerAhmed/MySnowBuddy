@@ -3,7 +3,7 @@
 export const SCOPE_ARTIFACTS = [
   { table: 'sys_script_include', dir: 'script_includes', label: 'Script Includes', scripts: [['script', 'js']], meta: ['name', 'api_name', 'active', 'access', 'client_callable', 'description'] },
   { table: 'sys_script', dir: 'business_rules', label: 'Business Rules', scripts: [['script', 'js']], meta: ['name', 'collection', 'when', 'order', 'active', 'condition', 'filter_condition'] },
-  { table: 'sys_script_client', dir: 'client_scripts', label: 'Client Scripts', scripts: [['script', 'js']], meta: ['name', 'table', 'type', 'ui_type', 'active', 'field_name', 'condition'] },
+  { table: 'sys_script_client', dir: 'client_scripts', label: 'Client Scripts', scripts: [['script', 'js']], meta: ['name', 'table', 'type', 'ui_type', 'active', 'field', 'condition'] },
   { table: 'sys_ui_action', dir: 'ui_actions', label: 'UI Actions', scripts: [['script', 'js']], meta: ['name', 'table', 'action_name', 'active', 'client', 'condition', 'onclick'] },
   { table: 'sys_ui_script', dir: 'ui_scripts', label: 'UI Scripts', scripts: [['script', 'js']], meta: ['name', 'active', 'global', 'description'] },
   { table: 'sys_ui_policy', dir: 'ui_policies', label: 'UI Policies', scripts: [['script_true', 'js'], ['script_false', 'js']], meta: ['short_description', 'table', 'active', 'conditions', 'on_load'] },

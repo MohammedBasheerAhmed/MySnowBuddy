@@ -1,0 +1,340 @@
+/* Health scan panel (src/sidebar/HealthScanPanel.jsx). Tokens only, so light and dark both follow theme.css. */
+
+.msb-health .msb-panel__form .msb-health__days {
+  width: 64px;
+  padding: 4px 6px;
+}
+
+.msb-health__steps {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.msb-health__step {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  font-size: var(--msb-text-md);
+  color: var(--msb-fg);
+}
+
+.msb-health__step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-border-strong);
+}
+
+.msb-health__step--running .msb-health__step-dot {
+  background: var(--msb-accent);
+  box-shadow: var(--msb-ring);
+  animation: msb-health-pulse 1.2s ease-in-out infinite;
+}
+
+.msb-health__step--done .msb-health__step-dot {
+  background: var(--msb-ok);
+}
+
+.msb-health__step--error .msb-health__step-dot {
+  background: var(--msb-danger);
+}
+
+.msb-health__step--skipped .msb-health__step-dot,
+.msb-health__step--partial .msb-health__step-dot,
+.msb-health__step--cancelled .msb-health__step-dot {
+  background: var(--msb-warn);
+}
+
+.msb-health__step-status {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-health__step--error .msb-health__step-status {
+  color: var(--msb-danger);
+}
+
+.msb-health__step-detail {
+  grid-column: 2 / 4;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@keyframes msb-health-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msb-health__step--running .msb-health__step-dot {
+    animation: none;
+  }
+}
+
+.msb-health__running {
+  margin-top: 4px;
+}
+
+.msb-health__headline {
+  margin-top: 2px;
+  font-size: var(--msb-text-lg);
+  color: var(--msb-fg);
+}
+
+.msb-health__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.msb-health__card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.msb-health__card:hover {
+  border-color: var(--msb-border-strong);
+}
+
+.msb-health__card:focus-visible {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+.msb-health__card--active {
+  border-color: var(--msb-accent-line);
+  background: var(--msb-accent-soft);
+}
+
+.msb-health__card-label {
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+}
+
+.msb-health__rating {
+  padding: 1px 7px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+}
+
+.msb-health__card--attention .msb-health__rating {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-health__card--review .msb-health__rating {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-health__card--good .msb-health__rating {
+  border-color: var(--msb-ok-line);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+}
+
+.msb-health__card--not-run .msb-health__rating {
+  color: var(--msb-fg-muted);
+}
+
+.msb-health__card-counts {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-health__section {
+  margin-top: 12px;
+}
+
+.msb-health__heading {
+  margin: 0 0 6px;
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-health__finding > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.msb-health__finding > summary::-webkit-details-marker {
+  display: none;
+}
+
+.msb-health__finding-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+}
+
+.msb-health__finding-summary::before {
+  content: '\25B8';
+  color: var(--msb-fg-muted);
+}
+
+.msb-health__finding[open] > .msb-health__finding-summary::before {
+  content: '\25BE';
+}
+
+.msb-health__finding-summary:focus-visible {
+  outline: none;
+  box-shadow: var(--msb-ring);
+  border-radius: var(--msb-radius-xs);
+}
+
+.msb-health__finding-title {
+  /* Shares the first line with the chevron and severity chip, and wraps there. */
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-health__finding-where {
+  flex-basis: 100%;
+  padding-left: 14px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.msb-health__sev {
+  padding: 0 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.msb-health__sev--high {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-health__sev--medium {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-health__finding-body {
+  padding: 4px 0 0 14px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+  line-height: 1.5;
+}
+
+.msb-health__finding-body p {
+  margin: 6px 0 0;
+}
+
+.msb-health__finding-body strong {
+  color: var(--msb-fg);
+}
+
+.msb-health__finding-body .msb-panel__snippet {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+}
+
+.msb-health__finding-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-health__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.msb-health__filters select,
+.msb-health__filters input {
+  flex: 1 1 110px;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-family: inherit;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-health__filters select:focus,
+.msb-health__filters input:focus {
+  outline: none;
+  border-color: var(--msb-accent-line);
+  box-shadow: var(--msb-ring);
+}
+
+.msb-health__filters + .msb-panel__counts {
+  margin: 8px 0 2px;
+}
+
+.msb-health__more {
+  margin-top: 8px;
+}
+
+.msb-health__rule {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--msb-border);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg);
+}
+
+.msb-health__rule:last-child {
+  border-bottom: none;
+}
+
+.msb-health__notes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+  line-height: 1.5;
+}
+
+.msb-health__report .msb-panel__result-body .msb-health__steps {
+  margin-top: 8px;
+}

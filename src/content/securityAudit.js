@@ -5,7 +5,7 @@
 // attempt to bypass ACLs, escalate privilege, or exploit anything it finds.
 // It is a review aid for administrators auditing their own instance.
 
-import { queryTable } from './tableApi.js';
+import { queryTable, queryAll } from './tableApi.js';
 
 export const SEVERITY = { HIGH: 'high', MEDIUM: 'medium', LOW: 'low' };
 
@@ -68,54 +68,133 @@ function finding(severity, category, message, detail, link) {
   return { severity, category, message, detail, link };
 }
 
-/** ACLs that grant access with no role, no condition and no script. */
-async function auditOpenAcls(findings) {
-  const rows = await queryTable(
+// Caps for the open-ACL check. When one is hit the check says it is incomplete; an ACL whose
+// role rows might have been cut off is never reported as open.
+export const ACL_CANDIDATE_CAP = 3000;
+const ACL_ROLE_CHUNK = 40;
+const ACL_ROLE_CHUNK_LIMIT = 1000;
+
+const refValue = (v) => (v && typeof v === 'object' ? v.value || '' : String(v ?? ''));
+const SYS_ID_RE = /^[0-9a-f]{32}$/;
+
+/**
+ * Name of a reference column read through its dot-walked name field ("operation.name"),
+ * falling back to the raw value on releases where the column is a plain choice. A bare
+ * sys_id is never shown as a name.
+ */
+function refName(row, column) {
+  const named = refValue(row[`${column}.name`]).trim();
+  if (named) return named;
+  const raw = refValue(row[column]).trim();
+  return raw && !SYS_ID_RE.test(raw) ? raw : '';
+}
+
+/** Severity of an open ACL by operation: writes are high, reads and anything unrecognised medium. */
+export function openAclSeverity(operation) {
+  return ['write', 'create', 'delete'].includes(String(operation || '').toLowerCase()) ? SEVERITY.HIGH : SEVERITY.MEDIUM;
+}
+
+/** Only record ACLs are judged: other types (REST, UI page, client-callable...) follow other rules. */
+export function isRecordAcl(row) {
+  const type = refName(row, 'type');
+  return !type || type === 'record';
+}
+
+/**
+ * Optional `keepRecords(table, sysIds)` narrows record-level checks (open ACLs, public pages,
+ * public widgets, scripted REST) to the records a caller cares about, e.g. custom records only.
+ * It resolves to a Set of the sys_ids to keep; when it fails, the check fails (reported as an error).
+ */
+async function keepOnly(options, table, rows) {
+  if (!options?.keepRecords || !rows.length) return rows;
+  const keep = await options.keepRecords(table, rows.map((r) => refValue(r.sys_id)));
+  return rows.filter((r) => keep.has(refValue(r.sys_id)));
+}
+
+/**
+ * Record ACLs that grant access with no role, no condition and no script.
+ *
+ * Only ACLs without a condition and a script can be open, so the instance filters those first
+ * (re-checked here). Roles are then read for those candidates only, in chunks, from
+ * sys_security_acl_role. A role lookup that fails makes the whole check fail (reported as an
+ * error), never "every ACL is open". `operation` and `type` are references, so their names are
+ * read through the dot-walked name fields.
+ */
+async function auditOpenAcls(findings, incomplete, options) {
+  const rows = await queryAll(
     'sys_security_acl',
-    'active=true^ORDERBYname',
-    ['sys_id', 'name', 'operation', 'admin_overrides', 'script', 'condition', 'description'],
-    { limit: 500 }
+    'active=true^conditionISEMPTY^scriptISEMPTY^ORDERBYname',
+    // decision_type / security_attribute exist on newer releases only; absent columns are simply not returned.
+    ['sys_id', 'name', 'operation', 'operation.name', 'type', 'type.name', 'admin_overrides', 'script', 'condition', 'description', 'decision_type', 'security_attribute'],
+    { max: ACL_CANDIDATE_CAP, pageSize: 500 }
+  );
+  if (rows.length >= ACL_CANDIDATE_CAP) {
+    incomplete.push(`only the first ${ACL_CANDIDATE_CAP} ACLs without a condition or script were checked`);
+  }
+
+  const candidates = await keepOnly(
+    options,
+    'sys_security_acl',
+    rows.filter(
+      (acl) =>
+        isRecordAcl(acl) &&
+        !String(acl.condition || '').trim() &&
+        !String(acl.script || '').trim() &&
+        !refValue(acl.security_attribute) &&
+        String(acl.decision_type || 'allow').toLowerCase() !== 'deny'
+    )
   );
 
-  // The roles M2M lives on sys_security_acl_role, so fetch it separately and
-  // index by ACL rather than relying on a dot-walked field.
-  const roleRows = await queryTable(
-    'sys_security_acl_role',
-    '',
-    ['sys_security_acl', 'sys_user_role'],
-    { limit: 1000 }
-  ).catch(() => []);
+  // Roles for the candidates only. A chunk whose answer may be cut off (cap reached) or does not
+  // match what was asked for leaves its ACLs "unknown" rather than "open".
+  const withRoles = new Set();
+  const unknown = new Set();
+  const ids = candidates.map((acl) => acl.sys_id);
+  for (let i = 0; i < ids.length; i += ACL_ROLE_CHUNK) {
+    const chunk = ids.slice(i, i + ACL_ROLE_CHUNK);
+    const asked = new Set(chunk);
+    // eslint-disable-next-line no-await-in-loop -- sequential chunks keep the load on the instance low.
+    const roleRows = await queryTable('sys_security_acl_role', `sys_security_aclIN${chunk.join(',')}`, ['sys_security_acl', 'sys_user_role'], {
+      limit: ACL_ROLE_CHUNK_LIMIT,
+    });
+    const aclIds = roleRows.map((r) => refValue(r.sys_security_acl)).filter(Boolean);
+    if (roleRows.length >= ACL_ROLE_CHUNK_LIMIT || aclIds.some((id) => !asked.has(id))) {
+      chunk.forEach((id) => unknown.add(id));
+    }
+    aclIds.forEach((id) => withRoles.add(id));
+  }
 
-  const aclsWithRoles = new Set(
-    roleRows.map((r) => r.sys_security_acl?.value || r.sys_security_acl).filter(Boolean)
-  );
+  let skipped = 0;
+  candidates.forEach((acl) => {
+    if (withRoles.has(acl.sys_id)) return;
+    if (unknown.has(acl.sys_id)) {
+      skipped += 1;
+      return;
+    }
 
-  rows.forEach((acl) => {
-    const hasRole = aclsWithRoles.has(acl.sys_id);
-    const hasCondition = Boolean((acl.condition || '').trim());
-    const hasScript = Boolean((acl.script || '').trim());
-
-    if (hasRole || hasCondition || hasScript) return;
-
+    const operation = refName(acl, 'operation');
     findings.push(
       finding(
-        acl.operation === 'read' ? SEVERITY.MEDIUM : SEVERITY.HIGH,
+        openAclSeverity(operation),
         'ACL',
-        `ACL "${acl.name}" (${acl.operation}) grants access with no role, condition or script.`,
+        `ACL "${acl.name}" (${operation || 'unknown operation'}) grants access with no role, condition or script.`,
         'Any authenticated user satisfies this rule. Confirm it is intentional.',
         `/sys_security_acl.do?sys_id=${acl.sys_id}`
       )
     );
   });
 
+  if (skipped) {
+    incomplete.push(`${skipped} ACL(s) not judged: their role rows could not be read completely, so they are not reported as open`);
+  }
   return rows.length;
 }
 
 /** Publicly reachable pages and processors. */
-async function auditPublicPages(findings) {
-  const rows = await queryTable('sys_public', 'active=true', ['sys_id', 'page', 'description'], {
-    limit: 200,
-  }).catch(() => []);
+// The checks below let a failed read fail the check (it is listed in `errors`) instead of
+// reporting "nothing found".
+async function auditPublicPages(findings, incomplete, options) {
+  const rows = await keepOnly(options, 'sys_public', await queryTable('sys_public', 'active=true', ['sys_id', 'page'], { limit: 200 }));
 
   rows.forEach((row) => {
     findings.push(
@@ -123,7 +202,7 @@ async function auditPublicPages(findings) {
         SEVERITY.MEDIUM,
         'Public access',
         `Page "${row.page}" is publicly accessible without authentication.`,
-        row.description || 'Confirm this page exposes no sensitive data.',
+        'Confirm this page exposes no sensitive data.',
         `/sys_public.do?sys_id=${row.sys_id}`
       )
     );
@@ -133,10 +212,8 @@ async function auditPublicPages(findings) {
 }
 
 /** Service Portal widgets flagged public. */
-async function auditPublicWidgets(findings) {
-  const rows = await queryTable('sp_widget', 'public=true', ['sys_id', 'name', 'id'], {
-    limit: 200,
-  }).catch(() => []);
+async function auditPublicWidgets(findings, incomplete, options) {
+  const rows = await keepOnly(options, 'sp_widget', await queryTable('sp_widget', 'public=true', ['sys_id', 'name', 'id'], { limit: 200 }));
 
   rows.forEach((row) => {
     findings.push(
@@ -158,7 +235,7 @@ async function auditProperties(findings) {
   const names = RISKY_PROPERTIES.map((p) => p.name).join(',');
   const rows = await queryTable('sys_properties', `nameIN${names}`, ['sys_id', 'name', 'value'], {
     limit: 100,
-  }).catch(() => []);
+  });
 
   rows.forEach((row) => {
     const def = RISKY_PROPERTIES.find((p) => p.name === row.name);
@@ -187,7 +264,7 @@ async function auditAdminRoles(findings) {
     'role.name=admin^user.active=true',
     ['sys_id', 'user', 'role', 'granted_by'],
     { limit: 300 }
-  ).catch(() => []);
+  );
 
   if (rows.length > 20) {
     findings.push(
@@ -205,13 +282,18 @@ async function auditAdminRoles(findings) {
 }
 
 /** Scripted REST resources that do not require authentication. */
-async function auditOpenRestOperations(findings) {
-  const rows = await queryTable(
+async function auditOpenRestOperations(findings, incomplete, options) {
+  const all = await queryTable(
     'sys_ws_operation',
     'active=true',
     ['sys_id', 'name', 'http_method', 'relative_path', 'requires_authentication', 'requires_acl_authorization'],
     { limit: 300 }
-  ).catch(() => []);
+  );
+  const rows = await keepOnly(
+    options,
+    'sys_ws_operation',
+    all.filter((row) => String(row.requires_authentication ?? 'true') === 'false' || String(row.requires_acl_authorization ?? 'true') === 'false')
+  );
 
   rows.forEach((row) => {
     const noAuth = String(row.requires_authentication ?? 'true') === 'false';
@@ -229,16 +311,21 @@ async function auditOpenRestOperations(findings) {
     );
   });
 
-  return rows.length;
+  return all.length;
 }
 
 /**
  * Run the full audit.
- * @returns {Promise<{findings:Array, counts:object, errors:Array}>}
+ * @param {{keepRecords?: (table: string, sysIds: string[]) => Promise<Set<string>>}} [options]
+ *   keepRecords narrows the record-level checks (see keepOnly); properties and admin roles stay instance-wide.
+ * @returns {Promise<{findings:Array, counts:object, errors:Array, incomplete:Array}>}
+ *   incomplete: checks that ran but hit a cap ({check, reason}); they are also listed in `errors`
+ *   (with incomplete: true) so every consumer shows them.
  */
-export async function runSecurityAudit() {
+export async function runSecurityAudit(options = {}) {
   const findings = [];
   const errors = [];
+  const incomplete = [];
   const counts = {};
 
   const checks = [
@@ -250,12 +337,17 @@ export async function runSecurityAudit() {
     ['Scripted REST', auditOpenRestOperations],
   ];
 
-  const settled = await Promise.allSettled(checks.map(([, fn]) => fn(findings)));
+  const notes = checks.map(() => []);
+  const settled = await Promise.allSettled(checks.map(([, fn], index) => fn(findings, notes[index], options)));
 
   settled.forEach((outcome, index) => {
     const [label] = checks[index];
     if (outcome.status === 'fulfilled') {
       counts[label] = outcome.value;
+      notes[index].forEach((reason) => {
+        incomplete.push({ check: label, reason });
+        errors.push({ check: label, error: `incomplete: ${reason}`, incomplete: true });
+      });
     } else {
       errors.push({ check: label, error: outcome.reason?.message || String(outcome.reason) });
     }
@@ -264,7 +356,7 @@ export async function runSecurityAudit() {
   const order = { high: 0, medium: 1, low: 2 };
   findings.sort((a, b) => order[a.severity] - order[b.severity] || a.category.localeCompare(b.category));
 
-  return { findings, counts, errors };
+  return { findings, counts, errors, incomplete };
 }
 
 export function formatAuditFindings({ findings, counts, errors }) {
@@ -287,13 +379,18 @@ export function formatAuditFindings({ findings, counts, errors }) {
         .join('\n\n')
     : 'No findings from the deterministic checks.';
 
-  const errorText = errors.length
-    ? `\n\nChecks that could not run (usually insufficient read access): ${errors
+  const failed = errors.filter((e) => !e.incomplete);
+  const partial = errors.filter((e) => e.incomplete);
+  const errorText = failed.length
+    ? `\n\nChecks that could not run (usually insufficient read access): ${failed
         .map((e) => `${e.check} (${e.error})`)
         .join('; ')}`
     : '';
+  const partialText = partial.length
+    ? `\n\nChecks that ran only partly (results are incomplete): ${partial.map((e) => `${e.check} (${e.error.replace(/^incomplete: /, '')})`).join('; ')}`
+    : '';
 
-  return `${header}\n${scanned}\n\n${body}${errorText}`;
+  return `${header}\n${scanned}\n\n${body}${errorText}${partialText}`;
 }
 
 export function buildAuditPrompt(result) {

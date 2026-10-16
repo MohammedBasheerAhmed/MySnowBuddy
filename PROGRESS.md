@@ -3,7 +3,157 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
-## Status: Phases 1–5 implemented and building cleanly. NOT yet tested against any live ServiceNow instance.
+## RESUME HERE (Phase 8 built 2026-10-16; next step is live verification on the PDI)
+State: 486 tests pass, `npm run build` clean, `node preview/smoke.js` 9/9. Nothing is committed (no git). The extension is
+loaded unpacked from D:\MySnowBuddy\dist in the user's Chrome; the user's PDI is https://dev364920.service-now.com
+(Australia p7). At the end of the 2026-10-16 session the PDI session was logged out and the loaded extension was the OLD
+build. Pre-Phase-8 source snapshot: scratchpad baseline-20261016-1206/mysnowbuddy.tar (see memory multi-agent-push-oct16).
+
+**First thing to do next session**
+1. Ask the user to reload the extension (chrome://extensions → MySnowBuddy → reload), log in to the PDI, refresh the tab.
+2. Live-verify Phase 8, read-only first (never write to the PDI without asking): every assumption listed under
+   "Phase 8 assumptions" in docs/decisions.md. Order: (a) columns/tables via sys_dictionary (cheap, one script);
+   (b) open each panel (/why, /xray, /health, /mywork, /ship, /push preview only) on real records; (c) the editor
+   autocomplete/hover/underline alignment in a real browser; (d) control-plane reads (read_page on a classic form, a list,
+   the Next Experience shell, a workspace, a portal); (e) only with the user's OK: a write round trip on a throwaway record
+   (create_record → update_record → undo → delete) and an update set switch + read-back.
+3. Still from Phase 7: confirm the "script" chip shows the field on a Client Script / Business Rule.
+
+**Open work, in priority order**
+- Live verification above (Phase 8 and the ~35 older endpoints: concoursepicker, /api/sn_cicd, /impersonate.do,
+  /logout_impersonate.do, cache.do, threads.do, xmlstats.do, stats API).
+- Agent flow end to end needs an Anthropic API key (user has none yet).
+- Known gaps from Phase 8 reports: after a top-level page reload the sidebar agent loses its run (the MCP bridge recovers);
+  catalog variables don't get the live "why"; related-list headers aren't annotated by X-ray; domain hierarchy walking in the
+  access debugger; view-specific UI policies are ranked, not fully evaluated; ship check doesn't cover update-set preview
+  problems or ATF coverage; push session-only writes need the target's g_ck (Basic credentials in Options work); moves are
+  capped at 25 entries; the preview harness has no agentUndo service (/undo does not work there); scripts > 40K chars get
+  only syntax + API checks while typing in the editor.
+- Idea backlog: find references / call graph, per-instance AI memory, token/cost meter, getReference callback typing and
+  choice values in completion, full check off the main thread, agent tools for ship check moves and push (write tier).
+
+**Tooling:** preview/driver.js (calibration driver), preview/fakeInstance.js (fake Table API for the preview harness, if the
+visual QA run added it), puppeteer-core (installed with --no-save; re-run `npm i --no-save puppeteer-core` if missing).
+Heredocs mangle backslashes in JS: patch with the Edit tool or a node script written with the Write tool. Build and test
+temp dirs are per process, so parallel agents can build/test at once.
+
+## Phase 8 (2026-10-16): control plane + analysis panels, built by seven parallel agents, then reviewed
+Plugin points first: src/sidebar/panelRegistry.js (panel + slash + palette + /help), src/content/featureServices.js,
+build.js auto-includes src/sidebar/*.css. Then, in parallel:
+- **Control plane** (src/lib/agent/control.js, src/content/controlPage.js, controlSession.js, controlTools.js): read_page,
+  navigate, get_instance_info, click_ui_action, create/update/delete_record with undo, run_background_script,
+  switch_update_set, switch_application_scope, impersonate_user, end_impersonation, run_atf; MCP-only screenshot (Allow
+  click per shot) and list_tabs; tab_id on every MCP tool; external-agent permission ceiling in Options; page-reload
+  recovery for MCP calls.
+- **Script editor** (src/lib/completion.js, editorText.js, editorDiagnostics.js, src/content/editorData.js, rewritten
+  scriptEditor.js): autocomplete, hover docs, signature help, live problems + quick fixes, editing commands, go to
+  definition, F1 shortcut list.
+- **Access debugger** /why /access (src/lib/accessTrace.js, src/content/accessDebugger.js, AccessDebuggerPanel.jsx).
+- **Health scan** /health /scan (src/lib/healthScan.js, src/content/healthScan.js, HealthScanPanel.jsx).
+- **My work, ship check, moves, push** /mywork /ship /push (src/lib/updateSetReview.js, pushArtifact.js,
+  src/content/myWork.js, src/background/push.js, MyWorkPanel.jsx, ShipCheck.jsx, MoveEntries.jsx, PushArtifact.jsx).
+- **Page X-ray** /xray Alt+Shift+X (src/lib/xray.js, src/content/xray.js, XrayPanel.jsx).
+- **Hardening**: central redaction in sendChat, src/lib/scopes.js per-function typing, lint/verify fixes, renderTemplate
+  escaping, tableApi session-expiry + retry, bug-hunt fixes; lint/verify made ~linear (30 s → 0.12 s on a 750-variable
+  script, identical findings on 1,248 result sets).
+- **Analysis panels as agent/MCP tools** (lead): explain_access, explain_field, check_update_set, scan_instance_health.
+- **Reviews**: a safety review (18 findings: approval cards could hide code, auto dry runs could be escaped, page scripts
+  could operate the extension UI, delete via parent table, query injection in explain_access, MCP timeout semantics,
+  screenshot redaction, undo checks, navigate URL variants, PROD label gate, redaction gaps, sender checks, push re-checks)
+  and a correctness review (23 findings: ACL operation is a reference, health "Nothing found" on failure, catalog/dictionary
+  update names, ship check Ready with unchecked scripts, collision scope, X-ray null state/views/NOT LIKE, report_on, ...).
+  All 41 were fixed with regression tests. UI isolation: closed shadow root (src/content/uiRoot.js), hotkeys relayed via
+  the service worker (src/lib/hotkeyRelay.js), isTrusted guard on every write/approve handler (src/sidebar/trusted.js),
+  per-frame sender checks in the service worker (src/lib/senderCheck.js).
+Nothing in Phase 8 has run on a live instance yet; every assumption is listed in docs/decisions.md.
+
+## Status: Phases 1–7 (older notes below; Phase 7 was partly calibrated on the PDI, see Live calibration)
+
+### Full-repo bug hunt (after Phase 7) — fixed, 170 tests pass
+Four read-only reviews (background/agent, content scripts, libs/sandbox, React UI); findings verified in code before fixing.
+Fixed: auto dry-run now asks when a script has side effects a dry run cannot suppress (REST/SOAP, events, setProperty,
+GlideMultipleUpdate, SQL); leading `javascript:` blocked in search_code/read_artifact/read_logs/stack-trace queries
+(src/lib/queryGuard.js); write guard fails safe for unrecognised instance names (policy.js isGuardedEnv) and the classifier
+knows acmeprod / dev12345; undo payloads never clipped; undo of a created record (DELETE 204) no longer throws; field undo
+bound to its record; save_artifact creates inactive by default, verifies script_true/script_false and shows every field on
+the approval card; page watcher reports the first page; conflict check reads up to 2000 rows; editor types over closing
+quotes; chat history per instance; Options no longer overwrites newer settings; REST panel Enter double-send; IME Enter;
+sidebar reads fresh page context; verify (current.variables, GlideAggregate COUNT, credential names); conditionsOnly keeps ^^;
+simulator no longer hangs on self-rescheduling callbacks; sandbox reply survives non-cloneable results.
+**Still open (not fixed):** redaction only at some call sites; re-injection after extension reload now replaces an orphaned page root (untested in a real tab);
+variable-name reuse across functions in verify/apiCheck; lint table lists miss
+ui_action/acl/scripted_rest kinds; lint loop detection misses Allman-style/forEach; renderTemplate does not escape values in
+snippets; security audit / update-set collision truncation (need a live instance to confirm).
+
+### Simulator fidelity pass — done, 174 tests + smoke pass
+mockForm.js: GlideAjax responseText is the XML string and getAnswer() follows getXMLWait(); client GlideRecord honours
+operators, restarts on a second query(), exposes columns as properties, has get/setLimit/orderBy/getRowCount/addEncodedQuery
+(plain conditions only, rest flagged) and flags writes; setTimeout/setInterval run in virtual time; g_modal callbacks fire;
+onCellEdit warns if callback() is never called; unknown fields are not created when the scenario lists its fields.
+Unverified against a real form: g_user.roles shape (string here), getXMLWait return value.
+
+### Safety follow-ups — done, 179 tests + smoke pass
+MCP cancel path: bridge tells the extension (poll response `cancel`) when a call times out or the client sends
+notifications/cancelled; the extension dismisses the approval card and refuses to execute it (mcpBridge.js cancelCall,
+agentBridge.js AGENT_TOOL_CANCEL, approvalDialog.cancel). Approve is locked until the sidebar preview settles, and a failed
+preview is shown instead of swallowed. Step-limit wrap-up keeps tool definitions in the request. save_form confirms by
+comparing sys_mod_count / sys_updated_on and says so when nothing changed.
+
+### Live calibration against a PDI (Australia patch 7, dev364920) — done, 181 tests pass
+Method: Claude-in-Chrome connector on the user's logged-in tab (Table API with the page's g_ck, sys.scripts.do for
+read-only introspection). Confirmed: sys.scripts.do endpoint + output extraction work as coded; all 80 tables the code uses
+exist. Found and fixed: g_form.getFieldNames() does NOT exist on this release (bridge now falls back to g_form.elements) so
+"No script was found" appeared on every record; 7 wrong columns (sys_metadata.name -> sys_name, sys_public.description,
+sys_script_client.field_name -> field, sys_transform_script.sys_transform_map -> map, sys_ui_policy.name, syslog_transaction
+.user_name -> sys_created_by, task.name); API catalog corrections (removed SOAPMessageV2.setHttpMethod,
+GlideDateTime.hasTime, AbstractAjaxProcessor.isPublic, GlideStringUtil.dotToUnderscore, GlideSession.getUrlOnStack,
+client GlideRecord.addEncodedQuery; renamed getRoot->getRootElement, unescapeHTML->unEscapeHTML; marked scopedOnly the
+methods absent from global scope: gs.base64Encode/Decode/urlEncode/urlDecode, GlideSysAttachment.getContent/
+getContentBase64/writeBase64, RESTMessageV2.setRequestorContext). **ServiceNow silently ignores a condition or ORDERBY on a
+column that does not exist** (name=x on a table with no name returns every row), so the agent's query_table/count_records now
+reject unknown columns. New: Table explorer (sidebar/FieldInspectorPanel.jsx, content/fieldInspector.js): table facts,
+columns with dictionary badges, per-column details + choices + overrides, list layouts.
+Not verified: scoped-only API availability (needs a custom scope; platform scopes return "not authorized" from sys.scripts.do,
+which the extension should surface instead of "(no output)"); agent approval flow with the model (no API key yet).
+
+### Phase 7 — AI agent, skills, verification, simulator, MCP (done; verified as far as listed below)
+Goal: make the tool great for ServiceNow developers and let an AI act on ServiceNow
+safely, using client-script and server-script skills.
+
+- **Providers** (`src/providers/`): neutral message format (`messages.js`), Anthropic adapter with
+  tool use (`anthropic.js`: no sampling params, adaptive thinking, thinking blocks replayed unchanged
+  in tool loops, refusals surfaced), OpenAI adapter with function calling, `index.js` dispatch,
+  `config.js` providers/models/storage keys. Service worker: `CHAT_COMPLETION`, `AGENT_STEP`,
+  `GET_PROVIDER_INFO`, `VALIDATE_API_KEY`, `SANDBOX_RUN`, `OPEN_OPTIONS`.
+- **API catalog** (`src/lib/apiCatalog/`): 64 entries / 670 methods (client 14, server 50), schema in
+  `SCHEMA.md`, lookup/search/fuzzy match in `index.js`. Written from general knowledge; not validated
+  against an instance. `apiCheck.js` flags unknown methods (typo-near = error), wrong-side APIs,
+  deprecated/scope/UI limits.
+- **Verifier** (`src/lib/verify.js`): syntax, lint, catalog, client structure (handler present, onChange
+  guard, onCellEdit callback, GlideAjax sysparm_name/callback), server structure (BR timing, GlideRecord
+  ordering, ES5, browser globals, ACL answer, Script Include AJAX), field names against the dictionary.
+- **Skills** (`src/lib/skills/`): Client Script and Server Script packs (guide, digest, tools), selected by page.
+- **Simulator** (`src/lib/mockForm.js`, `src/sandbox/`, `src/offscreen/`): mock g_form/g_user/GlideAjax/
+  g_modal/client GlideRecord, run in a manifest sandbox page hosted by an offscreen document.
+- **Agent** (`src/lib/agent/`): 20 tools in `toolSchemas.js` (single source of truth, tiers), loop with
+  approval gates (`agentLoop.js`), policy (`policy.js`), system prompt, audit + undo (`audit.js`), run
+  state for the UI (`runState.js`). Page-side tools in `src/content/agentTools.js`.
+- **UI**: agent timeline with inline approval cards and diffs (`AgentRun.jsx`), new hero/empty state,
+  API explorer (`ApiExplorerPanel.jsx`), test bench (`TestBenchPanel.jsx`), autonomy selector, model chip,
+  key banner, approval dialog for external agents, redesigned Options (provider/key/model, agent, MCP).
+  Styles in `src/sidebar/agent.css`.
+- **MCP bridge** (`mcp/snowbuddy-mcp.js`, `src/background/mcpBridge.js`): stdio MCP server + loopback HTTP
+  long-poll to the extension; `tools/list` and skill resources from `mcp/generated/` (written by the build).
+- **Evals** (`tests/evals/`): 13 cases; offline in `npm test`, live via `npm run eval -- --live`.
+- **Dev harness** (`preview/`): the real sidebar with a scripted model and canned instance data.
+
+**Verified in this phase:** 160 unit/eval tests pass; `npm run build` clean; real sidebar flow (reads ->
+verify fail -> fix -> simulate -> approval card -> save, light/dark/PROD) screenshotted in headless Chrome
+with no console errors; built extension loaded in Chrome: service worker starts, offscreen+sandbox
+round trip (syntax check, client run, DOM blocked), non-ServiceNow senders rejected, Options page renders;
+MCP chain (pairing, register, tools/list_changed, tool routing, wrong token 401, Host/Origin 403).
+**Not verified:** any live model call; any ServiceNow endpoint; the content script / page bridge
+`getFormModel` on a real form; Edge.
 
 ### Phase 1 — done (code complete)
 - Scaffolding: `manifest.json`, `package.json`, `build.js` (esbuild, JSX-only, no TS), `.gitignore`
@@ -276,6 +426,7 @@ the toolbar menu was regrouped into Navigate / This record / Instance / Tools;
 - Unverified: editor behaviour across all browsers, `execCommand('insertText')` undo in a shadow-DOM textarea, sync polling on large scripts.
 
 ### Next steps
+0. Set an API key (Options), then on a personal developer instance run the agent on a real form; then `npm run eval -- --live` and compare `--no-guide`; fix the catalog entries and endpoints the instance disproves.
 1. Load `dist/` unpacked in Chrome and Edge; check for console errors
 2. Test each palette command and slash command against a personal dev instance
 3. Confirm the unverified assumptions listed above, starting with the page

@@ -203,6 +203,8 @@ export const KINDS = {
     builtins: BUILTIN_SNIPPETS,
     categories: SNIPPET_CATEGORIES,
     noun: 'snippet',
+    // Values are escaped for the JavaScript context they land in (see renderTemplate).
+    code: true,
   },
 };
 
@@ -222,11 +224,11 @@ export function extractVariables(template) {
 
 /** Variables the user has to type, i.e. everything that is not page context. */
 export function userVariables(template) {
-  return extractVariables(template).filter((name) => !(name in CONTEXT_VARIABLES));
+  return extractVariables(template).filter((name) => !Object.hasOwn(CONTEXT_VARIABLES, name));
 }
 
 export function contextVariablesUsed(template) {
-  return extractVariables(template).filter((name) => name in CONTEXT_VARIABLES);
+  return extractVariables(template).filter((name) => Object.hasOwn(CONTEXT_VARIABLES, name));
 }
 
 /** Resolve context variables from the page context object. */
@@ -241,20 +243,130 @@ export function contextValues(ctx, hostname) {
   };
 }
 
+/** Escape text for the inside of a JavaScript string literal delimited by `quote` (', " or `). */
+export function escapeForJsString(value, quote = "'") {
+  const out = String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/\r/g, '\\r')
+    .replace(/\n/g, '\\n')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+  if (quote === '`') return out.replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+  return out.split(quote).join(`\\${quote}`);
+}
+
+/**
+ * Lexical context of every {{placeholder}} in a code template, keyed by its
+ * offset: 'code', a quote character (inside that string literal),
+ * 'line-comment' or 'block-comment'. A light scanner, not a parser: regex
+ * literals are skipped (so /'/ does not open a string), ${...} inside template
+ * literals is not tracked.
+ */
+// After these, a "/" starts a regex literal; after an operand ( ) ] identifier number ) it divides.
+const REGEX_AFTER_CHAR = new Set('(,=:[!&|?{};+-*%<>~^'.split(''));
+const REGEX_AFTER_WORD = new Set(['return', 'typeof', 'case', 'in', 'of', 'new', 'delete', 'void', 'throw', 'instanceof', 'else', 'do']);
+
+function regexStartsAt(template, i) {
+  let j = i - 1;
+  while (j >= 0 && /\s/.test(template[j])) j -= 1;
+  if (j < 0) return true;
+  if (template[j] === '}' && template[j - 1] === '}') return false; // {{value}} / 2: a placeholder is an operand
+  if (REGEX_AFTER_CHAR.has(template[j])) return true;
+  if (!/[\w$]/.test(template[j])) return false;
+  let k = j;
+  while (k > 0 && /[\w$]/.test(template[k - 1])) k -= 1;
+  return REGEX_AFTER_WORD.has(template.slice(k, j + 1));
+}
+
+/** Index of the "/" that closes the regex literal opened at `i`, or -1 when it is not one. */
+function regexEnd(template, i) {
+  let inClass = false;
+  for (let j = i + 1; j < template.length; j += 1) {
+    const c = template[j];
+    if (c === '\n') return -1;
+    if (c === '\\') j += 1;
+    else if (inClass) inClass = c !== ']';
+    else if (c === '[') inClass = true;
+    else if (c === '/') return j;
+  }
+  return -1;
+}
+
+function codeContexts(template) {
+  const contexts = new Map();
+  const placeholder = new RegExp(`^${VARIABLE_PATTERN.source}`);
+  let state = 'code';
+  for (let i = 0; i < template.length; i += 1) {
+    if (template[i] === '{' && template[i + 1] === '{') {
+      const m = placeholder.exec(template.slice(i));
+      if (m) {
+        contexts.set(i, state);
+        i += m[0].length - 1;
+        continue;
+      }
+    }
+    const ch = template[i];
+    const next = template[i + 1];
+    if (state === 'code') {
+      if (ch === '/' && next === '/') {
+        state = 'line-comment';
+        i += 1;
+      } else if (ch === '/' && next === '*') {
+        state = 'block-comment';
+        i += 1;
+      } else if (ch === "'" || ch === '"' || ch === '`') {
+        state = ch;
+      } else if (ch === '/' && regexStartsAt(template, i)) {
+        // Skip the whole literal: a quote inside /'/ must not open a string. Unterminated = division.
+        const end = regexEnd(template, i);
+        if (end !== -1) i = end;
+      }
+    } else if (state === 'line-comment') {
+      if (ch === '\n') state = 'code';
+    } else if (state === 'block-comment') {
+      if (ch === '*' && next === '/') {
+        state = 'code';
+        i += 1;
+      }
+    } else if (ch === '\\') {
+      i += 1; // an escaped character never ends the string
+    } else if (ch === state || (ch === '\n' && state !== '`')) {
+      state = 'code';
+    }
+  }
+  return contexts;
+}
+
+function escapeForContext(value, context) {
+  if (context === "'" || context === '"' || context === '`') return escapeForJsString(value, context);
+  // A newline would end a // comment and turn the rest of the value into code.
+  if (context === 'line-comment') return value.replace(/\r\n|[\r\n\u2028\u2029]/g, ' ');
+  if (context === 'block-comment') return value.replace(/\*\//g, '* /');
+  return value; // code position: the user typed code (a number, a class name) on purpose
+}
+
 /**
  * Fill a template. Substitution is a single pass, so a value that itself
  * contains {{x}} is not expanded again.
  * Returns { text, missing } where `missing` lists names with no value.
+ *
+ * Prompts are plain text and get values unchanged. Code snippets (options.code,
+ * or options.kind === 'snippets') escape each value for where it lands: inside
+ * a string literal quotes, backslashes and newlines are escaped, so a value can
+ * never break out of the literal and inject code.
  */
-export function renderTemplate(template, values) {
+export function renderTemplate(template, values, options = {}) {
+  const source = String(template || '');
+  const isCode = options.code ?? Boolean(KINDS[options.kind]?.code);
+  const contexts = isCode ? codeContexts(source) : null;
   const missing = [];
-  const text = String(template || '').replace(VARIABLE_PATTERN, (_m, name) => {
+  const text = source.replace(VARIABLE_PATTERN, (_m, name, offset) => {
     const value = values[name];
     if (value === undefined || value === null || String(value).trim() === '') {
       if (!missing.includes(name)) missing.push(name);
       return `{{${name}}}`;
     }
-    return String(value);
+    return isCode ? escapeForContext(String(value), contexts.get(offset) || 'code') : String(value);
   });
   return { text, missing };
 }

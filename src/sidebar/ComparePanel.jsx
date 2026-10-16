@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { artifactOptions } from '../lib/artifacts.js';
 import { compareResultToMarkdown, downloadText, suggestFilename } from '../lib/report.js';
+import { listInstances } from '../content/stores.js';
+import PushArtifact from './PushArtifact.jsx';
+import { trusted } from './trusted.js';
 
 const OPTIONS = artifactOptions();
 
@@ -15,12 +18,21 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
   const [summary, setSummary] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [known, setKnown] = useState([]);
+  const [pushing, setPushing] = useState(null);
+
+  useEffect(() => {
+    listInstances()
+      .then(setKnown)
+      .catch(() => {});
+  }, []);
 
   async function handleCompare() {
     setBusy(true);
     setError(null);
     setResult(null);
     setSummary(null);
+    setPushing(null);
     try {
       const response = await chrome.runtime.sendMessage({
         type: 'COMPARE_INSTANCES',
@@ -62,22 +74,60 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
     downloadText(suggestFilename(`compare-${result.table}`), compareResultToMarkdown(result, summary));
   }
 
+  const targetHost = result ? new URL(result.target).hostname : '';
+
+  function pushPanel(key, sysId) {
+    if (!pushing || pushing.key !== key) return null;
+    return (
+      <PushArtifact
+        key={`${key}|${sysId}`}
+        table={result.table}
+        sysId={sysId}
+        sourceUrl={result.source}
+        targetHost={targetHost}
+        recordName={key}
+        onClose={() => setPushing(null)}
+      />
+    );
+  }
+
+  function pushButton(key, sysId) {
+    if (!/^[0-9a-f]{32}$/i.test(sysId || '')) return null;
+    return (
+      <button
+        className="msb-mw-small-btn"
+        onClick={trusted(() => setPushing(pushing?.key === key ? null : { key, sysId }))}
+        aria-expanded={pushing?.key === key}
+        title={`Copy the source version to ${targetHost} (preview first)`}
+      >
+        Push to target...
+      </button>
+    );
+  }
+
   return (
     <div className="msb-compare">
       <div className="msb-compare__header">
         <strong>Compare Instances</strong>
-        <button onClick={onClose}>{'\u2715'}</button>
+        <button onClick={onClose}>{'✕'}</button>
       </div>
 
       <div className="msb-compare__form">
         <label>
           Source instance
-          <input value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="dev12345.service-now.com" />
+          <input list="msb-compare-instances" value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="dev12345.service-now.com" />
         </label>
         <label>
           Target instance
-          <input value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} placeholder="dev67890.service-now.com" />
+          <input list="msb-compare-instances" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} placeholder="dev67890.service-now.com" />
         </label>
+        <datalist id="msb-compare-instances">
+          {known.map((i) => (
+            <option key={i.host} value={i.host}>
+              {i.label}
+            </option>
+          ))}
+        </datalist>
         <label>
           Artifact type
           <select value={table} onChange={(e) => setTable(e.target.value)}>
@@ -92,7 +142,7 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
           Encoded query (optional)
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="active=true" />
         </label>
-        <button className="msb-compare__run" onClick={handleCompare} disabled={busy || !sourceUrl || !targetUrl}>
+        <button className="msb-compare__run" onClick={trusted(handleCompare)} disabled={busy || !sourceUrl || !targetUrl}>
           {busy ? 'Comparing...' : 'Compare'}
         </button>
       </div>
@@ -106,7 +156,7 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
           </div>
 
           <div className="msb-panel__actions">
-            <button onClick={handleSummarize} disabled={summarizing} className="msb-compare__summarize">
+            <button onClick={trusted(handleSummarize)} disabled={summarizing} className="msb-compare__summarize">
               {summarizing ? 'Summarizing...' : 'AI summary of changes'}
             </button>
             <button onClick={handleExport} className="msb-panel__secondary">
@@ -115,19 +165,23 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
           </div>
           {summary && <div className="msb-compare__summary">{summary}</div>}
 
-          <Section title={`Only in target / Added (${result.added.length})`} items={result.added.map((i) => i.key)} />
-          <Section title={`Only in source / Removed (${result.removed.length})`} items={result.removed.map((i) => i.key)} />
+          <Section title={`Only in target / Added (${result.added.length})`} items={result.added.map((i) => ({ key: i.key }))} />
+          <Section
+            title={`Only in source / Removed (${result.removed.length})`}
+            items={result.removed.map((i) => ({ key: i.key, action: pushButton(i.key, i.record?.sys_id), panel: pushPanel(i.key, i.record?.sys_id) }))}
+          />
 
           <div className="msb-compare__section">
             <div className="msb-compare__section-title">Modified ({result.modified.length})</div>
             {result.modified.map((item) => (
               <div key={item.key} className="msb-compare__modified">
-                <button className="msb-compare__modified-toggle" onClick={() => toggleExpanded(item.key)}>
-                  {expanded[item.key] ? '\u25be' : '\u25b8'} {item.key}
-                  <span className="msb-compare__field-count">
-                    {item.fieldDiffs.map((fd) => fd.field).join(', ')}
-                  </span>
-                </button>
+                <div className="msb-mw-row">
+                  <button className="msb-compare__modified-toggle" onClick={() => toggleExpanded(item.key)}>
+                    {expanded[item.key] ? '▾' : '▸'} {item.key}
+                    <span className="msb-compare__field-count">{item.fieldDiffs.map((fd) => fd.field).join(', ')}</span>
+                  </button>
+                  {pushButton(item.key, item.sourceSysId)}
+                </div>
                 {expanded[item.key] &&
                   item.fieldDiffs.map((fd) => (
                     <div key={fd.field} className="msb-compare__diff">
@@ -135,6 +189,7 @@ export default function ComparePanel({ onClose, currentInstanceUrl }) {
                       <pre>{fd.diffText}</pre>
                     </div>
                   ))}
+                {pushPanel(item.key, item.sourceSysId)}
               </div>
             ))}
           </div>
@@ -152,8 +207,18 @@ function Section({ title, items }) {
         <div className="msb-compare__empty">None</div>
       ) : (
         <ul className="msb-compare__list">
-          {items.map((name) => (
-            <li key={name}>{name}</li>
+          {items.map((item) => (
+            <li key={item.key}>
+              {item.action ? (
+                <div className="msb-mw-row">
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{item.key}</span>
+                  {item.action}
+                </div>
+              ) : (
+                item.key
+              )}
+              {item.panel}
+            </li>
           ))}
         </ul>
       )}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { diffLines, collapseDiff, hasChanges } from '../lib/diff.js';
 import { lintScript, formatLintFindings } from '../lib/lint.js';
 import { DiffView } from './DiffView.jsx';
+import { trusted } from './trusted.js';
 
 /**
  * Put a code block from the chat into a script field on the open form.
@@ -122,7 +123,7 @@ export default function ApplyPanel({ code, table, services, onClose }) {
               Applied to the form. Nothing is saved until you save the record yourself.
             </div>
             <div className="msb-panel__actions">
-              <button className="msb-panel__secondary" onClick={handleUndo}>
+              <button className="msb-panel__secondary" onClick={trusted(handleUndo)}>
                 Undo
               </button>
               <button className="msb-panel__secondary" onClick={onClose}>
@@ -134,7 +135,7 @@ export default function ApplyPanel({ code, table, services, onClose }) {
           <div className="msb-panel__actions">
             <button
               className="msb-panel__run"
-              onClick={handleApply}
+              onClick={trusted(handleApply)}
               disabled={!target || !current || current.readOnly || (rows && !rows.length)}
             >
               Apply to form

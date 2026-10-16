@@ -1,12 +1,17 @@
 import { createCommandPalette } from './commandPalette.js';
 import { createToastHost } from './toast.js';
 import { getInstanceInfo, getCurrentUpdateSet, formDocuments, recordUrl } from './quickActions.js';
+import { createAgentTools } from './agentTools.js';
+import { createControlDeps } from './controlSession.js';
+import { createApprovalDialog } from './approvalDialog.js';
+import { installAgentBridge } from './agentBridge.js';
+import { createAudit, chromeStorageAdapter } from '../lib/agent/audit.js';
 import { detectPageContext, getCsrfToken, installSelectionTracking, startScriptWatcher, readFormScript, detectListInfo } from './context.js';
-import { queryTable, fetchRecord, runBackgroundScript, impersonateUser, countRecords, queryAll } from './tableApi.js';
+import { queryTable, fetchRecord, runBackgroundScript, impersonateUser, countRecords, queryAll, createRecord, updateRecord, deleteRecord } from './tableApi.js';
 import { callPage } from './pageBridge.js';
 import { startLogTail } from './logTail.js';
 import { fetchVersionList, diffVersions } from './versions.js';
-import { fetchTableFields, fetchFieldLive } from './fieldInspector.js';
+import { fetchTableFields, fetchFieldLive, tableHierarchy, fetchTableInfo, fetchColumnDetail, fetchListLayout } from './fieldInspector.js';
 import { fetchAtfSuites, fetchAtfResults, fetchAtfSuiteResults, runAtfSuite, readAtfProgress } from './atf.js';
 import { fetchScopes, exportScope, downloadScopeZip } from './scopeExport.js';
 import { compareWithInstance } from './remoteRecord.js';
@@ -34,13 +39,17 @@ import { mountSidebar } from '../sidebar/mount.js';
 import { getSettings, saveSettings, onSettingsChanged } from './storage.js';
 import { startInstanceTag } from './instanceTag.js';
 import { installFieldTools } from './fieldTools.js';
+import { installXray, forwardXrayHotkey } from './xray.js';
 import { openScriptEditor } from './scriptEditor.js';
 import { findDefinitionUrl } from './storedCommands.js';
 import { extractScriptOutput } from '../lib/logTail.js';
 import { startFileSync, stopFileSync, isFileSyncActive } from './fileSync.js';
 import { createAutomation } from './automation.js';
+import { FEATURE_SERVICES } from './featureServices.js';
+import { attachUiRoot, UI_HOST_ID } from './uiRoot.js';
+import { matchesPaletteHotkey, matchesChatHotkey, matchesEditorHotkey, frameHotkeyRelay, sendFrameHotkey } from '../lib/hotkeyRelay.js';
 
-const HOST_ID = 'mysnowbuddy-root';
+const HOST_ID = UI_HOST_ID;
 
 // Artifact tables whose script field the linter understands, mapped to the
 // fields worth pulling for context.
@@ -59,16 +68,51 @@ const LINTABLE_TABLES = {
 // Tables not listed above are still tried, since most scripted records use a `script` field.
 const GENERIC_SCRIPT_TABLE = { scriptField: 'script', fields: ['sys_id', 'name', 'script'] };
 
-async function init() {
-  if (document.getElementById(HOST_ID)) return;
+// After the extension is reloaded or updated, the old content script is orphaned but its page root stays behind.
+// A plain "root exists" check then blocks the fresh copy, leaving the tab without UI or agent bridge until refresh.
+// So a newcomer pings the owner: a live owner answers synchronously, an orphan (invalidated context) cannot.
+const PING_EVENT = 'msb-ping';
+const PONG_ATTR = 'data-msb-pong';
 
-  const settings = await getSettings();
-  if (!settings.sidebarEnabled && !settings.paletteEnabled) return;
-
+/** Claim the page root synchronously (before any await, so two injections cannot both pass). null = a live copy owns it. */
+function claimHost() {
+  const existing = document.getElementById(HOST_ID);
+  if (existing) {
+    existing.setAttribute(PONG_ATTR, '');
+    document.dispatchEvent(new Event(PING_EVENT));
+    if (existing.getAttribute(PONG_ATTR)) return null;
+    existing.remove();
+  }
   const host = document.createElement('div');
   host.id = HOST_ID;
   document.documentElement.appendChild(host);
-  const shadow = host.attachShadow({ mode: 'open' });
+  document.addEventListener(PING_EVENT, () => {
+    if (chrome.runtime?.id && host.isConnected) host.setAttribute(PONG_ATTR, String(Date.now()));
+  });
+  return host;
+}
+
+/** The record's own title from a page title: no "| ServiceNow", no [DEV] tag prefix, '' for the generic shell title. */
+function recordTitle(raw) {
+  const title = String(raw || '')
+    .replace(/\s*\|\s*ServiceNow.*$/i, '')
+    .replace(/^\[[^\]]{1,12}\]\s*/, '')
+    .trim();
+  return /^(Classic\s*\|\s*)?Unified Navigation App$/i.test(title) ? '' : title;
+}
+
+async function init() {
+  const host = claimHost();
+  if (!host) return;
+
+  const settings = await getSettings();
+  if (!settings.sidebarEnabled && !settings.paletteEnabled) {
+    host.remove();
+    return;
+  }
+
+  // Closed: page scripts must not reach the UI through the host element (see uiRoot.js).
+  const shadow = attachUiRoot(host);
   const applyTheme = (theme) => {
     if (theme === 'light' || theme === 'dark') host.setAttribute('data-theme', theme);
     else host.removeAttribute('data-theme');
@@ -101,6 +145,8 @@ async function init() {
     openAtfPanel() {},
     openScopePanel() {},
     openAutomationPanel() {},
+    openApiPanel() {},
+    openTestPanel() {},
     sendPrompt() {},
     runCommand() {},
     registerBackgroundScriptRunner() {},
@@ -110,6 +156,43 @@ async function init() {
   // `toast` is declared below; the wrapper only reads it when a run reports back.
   const automation = createAutomation({
     toast: { success: (m) => toast.success(m), error: (m) => toast.error(m) },
+  });
+
+  // The agent's tools run here, next to the page. The sidebar agent and any
+  // external MCP client share one executor, one audit log and one approval policy.
+  const audit = createAudit(chromeStorageAdapter);
+  const agentTools = createAgentTools({
+    getContext: detectPageContext,
+    getInstanceInfo,
+    callPage,
+    queryTable,
+    fetchRecord,
+    countRecords,
+    createRecord,
+    updateRecord,
+    deleteRecord,
+    fetchTableFields,
+    tableHierarchy,
+    searchCode,
+    fetchLogs: async ({ contains = '', minutes = 60 } = {}) => {
+      const [logs, slow] = await Promise.all([
+        fetchRecentLogs({ contains, minutes, limit: 200 }),
+        fetchSlowTransactions({ minutes, limit: 30 }).catch(() => []),
+      ]);
+      return { groups: groupLogs(logs), slow, minutes, total: logs.length };
+    },
+    runBackgroundScript,
+    getCsrfToken,
+    wrapAsDryRun,
+    extractScriptOutput,
+    runSandbox: (payload) => chrome.runtime.sendMessage({ type: 'SANDBOX_RUN', payload }),
+    runAutomation: (steps) => automation.run(steps),
+    subscribeAutomation: (fn) => automation.subscribe(fn),
+    getCurrentUpdateSet,
+    recordUrl,
+    audit,
+    // `approval` is created further down; the hook is only called later, when navigate needs a person to decide.
+    control: createControlDeps({ confirm: (request) => approval.request(request) }),
   });
 
   if (settings.sidebarEnabled) {
@@ -132,6 +215,9 @@ async function init() {
     });
 
     sidebarApi.registerServices({
+      // Services for the panels in src/sidebar/panelRegistry.js; built-in names below win on a clash.
+      ...FEATURE_SERVICES,
+
       // Phase 2: conflict checker - deterministic checks run locally here,
       // the semantic pass happens in the sidebar via the service worker.
       runConflictCheck: async (ctx) => {
@@ -239,6 +325,9 @@ async function init() {
       diffVersions: (fromId, toId) => diffVersions(fromId, toId),
       fetchTableFields: (table) => fetchTableFields(table),
       fetchFieldLive: (name) => fetchFieldLive(name),
+      fetchTableInfo: (table) => fetchTableInfo(table),
+      fetchColumnDetail: (table, element) => fetchColumnDetail(table, element),
+      fetchListLayout: (table) => fetchListLayout(table),
 
       // ATF. Starting a run needs the CSRF token, attached here.
       fetchAtfSuites: (search) => fetchAtfSuites(search),
@@ -259,6 +348,13 @@ async function init() {
       getFieldState: (name) => callPage('getFieldState', [name]),
       setFieldValue: (name, value) => callPage('setFieldValue', [name, value]),
 
+      // AI agent: tool execution, approval previews, the audit log.
+      agentExecute: (name, args) => agentTools.execute(name, args),
+      agentUndo: () => agentTools.undoWithApproval((request) => approval.request(request)),
+      agentPreview: (name, args) => agentTools.preview(name, args),
+      readFormScript: () => readFormScript(),
+      auditList: async () => (await audit.load()).filter((e) => e.instance === window.location.hostname),
+
       // Page automation (navigate and click through screens).
       runAutomation: (steps) => automation.run(steps),
       cancelAutomation: () => automation.cancel(),
@@ -270,6 +366,10 @@ async function init() {
   const toast = createToastHost();
   shadow.appendChild(toast.element);
 
+  const approval = createApprovalDialog({ getInstanceInfo });
+  shadow.appendChild(approval.element);
+  installAgentBridge({ tools: agentTools, approval, getInstanceInfo, audit });
+
   automation.resume().catch((err) => console.error('[MySnowBuddy] automation resume failed', err));
 
   try {
@@ -278,6 +378,13 @@ async function init() {
     installFieldTools({ toast });
   } catch (err) {
     console.error('[MySnowBuddy] selection tracking failed', err);
+  }
+
+  // Page X-ray: Alt+Shift+X and the palette toggle; chips open the sidebar 'xray' panel.
+  try {
+    installXray({ sidebar: sidebarApi, toast });
+  } catch (err) {
+    console.error('[MySnowBuddy] page X-ray failed', err);
   }
 
   if (settings.instanceTagEnabled !== false) {
@@ -340,15 +447,14 @@ async function init() {
   };
   const openEditor = () => openScriptEditor({ shadow, toast, tools: editorTools });
 
-  // Classic forms live in a same-origin iframe; tell it when the palette is open so it can relay keys.
+  // Classic forms live in a sub-frame; tell the tab's frames (through the service worker, not
+  // window.postMessage, which page scripts can forge) when the palette is open so they relay keys.
   function broadcastPaletteState(open) {
-    document.querySelectorAll('iframe').forEach((frame) => {
-      try {
-        frame.contentWindow?.postMessage({ source: 'msb-palette-state', open }, window.location.origin);
-      } catch {
-        // Cross-origin frame; nothing to relay.
-      }
-    });
+    try {
+      chrome.runtime.sendMessage({ type: 'PALETTE_STATE', payload: { open: Boolean(open) } })?.catch?.(() => {});
+    } catch {
+      // Extension context invalidated (reloaded); nothing to relay.
+    }
   }
 
   const palette = createCommandPalette({
@@ -394,17 +500,24 @@ async function init() {
 
     watcher.subscribe((ctx) => {
       if (ctx.isList || !ctx.table || !ctx.sysId) return;
-      // Give the frame a moment to set its title.
-      setTimeout(() => {
+      // The title settles after the frame loads, and the shell shows a generic one first: retry until it is the record's.
+      let attempts = 0;
+      const tryRecord = () => {
+        attempts += 1;
         const docs = formDocuments();
-        const title = (docs[docs.length - 1].title || document.title || '').replace(/\s*\|\s*ServiceNow.*$/i, '');
+        const title = recordTitle(docs[docs.length - 1]?.title || document.title);
+        if (!title && attempts < 8) {
+          setTimeout(tryRecord, 1500);
+          return;
+        }
         recordRecent(window.location.hostname, {
           table: ctx.table,
           sysId: ctx.sysId,
           title,
           path: recordUrl(ctx.table, ctx.sysId),
         }).catch(() => {});
-      }, 1500);
+      };
+      setTimeout(tryRecord, 1500);
     });
   }
 
@@ -412,23 +525,20 @@ async function init() {
     installHotkeys(palette, sidebarApi, openEditor);
   }
 
+  // Only the extension (the service worker) can send these; page scripts cannot.
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === 'TOGGLE_SIDEBAR') sidebarApi.toggle();
     if (message?.type === 'OPEN_PALETTE') palette.toggle();
     if (message?.type === 'AUTOMATION_RESUME') automation.resume().catch(() => {});
-  });
-
-  // Classic UI runs the form inside the same-origin `gsft_main` iframe, where
-  // this script deliberately does not mount a UI. The iframe instance still
-  // forwards its hotkeys up here (see forwardHotkeysToTop) so the palette can
-  // be opened while the cursor is in a form field.
-  window.addEventListener('message', (event) => {
-    if (event.origin !== window.location.origin) return;
-    if (event.data?.source !== 'msb-frame-hotkey') return;
-    if (event.data.action === 'palette') palette.toggle();
-    if (event.data.action === 'chat') sidebarApi.toggle();
-    if (event.data.action === 'editor') openEditor();
-    if (event.data.action === 'key') palette.handleKey(event.data.key);
+    // Classic UI runs the form inside the `gsft_main` iframe, where this script deliberately
+    // does not mount a UI. The iframe's copy relays trusted hotkeys up here through the service
+    // worker (see forwardHotkeysToTop) so the palette can be opened while the cursor is in a form field.
+    if (message?.type === 'FRAME_HOTKEY') {
+      if (message.action === 'palette') palette.toggle();
+      if (message.action === 'chat') sidebarApi.toggle();
+      if (message.action === 'editor') openEditor();
+      if (message.action === 'key' && message.key) palette.handleKey(message.key);
+    }
   });
 
   notifyIfFirstRun(toast);
@@ -436,24 +546,13 @@ async function init() {
 
 const PALETTE_HINT = 'Ctrl+Shift+Space';
 
-function matchesPaletteHotkey(event) {
-  return event.ctrlKey && event.shiftKey && !event.altKey && (event.code === 'Space' || event.key === ' ');
-}
-
-function matchesChatHotkey(event) {
-  return event.altKey && event.shiftKey && !event.ctrlKey && event.code === 'KeyC';
-}
-
-function matchesEditorHotkey(event) {
-  return event.altKey && event.shiftKey && !event.ctrlKey && event.code === 'KeyE';
-}
-
 function installHotkeys(palette, sidebarApi, openEditor) {
   // Capture phase: ServiceNow form fields and the list editor swallow a lot of
   // key events on the bubble phase.
   document.addEventListener(
     'keydown',
     (event) => {
+      if (!event.isTrusted) return; // a page script's synthetic keydown
       if (matchesPaletteHotkey(event)) {
         event.preventDefault();
         event.stopPropagation();
@@ -476,42 +575,24 @@ function installHotkeys(palette, sidebarApi, openEditor) {
   );
 }
 
-/** Installed in sub-frames only: relays the hotkeys to the top frame's UI. */
+/**
+ * Installed in sub-frames only: relays trusted hotkeys to the top frame's UI through the
+ * service worker (src/lib/hotkeyRelay.js). The palette state arrives the same way.
+ */
 function forwardHotkeysToTop() {
   let paletteOpen = false;
-  window.addEventListener('message', (event) => {
-    if (event.origin !== window.location.origin || event.data?.source !== 'msb-palette-state') return;
-    paletteOpen = !!event.data.open;
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === 'PALETTE_STATE') paletteOpen = message.open === true;
   });
-
-  const NAV_KEYS = new Set(['Escape', 'ArrowDown', 'ArrowUp', 'Enter', 'Home', 'End']);
 
   document.addEventListener(
     'keydown',
     (event) => {
-      if (paletteOpen && (NAV_KEYS.has(event.key) || (event.ctrlKey && ['n', 'p'].includes(event.key.toLowerCase())))) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        window.top.postMessage(
-          {
-            source: 'msb-frame-hotkey',
-            action: 'key',
-            key: { key: event.key, ctrlKey: event.ctrlKey, shiftKey: event.shiftKey, metaKey: event.metaKey },
-          },
-          window.location.origin
-        );
-        return;
-      }
-      const action = matchesPaletteHotkey(event)
-        ? 'palette'
-        : matchesChatHotkey(event)
-          ? 'chat'
-          : matchesEditorHotkey(event)
-            ? 'editor'
-            : null;
-      if (!action) return;
+      const relay = frameHotkeyRelay(event, { paletteOpen });
+      if (!relay) return;
       event.preventDefault();
-      window.top.postMessage({ source: 'msb-frame-hotkey', action }, window.location.origin);
+      if (relay.action === 'key') event.stopImmediatePropagation();
+      sendFrameHotkey(relay);
     },
     true
   );
@@ -533,6 +614,7 @@ function start() {
   if (window.top !== window) {
     // Sub-frames get hotkey forwarding only — no duplicate UIs.
     forwardHotkeysToTop();
+    forwardXrayHotkey();
     return;
   }
   init().catch((err) => console.error('[MySnowBuddy] failed to start', err));

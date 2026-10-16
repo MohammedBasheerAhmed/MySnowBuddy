@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { trusted } from './trusted.js';
 import {
   parseSteps,
   describeStep,
@@ -152,7 +153,7 @@ export default function AutomationPanel({ onClose, services }) {
         </div>
 
         <div className="msb-panel__actions">
-          <button className="msb-panel__run" onClick={handleRun} disabled={running || planning || !script.trim()}>
+          <button className="msb-panel__run" onClick={trusted(handleRun)} disabled={running || planning || !script.trim()}>
             {running ? 'Running...' : 'Run'}
           </button>
           {running && (

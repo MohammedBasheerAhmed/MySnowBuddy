@@ -3,6 +3,7 @@
 
 import { queryTable } from './tableApi.js';
 import { takeNewRows } from '../lib/logTail.js';
+import { assertNoInlineScript } from '../lib/queryGuard.js';
 
 const LEVEL_VALUES = { error: '2', warn: '1', info: '0' };
 const FIELDS = ['sys_id', 'sys_created_on', 'level', 'source', 'message'];
@@ -14,6 +15,8 @@ const MIN_INTERVAL_MS = 2000;
  */
 export function startLogTail({ level = 'all', contains = '', intervalMs = 3000, onRows, onError }) {
   if (contains.includes('^')) throw new Error('Filter text cannot contain "^".');
+  // A leading javascript: in a query value runs on the server; the other log queries refuse it too.
+  assertNoInlineScript(contains, 'Filter text');
 
   const seen = new Set();
   const interval = Math.max(MIN_INTERVAL_MS, intervalMs);

@@ -3,22 +3,48 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
-## RESUME HERE (Phase 8 built 2026-10-16; next step is live verification on the PDI)
-State: 503 tests pass, `npm run build` clean, `node preview/smoke.js` 9/9. Git: origin is
-github.com/MohammedBasheerAhmed/MySnowBuddy, branch main (see memory github-repo-push). The extension is
-loaded unpacked from D:\MySnowBuddy\dist in the user's Chrome; the user's PDI is https://dev364920.service-now.com
-(Australia p7). At the end of the 2026-10-16 session the PDI session was logged out and the loaded extension was the OLD
-build. Pre-Phase-8 source snapshot: scratchpad baseline-20261016-1206/mysnowbuddy.tar (see memory multi-agent-push-oct16).
+## RESUME HERE (state at the end of the 2026-10-19 session; the user will say "continue")
+**State.** HEAD `ab68dcc` is pushed to origin/main (github.com/MohammedBasheerAhmed/MySnowBuddy); working tree clean;
+559 tests pass (`npm test`); `node build.js` clean; the extension loads unpacked from D:\MySnowBuddy\dist in the user's
+Chrome. PDI: https://dev364920.service-now.com (Australia p7), session user admin, update set Default [Global], scope global.
+The user calls the PDI a playground ("play as you want"), but always delete what you create (sets, properties, entries) and
+leave the session on global scope + Default [Global]. One platform-created "Default [Access Analyzer]" update set is left over (harmless).
 
-**First thing to do next session**
-1. Ask the user to reload the extension (chrome://extensions → MySnowBuddy → reload), log in to the PDI, refresh the tab.
-2. Live-verify Phase 8, read-only first (never write to the PDI without asking): every assumption listed under
-   "Phase 8 assumptions" in docs/decisions.md. Order: (a) columns/tables via sys_dictionary (cheap, one script);
-   (b) open each panel (/why, /xray, /health, /mywork, /ship, /push preview only) on real records; (c) the editor
-   autocomplete/hover/underline alignment in a real browser; (d) control-plane reads (read_page on a classic form, a list,
-   the Next Experience shell, a workspace, a portal); (e) only with the user's OK: a write round trip on a throwaway record
-   (create_record → update_record → undo → delete) and an update set switch + read-back.
-3. Still from Phase 7: confirm the "script" chip shows the field on a Client Script / Business Rule.
+**Done and live-verified on the PDI** (details in the dated entries below): palette (problem phrases, suggestions, pins, record
+numbers, sys_id lookup), on-page toolbar / field and column menus / popovers, floating windows, My work (scope, update set,
+New update set, Make current, Move entries via Ship check), Change impact, Health scan, X-ray, Access debugger, script runner
+(write detection, dry run, real run), impersonation start and end through the extension, record copy commands, scope dropdown
+(182 applications), forest palette in light and dark. Developer guide, SHOWCASE.md and the redesign are preview-verified and seen live.
+
+**Open, in order**
+1. Reload needed before the last fix is live: the script runner output no longer shows the platform's SQL debug lines.
+2. Undo of a move (audit /undo or "/changes") has not been run live (it reverses the same updateRecord call the move uses).
+3. Layout and wording: the user said they disliked colours, flatness, layout and wording, chose to keep the structure and change
+   only colours (forest). Ask which surface still bothers them (palette, guide, sidebar, windows, on-page buttons) before redesigning.
+4. Remaining `window.confirm` calls (production saves, run-anyway after a syntax error, automation clicks, ATF, prompt library,
+   clear history) are native blocking dialogs: move them to in-app dialogs. They also freeze the browser tool.
+5. No automated accessibility test (axe) yet; floating windows can be dragged but not moved by keyboard.
+6. Never verified live: /push (preview only), file sync to VS Code, ATF, the AI chat and agent (no API key used), the MCP server,
+   native Next Experience workspace forms (toolbar only), save-time breaking-change check for Script Includes (idea, not built).
+
+**How to work (hard-won)**
+- After every build the user must reload the extension at chrome://extensions and refresh the tab; you cannot do that. Stale tabs
+  show "Extension context invalidated" (harmless). Check a build is live by behaviour, not by assuming.
+- Live testing with Claude-in-Chrome: new tab per session; the first call after navigate often errors ("can't interact with
+  browser-internal URLs", "couldn't determine which page"): wait and retry. NEVER trigger alert/confirm/prompt or read the clipboard
+  (permission prompt): the tab freezes until the user dismisses it. If a tab stalls, close it and use a fresh tab on a light page
+  (stats.do shows the instance is healthy but has no session token). Split long REST chains (45 s tool limit). The tool blocks
+  output that looks like sys_ids/base64: print booleans or names. Verify identity with
+  /api/now/table/sys_user?sysparm_query=sys_id=javascript:gs.getUserID(). Order for cleanup: application first, then update set.
+- Shadow root is closed: the accessibility tree and find() cannot see extension UI; use coordinates and keyboard.
+- Preview harness: `npm run preview` (restart it after every build; it bundles at startup); flags ?palette=open, ?guide=1,
+  ?welcome=1, ?scriptform=1, ?inline=1. Kill with Get-NetTCPConnection -LocalPort 4173 | Stop-Process.
+- Heredoc/node patch scripts lose backslashes in regexes: use the Edit tool for any code that has a backslash in it.
+- Adding a palette command: add its INTENTS phrase (src/lib/paletteIntents.js); tests check ids exist and guide phrases rank first.
+- Theme: change tokens in src/content/theme.css AND src/options/options.css; tests/theme.test.js checks AA for both palettes and
+  forbids `background: var(--msb-*), ...` layering (it made surfaces transparent once). Memory: theme-palette-rules.
+- Git: gh has several accounts; only MohammedBasheerAhmed can push (`gh auth switch --user MohammedBasheerAhmed`). Commit and push
+  only when the user asks; they ask explicitly ("commit and push"). End commits with the attribution lines from the system reminder.
 
 **Added 2026-10-16 after Phase 8:** Change impact panel (`/impact`): src/lib/impact.js (pure), src/content/impact.js,
 src/sidebar/ImpactPanel.jsx + impact.css, registered in panelRegistry/featureServices; tests/impact.test.js (17 tests,

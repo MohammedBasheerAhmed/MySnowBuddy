@@ -16,6 +16,7 @@ import { sessionHeaders, getSessionToken } from './sessionToken.js';
 import { callPage } from './pageBridge.js';
 import { getNodeInfo, getCurrentUpdateSet, setCurrentUpdateSet, setCurrentApplication, shellUrl } from './quickActions.js';
 import { runAtfSuite } from './atf.js';
+import { startImpersonating, stopImpersonating } from './impersonation.js';
 import * as page from './controlPage.js';
 import { detectPageContext } from './context.js';
 import { explainAccess } from './accessDebugger.js';
@@ -138,17 +139,11 @@ export async function switchScope(appId) {
 /** Start impersonating. Unlike tableApi.impersonateUser this does not reload, so the tool can answer first. */
 export async function startImpersonation(userSysId) {
   if (!SYS_ID_RE.test(userSysId || '')) throw new Error('Invalid user.');
-  const response = await fetch(`/impersonate.do?sysparm_start_impersonating=${encodeURIComponent(userSysId)}`, {
-    method: 'GET',
-    credentials: 'same-origin',
-    headers: { 'X-UserToken': (await getSessionToken()) || '' },
-  });
-  if (!response.ok) throw new Error(`Impersonation request failed (${response.status}). It needs the impersonator or admin role.`);
+  await startImpersonating(userSysId);
 }
 
 export async function endImpersonation() {
-  const response = await fetch('/logout_impersonate.do', { method: 'GET', credentials: 'same-origin' });
-  if (!response.ok) throw new Error(`Ending impersonation failed (${response.status}).`);
+  await stopImpersonating();
 }
 
 // ---- ATF through the CI/CD API ---------------------------------------------------------------------

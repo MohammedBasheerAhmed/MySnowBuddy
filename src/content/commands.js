@@ -693,8 +693,7 @@ export function buildCommands(deps) {
     hint: 'Go back to your own user',
     group: GROUPS.tools,
     keywords: 'stop end impersonation revert',
-    url: '/logout_impersonate.do',
-    raw: true,
+    run: () => deps.endImpersonation?.(),
   });
 
   add({
@@ -703,23 +702,8 @@ export function buildCommands(deps) {
     hint: 'Change the update set your changes are captured in',
     group: GROUPS.tools,
     keywords: 'update set switch current pick',
-    run: async () => {
-      const sets = await fetchSelectableUpdateSets();
-      if (!sets.length) {
-        toast.error('No in-progress update sets found.');
-        return;
-      }
-      const names = sets.map((s, i) => `${i + 1}. ${s.name}`).join('\n');
-      const choice = window.prompt(`Switch to which update set?\n\n${names}`, '1');
-      const index = Number(choice) - 1;
-      if (!Number.isInteger(index) || index < 0 || index >= sets.length) return;
-      const token = await getCsrfToken();
-      await setCurrentUpdateSet(sets[index].sys_id, token);
-      toast.success(`Switched to "${sets[index].name}". Reload to pick it up.`, {
-        action: { label: 'Reload', onClick: () => window.location.reload() },
-        timeout: 10000,
-      });
-    },
+    // My work has the picker (and shows what each set holds); a browser prompt() with a numbered list blocked the page.
+    run: openPanel(() => sidebar.openPanel('mywork', { args: 'switch' })),
   });
 
   // --- Instance ------------------------------------------------------------

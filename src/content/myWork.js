@@ -18,6 +18,7 @@ import { createAudit, chromeStorageAdapter } from '../lib/agent/audit.js';
 import { isGuardedEnv } from '../lib/agent/policy.js';
 import {
   parsePickerCurrent,
+  parsePickerApplications,
   parseGroupedStats,
   analyseEntryScripts,
   tableForEntry,
@@ -239,14 +240,24 @@ export async function fetchMyUncaptured({ days = 7, refresh = false } = {}) {
 
 /** In-progress update sets and applications to switch to. */
 export async function fetchSwitchTargets() {
-  const [sets, apps] = await Promise.all([
+  const [sets, picked] = await Promise.all([
     queryTable('sys_update_set', 'state=in progress^ORDERBYDESCsys_updated_on', SET_FIELDS, { limit: 60 }),
-    queryTable('sys_app', 'active=true^ORDERBYname', ['sys_id', 'name', 'scope'], { limit: 60 }).catch(() => []),
+    readPickerApplications(),
   ]);
-  return {
-    sets: sets.filter((s) => s.state === 'in progress').map((s) => shapeSet(s)),
-    apps: [{ sys_id: 'global', name: 'Global', scope: 'global' }, ...apps],
-  };
+  // The platform's own picker is the source of truth (it includes plugin and store scopes); sys_app is the fallback.
+  const apps = picked.length
+    ? picked
+    : [{ sys_id: 'global', name: 'Global', scope: 'global' }, ...(await queryTable('sys_app', 'active=true^ORDERBYname', ['sys_id', 'name', 'scope'], { limit: 60 }).catch(() => []))];
+  return { sets: sets.filter((s) => s.state === 'in progress').map((s) => shapeSet(s)), apps };
+}
+
+async function readPickerApplications() {
+  try {
+    const response = await fetch('/api/now/ui/concoursepicker/application', { credentials: 'same-origin', headers: await sessionHeaders() });
+    return response.ok ? parsePickerApplications(await response.json()) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Switch the update set, then re-read what the instance now reports. */

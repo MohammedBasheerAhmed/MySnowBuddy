@@ -9,7 +9,8 @@ import { createApprovalDialog } from './approvalDialog.js';
 import { installAgentBridge } from './agentBridge.js';
 import { createAudit, chromeStorageAdapter } from '../lib/agent/audit.js';
 import { detectPageContext, getCsrfToken, installSelectionTracking, startScriptWatcher, readFormScript, detectListInfo } from './context.js';
-import { queryTable, fetchRecord, runBackgroundScript, impersonateUser, countRecords, queryAll, createRecord, updateRecord, deleteRecord } from './tableApi.js';
+import { startImpersonating, stopImpersonating } from './impersonation.js';
+import { queryTable, fetchRecord, runBackgroundScript, countRecords, queryAll, createRecord, updateRecord, deleteRecord } from './tableApi.js';
 import { callPage } from './pageBridge.js';
 import { startLogTail } from './logTail.js';
 import { fetchVersionList, diffVersions } from './versions.js';
@@ -413,19 +414,23 @@ async function init() {
     try {
       let sysId = sysIdOrNull;
       if (!sysId) {
-        const userQuery = window.prompt('Enter user_name to impersonate:');
-        if (!userQuery) return;
-        const results = await queryTable('sys_user', `user_name=${userQuery}`, ['sys_id', 'user_name']);
-        if (!results.length) {
-          toast.error(`No user found for "${userQuery}".`);
-          return;
-        }
-        sysId = results[0].sys_id;
+        // The palette already searches users as you type @name; a browser prompt() would block the page.
+        setTimeout(() => palette.open('@'), 0);
+        return;
       }
-      const token = await getCsrfToken();
-      await impersonateUser(sysId, token);
+      await startImpersonating(sysId);
+      window.location.reload();
     } catch (err) {
-      toast.error(`Impersonation failed: ${err.message}`);
+      toast.error(err.message);
+    }
+  }
+
+  async function endImpersonating() {
+    try {
+      await stopImpersonating();
+      window.location.reload();
+    } catch (err) {
+      toast.error(err.message);
     }
   }
 
@@ -484,6 +489,7 @@ async function init() {
     impersonate: () => impersonate(),
     impersonateByQuery: (sysId) => impersonate(sysId),
     impersonateUserName: (userName) => impersonateUserName(userName),
+    endImpersonation: () => endImpersonating(),
   });
   shadow.appendChild(palette.element);
 

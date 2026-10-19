@@ -29,6 +29,7 @@ const {
   dictionaryUpdateNames,
   isDefaultSet,
   validateNewUpdateSetName,
+  parsePickerApplications,
 } = require('../src/lib/updateSetReview.js');
 const { expectedUpdateName, findCollisionsForEntries, findUncapturedChanges } = require('../src/content/updateSets.js');
 const {
@@ -802,4 +803,19 @@ test('a new update set needs a real, unused name and never "Default"', () => {
   assert.equal(clash.ok, false);
   assert.match(clash.error, /already in progress/);
   assert.equal(validateNewUpdateSetName(null).ok, false);
+});
+
+test('the application list comes from the platform picker: Global first, then by name, no junk entries', () => {
+  const data = { result: { current: 'global', list: [
+    { sysId: 'b'.repeat(32), name: 'Workflow Studio', scopeName: 'sn_ws' },
+    { sysId: 'global', name: 'Global', scopeName: 'global' },
+    { sysId: 'a'.repeat(32), name: 'Access Analyzer', scopeName: 'sn_access_analyzer' },
+    { sysId: 'a'.repeat(32), name: 'Duplicate of the above', scopeName: 'x' },
+    { sysId: 'not-an-id', name: 'Broken' },
+    { sysId: 'c'.repeat(32), name: '' },
+  ] } };
+  assert.deepEqual(parsePickerApplications(data).map((a) => a.name), ['Global', 'Access Analyzer', 'Workflow Studio']);
+  assert.equal(parsePickerApplications(data)[1].scope, 'sn_access_analyzer');
+  assert.deepEqual(parsePickerApplications({ result: { current: 'global' } }), []);
+  assert.deepEqual(parsePickerApplications(null), []);
 });

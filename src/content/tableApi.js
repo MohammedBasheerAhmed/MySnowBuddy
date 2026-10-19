@@ -202,21 +202,6 @@ export async function runBackgroundScript(script, csrfToken) {
 }
 
 // Impersonation.
-// TODO (see docs/decisions.md): confirm the exact current impersonation
-// endpoint/flow (requires the impersonate_user role) before relying on this.
-export async function impersonateUser(userSysId, csrfToken) {
-  const response = await fetch(`/impersonate.do?sysparm_start_impersonating=${encodeURIComponent(userSysId)}`, {
-    method: 'GET',
-    credentials: 'same-origin',
-    headers: { 'X-UserToken': csrfToken || '' },
-  });
-  if (isSessionExpired(response, await response.text().catch(() => ''))) throw sessionExpiredError();
-  if (!response.ok) {
-    throw new Error(`Impersonation request failed (${response.status})`);
-  }
-  window.location.reload();
-}
-
 // ---- Configuration writes (agent save_artifact / undo) --------------------------------------
 // Same session, same ACLs as the user. Only src/content/agentTools.js calls these,
 // after an allow-list check and an explicit approval.

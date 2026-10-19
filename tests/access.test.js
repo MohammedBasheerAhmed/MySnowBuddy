@@ -583,3 +583,9 @@ test('runtime output errors are reported, not thrown', () => {
   assert.match(parseRuntimeCheckOutput(`${RUNTIME_MARKER} {"error":"no_table","table":"x"}`).error, /does not exist/);
   assert.match(parseRuntimeCheckOutput(`${RUNTIME_MARKER} {"id":"${SYS_ID}","found":false}`).error, /No record/);
 });
+
+test('script output stops at the platform\'s own SQL debug lines', () => {
+  const html = '<html><pre>*** Script: users 642 as admin<br/>[MySnowBuddy] Finished in 26ms.<br/>Time: 0:00:00.119 id: dev364920_1[glide.2] primary_hash=1551417892 (connpid=402177) for: SELECT<br/>sys_script_execution_history0.`executed_by`,<br/>FROM sys_script_execution_history</pre></html>';
+  assert.equal(extractScriptOutput(html), 'users 642 as admin\n[MySnowBuddy] Finished in 26ms.');
+  assert.equal(extractScriptOutput('<pre>Time stamp: not a debug line</pre>'), 'Time stamp: not a debug line');
+});

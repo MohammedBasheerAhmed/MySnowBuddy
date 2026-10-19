@@ -947,6 +947,26 @@ export function parsePickerCurrent(data) {
 }
 
 /**
+ * Every application the platform's own picker offers, as { sys_id, name, scope }: Global first, then by name. Reads
+ * `result.list` of GET /api/now/ui/concoursepicker/application (182 entries on a fresh PDI, while sys_app held none).
+ * Entries without a usable id or name are dropped. Returns [] for anything else.
+ */
+export function parsePickerApplications(data) {
+  const list = (data?.result ?? data)?.list;
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const apps = [];
+  list.forEach((entry) => {
+    const sysId = String(entry?.sysId || entry?.sys_id || '');
+    const name = String(entry?.name || '').trim();
+    if (!name || !(SYS_ID_RE.test(sysId) || sysId === 'global') || seen.has(sysId)) return;
+    seen.add(sysId);
+    apps.push({ sys_id: sysId, name, scope: String(entry?.scopeName || entry?.scope || '') });
+  });
+  return apps.sort((a, b) => (a.sys_id === 'global' ? -1 : b.sys_id === 'global' ? 1 : a.name.localeCompare(b.name)));
+}
+
+/**
  * Aggregate API (sysparm_group_by) result -> Map(groupValue -> {count, max}).
  * Handles one group (object) or many (array).
  */

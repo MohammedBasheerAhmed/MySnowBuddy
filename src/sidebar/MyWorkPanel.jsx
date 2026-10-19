@@ -58,7 +58,9 @@ export default function MyWorkPanel({ services, onClose, onAskAi, params }) {
 
   // "New update set..." in the palette opens this panel with the create form already showing.
   useEffect(() => {
-    if (available && String(params?.args || '').trim().toLowerCase() === 'new') openCreator();
+    const arg = String(params?.args || '').trim().toLowerCase();
+    if (available && arg === 'new') openCreator();
+    if (available && arg === 'switch') openSwitcher('set');
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the panel opens.
   }, []);
 
@@ -192,7 +194,15 @@ export default function MyWorkPanel({ services, onClose, onAskAi, params }) {
   if (view.name === 'review') {
     return (
       <div className="msb-panel">
-        <PanelHeader title="Ship check" onClose={onClose} onBack={() => setView({ name: 'home' })} />
+        <PanelHeader
+          title="Ship check"
+          onClose={onClose}
+          onBack={() => {
+            setView({ name: 'home' });
+            // A move made in the ship check changes the entry counts and warnings shown here.
+            load(true);
+          }}
+        />
         <ShipCheck key={view.setId} services={services} initialSetId={view.setId} onAskAi={onAskAi} />
       </div>
     );
@@ -387,6 +397,7 @@ export default function MyWorkPanel({ services, onClose, onAskAi, params }) {
                 (targets?.apps || []).map((a) => (
                   <option key={a.sys_id} value={a.sys_id}>
                     {a.name}
+                    {a.scope && a.scope !== 'global' ? ` (${a.scope})` : ''}
                   </option>
                 ))}
             </select>

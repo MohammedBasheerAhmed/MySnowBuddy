@@ -35,6 +35,8 @@ function decodeEntities(text) {
 }
 
 /** Plain text of the script output from the sys.scripts.do result page. */
+const SQL_DEBUG_LINE = /^Time: \d+:\d{2}:\d{2}\.\d+ id: /;
+
 export function extractScriptOutput(html) {
   const parts = [...String(html || '').matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi)].map((m) => m[1]);
   if (!parts.length) return '';
@@ -46,6 +48,16 @@ export function extractScriptOutput(html) {
   )
     .split('\n')
     .map((line) => line.replace(/^\*\*\* Script: /, '').replace(/\s+$/, ''))
-    .join('\n')
+    .reduce(
+      (kept, line) => {
+        // The platform appends its own SQL debug (when that logging is on for the session) after the script's output.
+        // Everything from the first such line on is noise, not something the script printed.
+        if (kept.cut || SQL_DEBUG_LINE.test(line)) return { ...kept, cut: true };
+        kept.lines.push(line);
+        return kept;
+      },
+      { lines: [], cut: false }
+    )
+    .lines.join('\n')
     .trim();
 }

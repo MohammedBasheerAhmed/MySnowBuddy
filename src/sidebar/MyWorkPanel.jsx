@@ -4,7 +4,8 @@ import { trusted } from './trusted.js';
 import ShipCheck from './ShipCheck.jsx';
 import MoveEntries from './MoveEntries.jsx';
 import RemoteRecordPanel from './RemoteRecordPanel.jsx';
-import { groupChangesBySet, myWorkWarnings, recordPathForEntry, timeAgo } from '../lib/updateSetReview.js';
+import { groupChangesBySet, myWorkWarnings, recordPathForEntry, timeAgo, confirmMatches, validateNewUpdateSetName } from '../lib/updateSetReview.js';
+import { isGuardedEnv } from '../lib/agent/policy.js';
 
 function openPath(path) {
   // Root-relative paths built from validated table names and sys_ids only.
@@ -33,7 +34,7 @@ function Section({ title, action, children }) {
  * open update sets, my recent changes, and warnings (Default set, scope mismatch,
  * uncaptured changes). The ship check opens inside the same panel.
  */
-export default function MyWorkPanel({ services, onClose, onAskAi }) {
+export default function MyWorkPanel({ services, onClose, onAskAi, params }) {
   const [view, setView] = useState({ name: 'home' });
   const [ctx, setCtx] = useState(null);
   const [ctxError, setCtxError] = useState(null);
@@ -49,9 +50,17 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
   const [switching, setSwitching] = useState(false);
   const [switchNote, setSwitchNote] = useState(null);
   const [moveIds, setMoveIds] = useState(null);
+  const [newName, setNewName] = useState('');
+  const [typed, setTyped] = useState('');
   const generation = useRef(0);
 
   const available = typeof services?.myWorkContext === 'function';
+
+  // "New update set..." in the palette opens this panel with the create form already showing.
+  useEffect(() => {
+    if (available && String(params?.args || '').trim().toLowerCase() === 'new') openCreator();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the panel opens.
+  }, []);
 
   const load = useCallback(
     (refresh = false) => {
@@ -123,6 +132,38 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
     }
   }
 
+  async function openCreator() {
+    setSwitchNote(null);
+    setSwitcher('new');
+    setNewName('');
+    setTyped('');
+    // The in-progress sets let the form say "already exists" before anything is sent.
+    if (!targets) setTargets(await services.myWorkSwitchTargets().catch(() => null));
+  }
+
+  async function doCreate() {
+    setSwitching(true);
+    setSwitchNote(null);
+    try {
+      const r = await services.myWorkCreateUpdateSet({ name: newName, confirmName: typed });
+      setCtx((prev) => ({ ...(prev || {}), updateSet: r.updateSet, application: r.application }));
+      setSwitchNote(
+        r.applied
+          ? { tone: 'ok', text: `Created "${r.created.name}" and switched to it. New changes now go there. Reload the page if a form still shows the old set.` }
+          : { tone: 'warn', text: `Created "${r.created.name}", but the instance still reports "${r.updateSet?.name || 'unknown'}". Use the update set picker in the platform header to switch to it.` }
+      );
+      setSwitcher(null);
+      load(false);
+    } catch (err) {
+      setSwitchNote({ tone: 'error', text: err.message });
+      // A set may have been created even though the switch failed: show it in the lists and the Switch picker.
+      setTargets(null);
+      load(false);
+    } finally {
+      setSwitching(false);
+    }
+  }
+
   async function doSwitch(kind, id) {
     if (!id) return;
     setSwitching(true);
@@ -160,6 +201,9 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
   const current = ctx?.updateSet;
   const app = ctx?.application;
   const currentUsable = current && !current.isDefault && current.state === 'in progress';
+  const instanceInfo = typeof services?.myWorkInstance === 'function' ? services.myWorkInstance() || {} : {};
+  const guardedInstance = isGuardedEnv(instanceInfo.env);
+  const nameCheck = validateNewUpdateSetName(newName, (targets?.sets || []).map((s) => s.name));
 
   const sections = {
     // My open update sets
@@ -274,6 +318,9 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
               <button className="msb-mw-small-btn" onClick={() => openSwitcher('set')} disabled={switching}>
                 Switch
               </button>
+              <button className="msb-mw-small-btn" onClick={openCreator} disabled={switching} title="Create an update set and switch to it">
+                New
+              </button>
             </div>
             <div className="msb-mw-row">
               <span className="msb-mw-label">Scope</span>
@@ -294,7 +341,38 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
           </>
         )}
 
-        {switcher && (
+        {switcher === 'new' && (
+          <div className="msb-mw-inline-form msb-mw-inline-form--stack">
+            <input
+              value={newName}
+              onChange={trusted((e) => setNewName(e.target.value))}
+              placeholder="Name it after the work, e.g. STRY0012345 Fix caller lookup"
+              aria-label="New update set name"
+              maxLength={80}
+              autoFocus
+              disabled={switching}
+            />
+            <div className="msb-mw-muted">
+              Created in {app?.name || 'your current scope'}, then made your current update set.
+            </div>
+            {guardedInstance && (
+              <label className="msb-mw-confirm__typed">
+                This instance is not recognisably dev. Type its name ({instanceInfo.instance}) to confirm.
+                <input value={typed} onChange={trusted((e) => setTyped(e.target.value))} placeholder={instanceInfo.instance} aria-label="Instance name" disabled={switching} />
+              </label>
+            )}
+            {newName.trim() && !nameCheck.ok && <div className="msb-panel__warning">{nameCheck.error}</div>}
+            <div className="msb-panel__actions">
+              <button className="msb-panel__run" onClick={trusted(doCreate)} disabled={!nameCheck.ok || switching || (guardedInstance && !confirmMatches(typed, instanceInfo.instance))}>
+                {switching ? 'Creating...' : 'Create and switch'}
+              </button>
+              <button className="msb-panel__secondary" onClick={() => setSwitcher(null)} disabled={switching}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+        {switcher && switcher !== 'new' && (
           <div className="msb-mw-inline-form">
             <select value={choice} onChange={(e) => setChoice(e.target.value)} disabled={!targets || switching} aria-label={switcher === 'set' ? 'Update set' : 'Application'}>
               <option value="">{targets ? (switcher === 'set' ? 'Pick an in-progress update set' : 'Pick an application') : 'Loading...'}</option>
@@ -338,6 +416,10 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
           Your current update set is a Default one. Changes you make now will not ship with a named set.{' '}
           <button className="msb-panel__link" onClick={() => openSwitcher('set')}>
             Switch
+          </button>{' '}
+          or{' '}
+          <button className="msb-panel__link" onClick={openCreator}>
+            create a named one
           </button>
         </div>
       )}
@@ -362,12 +444,13 @@ export default function MyWorkPanel({ services, onClose, onAskAi }) {
       )}
       {warnings.scopeMismatches.length > 0 && (
         <div className="msb-panel__warning">
-          {plural(warnings.scopeMismatches.length, 'change sits', 'changes sit')} in an update set of another application scope:{' '}
+          {plural(warnings.scopeMismatches.length, 'change belongs', 'changes belong')} to a different application than the update set
+          holding {warnings.scopeMismatches.length === 1 ? 'it' : 'them'}:{' '}
           {warnings.scopeMismatches
             .slice(0, 4)
-            .map((c) => c.target_name || c.name)
-            .join(', ')}
-          {warnings.scopeMismatches.length > 4 ? '...' : ''}. These usually fail preview on the target.
+            .map((c) => `${c.target_name || c.name}${c['application.name'] ? ` (${c['application.name']})` : ''}`)
+            .join('; ')}
+          {warnings.scopeMismatches.length > 4 ? '; ...' : ''}. Mixed scopes usually fail preview on the target.
         </div>
       )}
 

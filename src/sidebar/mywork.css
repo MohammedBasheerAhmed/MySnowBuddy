@@ -30,8 +30,6 @@
   flex: 0 0 74px;
   font-size: var(--msb-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--msb-fg-muted);
 }
 
@@ -65,8 +63,6 @@
   margin-bottom: 4px;
   font-size: var(--msb-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--msb-fg-muted);
 }
 
@@ -205,6 +201,33 @@
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
+}
+
+/* The create form: a name field, notes and warnings above, the buttons last. */
+.msb-mw-inline-form--stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.msb-mw-inline-form--stack > input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-md);
+}
+
+.msb-mw-inline-form--stack > input:focus {
+  outline: none;
+  box-shadow: var(--msb-ring);
+}
+
+.msb-mw-inline-form--stack .msb-panel__actions {
+  display: flex;
+  gap: 6px;
 }
 
 /* Picker and its two buttons share one height. */

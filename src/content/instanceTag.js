@@ -44,6 +44,11 @@ export async function startInstanceTag(shadow) {
   const { label, tone } = await currentTag();
   const color = COLORS[tone] || COLORS.neutral;
 
+  // Every surface (palette, windows, popovers, sidebar) draws its top rule in this colour: green on a dev instance,
+  // amber on test or stage, red on production. Unknown instances keep the accent.
+  const envColor = { ok: 'var(--msb-ok)', warn: 'var(--msb-warn)', danger: 'var(--msb-danger-solid)' }[tone];
+  if (envColor && shadow.host) shadow.host.style.setProperty('--msb-env', envColor);
+
   if (tone !== 'neutral') {
     const bar = document.createElement('div');
     bar.className = `msb-envbar msb-envbar--${tone}`;

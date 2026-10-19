@@ -334,6 +334,11 @@ const GLIDE_AGGREGATE_METHODS = [
     }),
   m('orderByAggregate', 'orderByAggregate(aggregateType, fieldName)', 'void',
     'Orders the grouped results by an aggregate value.'),
+  // Found on a live instance (typeof against a real GlideAggregate): addTrend.
+  m('addTrend', 'addTrend(fieldName, timeInterval)', 'void',
+    'Adds a trend aggregate that buckets the rows of a date field by an interval (for example "year", "quarter", "month", "week", "day").', {
+      notes: 'Read the buckets with getValue("timeref") and getAggregate("COUNT") after query().',
+    }),
   m('setGroup', 'setGroup(group)', 'void',
     'Sets whether the results are grouped.'),
   m('getValue', 'getValue(fieldName)', 'string',
@@ -373,6 +378,8 @@ const GLIDE_ELEMENT_METHODS = [
     'Returns the display value of the field (the label for references and choices, the formatted value for dates).', {
       notes: 'Date fields are returned in the session user\'s time zone and format; use getValue() for the stored UTC value.',
     }),
+  m('getDisplayValueExt', 'getDisplayValueExt(maxCharacters, nullSubstitution)', 'string',
+    'Returns the display value, cut to maxCharacters, or nullSubstitution when the field is empty.'),
   m('setValue', 'setValue(value)', 'void',
     'Sets the stored value of the field.', {
       notes: 'The change is not persisted until the GlideRecord is inserted or updated.',

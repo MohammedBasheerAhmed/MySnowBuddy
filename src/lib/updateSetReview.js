@@ -1027,3 +1027,19 @@ export function timeAgo(value, now = Date.now()) {
   if (d < 60) return `${d} days ago`;
   return text.slice(0, 10);
 }
+
+/**
+ * A name for a new update set: trimmed, 3 to 80 characters, not "Default" (which would only create a second set that
+ * the platform and this extension both treat as the throwaway one). `taken` are the names of in-progress sets.
+ * Returns { ok: true, name } or { ok: false, error }.
+ */
+export function validateNewUpdateSetName(raw, taken = []) {
+  const name = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (name.length < 3) return { ok: false, error: 'Give the update set a name of at least 3 characters, for example "STRY0012345 Fix caller lookup".' };
+  if (name.length > 80) return { ok: false, error: 'Keep the name to 80 characters or fewer.' };
+  // Only the catch-all names: "Default value fix" is a fine name for real work.
+  if (/^default(\s*\[[^\]]*\])?$/i.test(name)) return { ok: false, error: '"Default" is the update set to avoid. Pick a name that says what the work is.' };
+  const clash = taken.find((t) => String(t || '').trim().toLowerCase() === name.toLowerCase());
+  if (clash) return { ok: false, error: `An update set named "${clash}" is already in progress. Switch to it instead.` };
+  return { ok: true, name };
+}

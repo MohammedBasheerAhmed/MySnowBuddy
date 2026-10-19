@@ -5,7 +5,8 @@
 
 .msb-pop {
   position: fixed;
-  z-index: calc(var(--msb-z) + 8);
+  /* Above toasts (+20): a lingering notice must never hide a popover's buttons. */
+  z-index: calc(var(--msb-z) + 21);
   width: min(380px, calc(100vw - 16px));
   max-height: min(70vh, 520px);
   display: flex;
@@ -16,7 +17,7 @@
   border: 1px solid var(--msb-accent-line);
   border-left-width: 3px;
   border-radius: var(--msb-radius);
-  box-shadow: var(--msb-shadow-lg), 0 10px 36px -12px rgba(99, 70, 229, 0.35);
+  box-shadow: var(--msb-shadow-lg);
   font-family: var(--msb-font);
   font-size: var(--msb-text-md);
   animation: msb-pop-in 0.14s cubic-bezier(0.16, 1, 0.3, 1);
@@ -39,7 +40,7 @@
 }
 
 .msb-pop--info {
-  border-left-color: #7c3aed;
+  border-left-color: var(--msb-accent);
 }
 
 @keyframes msb-pop-in {

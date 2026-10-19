@@ -1425,7 +1425,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
       <div className="msb-sidebar__header">
         <span className="msb-sidebar__brand" aria-hidden="true">
-          <Icon name="sparkle" size={16} />
+          <Icon name="braces" size={16} />
         </span>
         <span className="msb-sidebar__titles">
           <span className="msb-sidebar__title">
@@ -1556,13 +1556,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       <div className="msb-sidebar__messages" ref={messagesRef}>
         {!messages.length && !statusText && (
           <div className="msb-hero">
-            <div className="msb-hero__mark" aria-hidden="true">
-              <Icon name="sparkle" size={22} />
-            </div>
-            <h3>{agentEnabled ? 'What are we building?' : 'How can I help?'}</h3>
+            <h3>{agentEnabled ? 'Ask about this page' : 'Ask about this record'}</h3>
             <p>
               {agentEnabled
-                ? 'I read this instance, write scripts, verify them against the real API catalog, test client scripts in a sandbox, and only change things you approve.'
+                ? 'Say what you want to understand or change. It reads the instance first, checks scripts against the real API catalog, and writes nothing until you approve.'
                 : 'Ask about the record you are on, or pick a tool. Type / for every command.'}
             </p>
             {agentEnabled && (
@@ -1570,13 +1567,12 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
                 <div className="msb-hero__skill">
                   <Icon name={heroSkill.primary.id === 'client-script' ? 'braces' : 'database'} size={13} />
                   <span>
-                    <b>{heroSkill.primary.title} skill</b> active <em>{heroSkill.reason}</em>
+                    Using the <b>{heroSkill.primary.title} skill</b>: <em>{heroSkill.reason}</em>
                   </span>
                 </div>
                 <div className="msb-hero__prompts">
                   {(SUGGESTIONS[heroSkill.primary.id] || []).map((text) => (
                     <button key={text} type="button" className="msb-hero__prompt" onClick={trusted(() => handleSend(text))}>
-                      <Icon name="sparkle" size={12} />
                       {text}
                     </button>
                   ))}

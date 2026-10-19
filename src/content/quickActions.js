@@ -323,8 +323,8 @@ export async function fetchSelectableUpdateSets(limit = 25) {
  * Switch the session's current update set.
  *
  * NOTE: this is the one write this module performs, and it is the same call
- * the platform's own update set picker makes. Endpoint shape is unverified
- * against a live instance — see docs/decisions.md.
+ * the platform's own update set picker makes. Live-checked on Australia patch 7: the body
+ * is { sysId } (the old { sysparm_sys_id } answered 400 "Missing sys_id"), the reply is { result: { success: true } }.
  */
 export async function setCurrentUpdateSet(sysId, csrfToken) {
   const response = await fetch('/api/now/ui/concoursepicker/updateset', {
@@ -334,7 +334,7 @@ export async function setCurrentUpdateSet(sysId, csrfToken) {
       'Content-Type': 'application/json',
       ...(csrfToken ? { 'X-UserToken': csrfToken } : {}),
     }),
-    body: JSON.stringify({ sysparm_sys_id: sysId }),
+    body: JSON.stringify({ sysId }),
   });
   if (!response.ok) {
     throw new Error(`Update set switch failed (${response.status}).`);
@@ -344,7 +344,7 @@ export async function setCurrentUpdateSet(sysId, csrfToken) {
 
 /**
  * Switch the session's current application ("global" for the global scope). Same call as the
- * platform's application picker; endpoint shape is unverified against a live instance.
+ * platform's application picker; live-checked on Australia patch 7: the body is { app_id }.
  */
 export async function setCurrentApplication(appId, csrfToken) {
   const response = await fetch('/api/now/ui/concoursepicker/application', {

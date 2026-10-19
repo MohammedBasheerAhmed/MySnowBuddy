@@ -91,6 +91,29 @@
     return out;
   }
 
+  // g_form.isReadOnly(name) answers true for every field on current releases (checked live on Australia patch 7, even for
+  // a field name that does not exist, with fully editable inputs), so it cannot be trusted. g_form.getEditableFields()
+  // matches what the user can actually edit there. A read-only record gives an empty list, which tells us nothing the
+  // answer below would not already say, so an empty list falls back to isReadOnly.
+  function editableMap(f) {
+    try {
+      if (typeof f.getEditableFields !== 'function') return null;
+      var list = f.getEditableFields();
+      if (!list || !list.length) return null;
+      var map = {};
+      for (var i = 0; i < list.length; i++) map[list[i]] = true;
+      return map;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // true / false, or null when g_form cannot say. `editable` comes from editableMap(f), computed once per call.
+  function readOnlyState(f, name, editable) {
+    if (editable) return !editable[name];
+    return typeof f.isReadOnly === 'function' ? !!f.isReadOnly(name) : null;
+  }
+
   // g_user.roles is an array on current releases and a comma-separated string on some older ones.
   function rolesOf(u) {
     try {
@@ -196,6 +219,7 @@
       var names = fieldNames(f);
       if (!names.length) return null;
       var fields = [];
+      var editable = editableMap(f);
       for (var i = 0; i < names.length && i < 400; i++) {
         var name = names[i];
         var row = { name: name };
@@ -206,7 +230,7 @@
         } catch (e) { /* unreadable */ }
         try { if (f.getDisplayBox) { var box = f.getDisplayBox(name); if (box && box.value) row.display = String(box.value).slice(0, 120); } } catch (e) { /* not a reference */ }
         try { row.mandatory = !!f.isMandatory(name); } catch (e) { /* skip */ }
-        try { if (f.isReadOnly) row.readOnly = !!f.isReadOnly(name); } catch (e) { /* skip */ }
+        try { var ro = readOnlyState(f, name, editable); if (ro !== null) row.readOnly = ro; } catch (e) { /* skip */ }
         try { if (f.isVisible) row.visible = !!f.isVisible(name); } catch (e) { /* skip */ }
         try { var ge = f.getGlideUIElement && f.getGlideUIElement(name); if (ge && ge.type) row.type = String(ge.type); } catch (e) { /* no element info */ }
         fields.push(row);
@@ -338,7 +362,7 @@
         return f.isMandatory(name);
       });
       attempt('readOnly', function () {
-        return f.isReadOnly ? f.isReadOnly(name) : null;
+        return readOnlyState(f, name, editableMap(f));
       });
       attempt('visible', function () {
         return f.isVisible ? f.isVisible(name) : null;
@@ -360,7 +384,7 @@
       if (value.length > MAX_FIELD_CHARS) throw new Error('Value is too large.');
       var names = fieldNames(f);
       if (names.indexOf(name) === -1) throw new Error('Field "' + name + '" is not on this form.');
-      if (typeof f.isReadOnly === 'function' && f.isReadOnly(name)) throw new Error('Field "' + name + '" is read-only.');
+      if (readOnlyState(f, name, editableMap(f)) === true) throw new Error('Field "' + name + '" is read-only.');
       var previous = f.getValue(name);
       f.setValue(name, value);
       return { previous: previous === undefined || previous === null ? '' : String(previous) };

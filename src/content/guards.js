@@ -36,10 +36,19 @@ export function createGuards({ toast, getSettings, getContext, getInstanceInfo, 
     const updateSet = await currentUpdateSet();
     if (!updateSet || !isDefaultUpdateSet(updateSet.name)) return;
 
+    // Once per update set per tab session: the same notice on every record you open is noise, and it fades by itself.
+    const seenKey = `mysnowbuddy_default_set_warned:${updateSet.name}`;
+    try {
+      if (sessionStorage.getItem(seenKey)) return;
+      sessionStorage.setItem(seenKey, '1');
+    } catch {
+      // Storage is blocked: show it every time rather than never.
+    }
+
     warning = toast.show(`Current update set is "${updateSet.name}". Changes here are easy to lose or ship by accident.`, {
       tone: 'warn',
-      timeout: 0,
-      action: { label: 'Change update set', onClick: onChangeUpdateSet },
+      timeout: 20000,
+      action: { label: 'Start a named one', onClick: onChangeUpdateSet },
     });
   }
 

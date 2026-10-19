@@ -39,7 +39,6 @@
   position: absolute;
   inset: 0;
   background: var(--msb-backdrop);
-  backdrop-filter: blur(4px) saturate(1.1);
   animation: msb-fade 0.14s ease-out;
 }
 
@@ -50,10 +49,10 @@
   max-height: 66vh;
   display: flex;
   flex-direction: column;
-  background: var(--msb-canvas), var(--msb-bg);
+  background: var(--msb-bg);
   border: 1px solid var(--msb-accent-line);
-  border-radius: 16px;
-  box-shadow: var(--msb-shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.02), 0 12px 48px -12px rgba(99, 70, 229, 0.35);
+  border-radius: var(--msb-radius);
+  box-shadow: var(--msb-shadow-lg);
   overflow: hidden;
   animation: msb-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -98,8 +97,6 @@
   color: var(--msb-active-fg);
   font-size: var(--msb-text-xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .msb-palette__mode[hidden] {
@@ -149,8 +146,6 @@
   padding: 10px 8px 5px;
   font-size: var(--msb-text-xs);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
   color: var(--msb-group-fg);
 }
 
@@ -177,7 +172,7 @@
 
 .msb-palette__item--active {
   background: var(--msb-active-bg);
-  box-shadow: inset 3px 0 0 #7c3aed, 0 1px 0 var(--msb-accent-line);
+  box-shadow: inset 2px 0 0 var(--msb-accent), 0 1px 0 var(--msb-accent-line);
 }
 
 .msb-palette__itemIcon {
@@ -193,11 +188,58 @@
   color: var(--msb-group-fg);
 }
 
-.msb-palette__item--active .msb-palette__itemIcon {
+.msb-palette__item[data-icon='record'] .msb-palette__itemIcon {
+  background: var(--msb-cat-record-bg);
+  border-color: transparent;
+  color: var(--msb-cat-record);
+}
+
+.msb-palette__item[data-icon='table'] .msb-palette__itemIcon {
+  background: var(--msb-cat-table-bg);
+  border-color: transparent;
+  color: var(--msb-cat-table);
+}
+
+.msb-palette__item[data-icon='analyze'] .msb-palette__itemIcon {
+  background: var(--msb-cat-analyze-bg);
+  border-color: transparent;
+  color: var(--msb-cat-analyze);
+}
+
+.msb-palette__item[data-icon='navigate'] .msb-palette__itemIcon {
+  background: var(--msb-cat-navigate-bg);
+  border-color: transparent;
+  color: var(--msb-cat-navigate);
+}
+
+.msb-palette__item[data-icon='instance'] .msb-palette__itemIcon {
+  background: var(--msb-cat-tools-bg);
+  border-color: transparent;
+  color: var(--msb-cat-tools);
+}
+
+.msb-palette__item[data-icon='tools'] .msb-palette__itemIcon {
+  background: var(--msb-cat-tools-bg);
+  border-color: transparent;
+  color: var(--msb-cat-tools);
+}
+
+/* Suggested, pinned, recent and AI take the accent: they are the ones chosen for you. */
+.msb-palette__item[data-icon='command'] .msb-palette__itemIcon,
+.msb-palette__item[data-icon='pin'] .msb-palette__itemIcon,
+.msb-palette__item[data-icon='clock'] .msb-palette__itemIcon,
+.msb-palette__item[data-icon='ai'] .msb-palette__itemIcon {
+  background: var(--msb-accent-soft);
+  border-color: transparent;
+  color: var(--msb-active-fg);
+}
+
+.msb-palette__item--active .msb-palette__itemIcon,
+.msb-palette__item--active[data-icon] .msb-palette__itemIcon {
   background: var(--msb-aurora);
   border-color: transparent;
   color: var(--msb-on-gradient);
-  box-shadow: var(--msb-glow);
+  box-shadow: none;
 }
 
 .msb-palette__title {
@@ -221,7 +263,7 @@
   color: inherit;
   font-weight: 700;
   text-decoration: underline;
-  text-decoration-color: #7c3aed;
+  text-decoration-color: var(--msb-accent);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
 }
@@ -246,8 +288,7 @@
   flex: 1;
   min-width: 0;
   font-size: var(--msb-text-sm);
-  color: var(--msb-fg-faint);
-  font-family: var(--msb-mono);
+  color: var(--msb-fg-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -255,8 +296,6 @@
 
 .msb-palette__badge {
   font-size: var(--msb-text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--msb-fg-faint);
   border: 1px solid var(--msb-border);
   border-radius: var(--msb-radius-xs);

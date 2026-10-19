@@ -70,6 +70,7 @@ function copyStatic() {
     fs.readFileSync(path.join(rootDir, 'src/content/popover.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/inline.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/welcome.css'), 'utf8'),
+    fs.readFileSync(path.join(rootDir, 'src/content/guide.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/editor.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/sidebar.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/agent.css'), 'utf8'),

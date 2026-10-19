@@ -10,8 +10,6 @@
 .msb-acc__caption {
   font-size: var(--msb-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   /* fg-faint is under 4.5:1 on the light surfaces; captions are text, so muted. */
   color: var(--msb-fg-muted);
 }

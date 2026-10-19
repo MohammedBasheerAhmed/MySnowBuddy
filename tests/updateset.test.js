@@ -28,6 +28,7 @@ const {
   timeAgo,
   dictionaryUpdateNames,
   isDefaultSet,
+  validateNewUpdateSetName,
 } = require('../src/lib/updateSetReview.js');
 const { expectedUpdateName, findCollisionsForEntries, findUncapturedChanges } = require('../src/content/updateSets.js');
 const {
@@ -788,4 +789,17 @@ test('the worker re-plans the push: planner blockers, case-only matches and payl
   // A sys_id match must still point at the source's own sys_id.
   stubFetch([json(200, { result: [{ ...target, sys_id: ID2 }] })]);
   await assert.rejects(handlePushArtifact({ ...update, matchedBy: 'sys_id' }, sender), /not the one the preview matched/);
+});
+
+test('a new update set needs a real, unused name and never "Default"', () => {
+  assert.deepEqual(validateNewUpdateSetName('  STRY001   Fix caller  '), { ok: true, name: 'STRY001 Fix caller' });
+  assert.equal(validateNewUpdateSetName('ab').ok, false);
+  assert.equal(validateNewUpdateSetName('x'.repeat(81)).ok, false);
+  assert.equal(validateNewUpdateSetName('Default').ok, false);
+  assert.equal(validateNewUpdateSetName('default [Global]').ok, false);
+  assert.equal(validateNewUpdateSetName('Default value fix').ok, true, 'a name that merely starts with the word is fine');
+  const clash = validateNewUpdateSetName('stry001 fix', ['STRY001 Fix']);
+  assert.equal(clash.ok, false);
+  assert.match(clash.error, /already in progress/);
+  assert.equal(validateNewUpdateSetName(null).ok, false);
 });

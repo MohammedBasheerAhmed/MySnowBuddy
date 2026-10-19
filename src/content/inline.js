@@ -47,6 +47,7 @@ import {
   isScriptColumn,
   isScriptLabel,
   fieldMenuModel,
+  fieldCode,
   columnMenuModel,
   toolbarModel,
   toolbarKey,
@@ -90,12 +91,14 @@ const errorText = (err) => (err && err.message) || String(err);
 
 // --- Page styles -------------------------------------------------------------------------------
 
-// Fixed colours that read on light and dark ServiceNow themes: indigo text (#3040b8) on a pale
-// lavender fill (#eceeff) is 6.8:1 and keeps its contrast whatever the page behind it is.
+// Fixed colours that read on light and dark ServiceNow themes: green text (#14573f) on a pale
+// green fill (#e4f3ec) is 7.6:1 and keeps its contrast whatever the page behind it is.
 const PAGE_CSS = `
 .msb-inl-wrap{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:3px;margin:0 0 0 6px!important;vertical-align:middle;white-space:nowrap}
-.msb-inl-btn{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;justify-content:center;min-width:19px;height:17px;padding:0 6px!important;border-radius:9px!important;border:1px solid #c9d2fb!important;background:#eceeff!important;color:#3040b8!important;font:600 10.5px/15px -apple-system,"Segoe UI",Roboto,Arial,sans-serif!important;letter-spacing:0!important;text-transform:none!important;cursor:pointer;user-select:none;white-space:nowrap}
-.msb-inl-btn:hover{background:#dfe3ff!important;border-color:#7c3aed!important}
+.msb-inl-btn{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;justify-content:center;min-width:19px;height:17px;padding:0 6px!important;border-radius:4px!important;border:1px solid #b5dccb!important;background:#e4f3ec!important;color:#14573f!important;font:600 10.5px/15px -apple-system,"Segoe UI",Roboto,Arial,sans-serif!important;letter-spacing:0!important;text-transform:none!important;cursor:pointer;user-select:none;white-space:nowrap;position:relative}
+/* WCAG 2.2 target size: the pill stays 17px tall, the clickable area is 25px. */
+.msb-inl-btn::after{content:"";position:absolute;inset:-4px -2px}
+.msb-inl-btn:hover{background:#d3eadf!important;border-color:#1b6b4f!important}
 .msb-inl-btn--menu{font-weight:800!important;padding:0 5px!important}
 .msb-inl-btn--col{margin:0 0 0 4px!important}
 `;
@@ -227,6 +230,8 @@ function openFieldMenu(anchor, { doc, table, field }) {
 
   const run = {
     copyName: () => copyWithToast(field, `field name ${field}`),
+    copyClient: () => copyWithToast(fieldCode('client', field), `g_form call for ${field}`),
+    copyServer: () => copyWithToast(fieldCode('server', field), `GlideRecord call for ${field}`),
     copyValue: async () => {
       try {
         await copyText(await readField(field));

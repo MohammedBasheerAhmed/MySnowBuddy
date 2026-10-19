@@ -237,8 +237,6 @@
   color: var(--msb-fg-muted);
   font-size: var(--msb-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 .msb-xray__caption .msb-panel__link {

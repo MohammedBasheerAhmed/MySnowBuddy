@@ -682,22 +682,22 @@ function ownText(el) {
 
 // --- Page styles and chips ----------------------------------------------------------------------
 
-// Fixed colours that read on both the light and dark ServiceNow themes: white on deep indigo (13:1),
+// Fixed colours that read on both the light and dark ServiceNow themes: white on graphite (14:1),
 // amber count badge with near-black text (12:1), magenta outline with a white halo (3:1+ on either).
 const PAGE_CSS = `
-.msb-xray-chip{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:4px;max-width:100%;margin:0 0 0 6px!important;padding:0 6px!important;border-radius:9px!important;background:#1f2a5c!important;color:#fff!important;font:500 10.5px/17px ui-monospace,"Cascadia Code",Consolas,Menlo,monospace!important;letter-spacing:0!important;text-transform:none!important;vertical-align:middle;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.45);user-select:none;overflow:hidden}
-.msb-xray-chip:hover{background:#2f3f8f!important}
+.msb-xray-chip{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:4px;max-width:100%;margin:0 0 0 6px!important;padding:0 6px!important;border-radius:4px!important;background:#1f2933!important;color:#fff!important;font:500 10.5px/17px ui-monospace,"Cascadia Code",Consolas,Menlo,monospace!important;letter-spacing:0!important;text-transform:none!important;vertical-align:middle;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.45);user-select:none;overflow:hidden}
+.msb-xray-chip:hover{background:#34444f!important}
 .msb-xray-chip>span{all:initial;visibility:inherit!important;font:inherit!important;color:inherit!important;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.msb-xray-chip>.msb-xray-chip__type{color:#c9d2fb!important;flex-shrink:20}
+.msb-xray-chip>.msb-xray-chip__type{color:#b9c7d3!important;flex-shrink:20}
 .msb-xray-chip>.msb-xray-chip__count{flex-shrink:0;padding:0 5px!important;border-radius:8px;background:#ffd166!important;color:#1a1a1a!important;font-weight:700!important}
 .msb-xray-chip>.msb-xray-chip__count:empty,.msb-xray-chip>.msb-xray-chip__type:empty{display:none}
 .msb-xray-chip--col{margin:3px 0 0!important}
 .msb-xray-outline{position:fixed;display:none;box-sizing:border-box;pointer-events:none;z-index:2147482000;border:2px solid #d6006f;border-radius:4px;box-shadow:0 0 0 1px #fff,inset 0 0 0 1px #fff}
-.msb-xray-tag,.msb-xray-badge{position:fixed;box-sizing:border-box;z-index:2147482001;padding:3px 8px;background:#1f2a5c;color:#fff;font:500 12px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;letter-spacing:0;text-transform:none}
+.msb-xray-tag,.msb-xray-badge{position:fixed;box-sizing:border-box;z-index:2147482001;padding:3px 8px;background:#1f2933;color:#fff;font:500 12px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.35);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;letter-spacing:0;text-transform:none}
 .msb-xray-tag{display:none;max-width:min(620px,calc(100vw - 16px));border-radius:0 0 6px 0}
 .msb-xray-badge{left:12px;bottom:12px;max-width:calc(100vw - 24px);border-radius:6px}
 .msb-xray-tag b,.msb-xray-badge b{font-weight:700;color:#fff}
-.msb-xray-tag code,.msb-xray-badge code{font:500 11px ui-monospace,Consolas,Menlo,monospace;color:#c9d2fb;margin-left:6px}
+.msb-xray-tag code,.msb-xray-badge code{font:500 11px ui-monospace,Consolas,Menlo,monospace;color:#b9c7d3;margin-left:6px}
 .msb-xray-tag,.msb-xray-badge{pointer-events:none}
 .msb-xray-tag a,.msb-xray-badge a,.msb-xray-tag button,.msb-xray-badge button{pointer-events:auto;margin-left:9px;padding:0;border:0;background:none;color:#ffd166;font:inherit;text-decoration:underline;cursor:pointer}
 .msb-xray-tag a:focus-visible,.msb-xray-badge a:focus-visible,.msb-xray-tag button:focus-visible,.msb-xray-badge button:focus-visible{outline:2px solid #ffd166;outline-offset:1px}

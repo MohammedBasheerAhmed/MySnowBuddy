@@ -23,7 +23,9 @@ import {
   isSysId,
 } from './quickActions.js';
 import { searchTables, labelForTable } from './tableCatalog.js';
-import { queryTable } from './tableApi.js';
+import { queryTable, fetchRecord } from './tableApi.js';
+import { restRecordUrl, glideRecordSnippet, recordJson } from '../lib/recordSnippets.js';
+import { parseRecordNumber, tablesForNumber } from '../lib/recordNumber.js';
 import { addBookmark } from './stores.js';
 import { currentPageHref } from './context.js';
 import { resolveTarget } from '../lib/urlTarget.js';
@@ -154,6 +156,47 @@ export function buildCommands(deps) {
         const text = `[${info?.className || label} ${sysId.slice(0, 8)}](${absoluteUrl(recordUrl(table, sysId))})`;
         await copyText(text);
         toast.success('Copied markdown link');
+      },
+    });
+
+    add({
+      id: 'record.copyRest',
+      title: 'Copy REST API URL',
+      hint: `/api/now/table/${table}/${sysId.slice(0, 8)}…`,
+      group: GROUPS.record,
+      keywords: 'rest api table url postman curl endpoint',
+      run: async () => {
+        await copyText(restRecordUrl(window.location.origin, table, sysId));
+        toast.success('Copied Table API URL');
+      },
+    });
+
+    add({
+      id: 'record.copyGlide',
+      title: 'Copy GlideRecord that loads this record',
+      hint: `new GlideRecord('${table}') + gr.get(sys_id)`,
+      group: GROUPS.record,
+      keywords: 'glide gliderecord script snippet get code background',
+      run: async () => {
+        await copyText(glideRecordSnippet(table, sysId));
+        toast.success('Copied GlideRecord snippet');
+      },
+    });
+
+    add({
+      id: 'record.copyJson',
+      title: 'Copy record as JSON',
+      hint: 'Every field that has a value, as stored',
+      group: GROUPS.record,
+      keywords: 'json values fields data export clipboard payload',
+      run: async () => {
+        const json = recordJson(await fetchRecord(table, sysId));
+        if (!json) {
+          toast.info('Nothing to copy: this record has no values, or you cannot read it.');
+          return;
+        }
+        await copyText(json);
+        toast.success('Copied record JSON');
       },
     });
 
@@ -440,6 +483,15 @@ export function buildCommands(deps) {
   });
 
   add({
+    id: 'tools.newUpdateSet',
+    title: 'New update set…',
+    hint: 'Create one and switch to it, so changes stop landing in Default',
+    group: GROUPS.tools,
+    keywords: 'update set create new switch default named story ticket',
+    run: openPanel(() => sidebar.openPanel('mywork', { args: 'new' })),
+  });
+
+  add({
     id: 'tools.atf',
     title: 'ATF: run suites and results',
     hint: 'Run automated test suites and read the results',
@@ -581,6 +633,17 @@ export function buildCommands(deps) {
       },
     })
   );
+
+  if (deps.showGuide) {
+    add({
+      id: 'help.guide',
+      title: 'Developer guide',
+      hint: 'Everything it can do, by the job you are doing. Click a line to try it',
+      group: GROUPS.tools,
+      keywords: 'help guide cheat sheet shortcuts what can this do features learn show me everything recipes how to',
+      run: () => deps.showGuide(),
+    });
+  }
 
   if (deps.showWelcome) {
     add({
@@ -833,6 +896,30 @@ export function buildProviders(deps) {
           url: recordUrl(found.table, found.sysId),
         },
       ];
+    },
+
+    // INC0010001, CHG0030002, STRY0012345 -> open that record. Task numbers cover every task table in one lookup.
+    async (query) => {
+      const number = parseRecordNumber(query);
+      if (!number) return [];
+      const results = [];
+      for (const table of tablesForNumber(number)) {
+        // eslint-disable-next-line no-await-in-loop -- the second table is only asked when the first finds nothing.
+        const rows = await queryTable(table, `number=${number}`, ['sys_id', 'number', 'short_description', 'sys_class_name'], { limit: 3 }).catch(() => []);
+        rows.forEach((row) => {
+          const rowTable = table === 'task' ? row.sys_class_name || 'task' : table;
+          results.push({
+            id: `number.${row.sys_id}`,
+            title: `Open ${row.number || number}`,
+            hint: [row.short_description, labelForTable(rowTable)].filter(Boolean).join(' · '),
+            group: GROUPS.navigate,
+            score: 1000,
+            url: recordUrl(rowTable, row.sys_id),
+          });
+        });
+        if (results.length) break;
+      }
+      return results;
     },
 
     // Any other text -> table lookup (list, new record, configuration)

@@ -23,13 +23,13 @@ import { navigate, absoluteUrl, copyText, isSysId } from './quickActions.js';
 import { recordCommandUse, getUiState, saveUiState } from './storage.js';
 import { frecency, rankRecent, matchPositions, highlightRuns, looksLikeCode } from '../lib/paletteRank.js';
 import { intentText, queryWords, wordsScore } from '../lib/paletteIntents.js';
-import { pageKind, suggestFor, SUGGESTED_TITLES } from '../lib/paletteContext.js';
+import { pageKind, pageSuggestions, suggestFor, SUGGESTED_TITLES } from '../lib/paletteContext.js';
 import { createIcon } from './icons.js';
 import { trustedDom } from '../sidebar/trusted.js';
 
 const GROUP_ICONS = {
   Pinned: 'pin',
-  ...Object.fromEntries(Object.values(SUGGESTED_TITLES).map((title) => [title, 'ai'])),
+  ...Object.fromEntries(Object.values(SUGGESTED_TITLES).map((title) => [title, 'command'])),
   Recent: 'clock',
   [GROUPS.record]: 'record',
   [GROUPS.table]: 'table',
@@ -86,6 +86,11 @@ export function createCommandPalette(deps) {
   input.autocomplete = 'off';
   input.placeholder = 'Search, or describe what you need: "who changed this", /tn incident, a sys_id';
   input.setAttribute('aria-label', 'Command');
+  // A combobox over a listbox: the highlighted option is announced as arrow keys move it, focus stays in the input.
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-haspopup', 'listbox');
+  input.setAttribute('aria-expanded', 'true');
 
   const escHint = el('kbd', 'msb-palette__esc', 'Esc');
   const modeChip = el('span', 'msb-palette__mode');
@@ -94,6 +99,9 @@ export function createCommandPalette(deps) {
 
   const resultsEl = el('div', 'msb-palette__results');
   resultsEl.setAttribute('role', 'listbox');
+  resultsEl.id = 'msb-palette-results';
+  resultsEl.setAttribute('aria-label', 'Results');
+  input.setAttribute('aria-controls', resultsEl.id);
 
   const footer = el('div', 'msb-palette__footer');
   // The new-tab and copy-link hints only apply to navigations, so they follow the highlighted row.
@@ -247,7 +255,11 @@ export function createCommandPalette(deps) {
     activeIndex = Math.max(0, Math.min(index, results.length - 1));
     resultsEl.querySelectorAll('.msb-palette__item').forEach((el, i) => {
       el.classList.toggle('msb-palette__item--active', i === activeIndex);
-      if (i === activeIndex) el.scrollIntoView({ block: 'nearest' });
+      el.setAttribute('aria-selected', String(i === activeIndex));
+      if (i === activeIndex) {
+        el.scrollIntoView({ block: 'nearest' });
+        input.setAttribute('aria-activedescendant', el.id);
+      }
     });
     urlHints.hidden = !results[activeIndex]?.url;
   }
@@ -332,6 +344,7 @@ export function createCommandPalette(deps) {
       // Two or more words describe a problem ("who changed this"): every word must be found, in any order.
       // A loose character match across that much text would match nearly everything.
       const multiWord = queryWords(query).length >= 2;
+      const onPage = new Set(pageSuggestions(pageCtx));
       commands.forEach((cmd) => {
         const rest = `${cmd.hint || ''} ${cmd.keywords || ''} ${intentText(cmd.id)}`;
         // The exact text may be anywhere (title, hint, keywords, problem phrases). A loose "letters in order" match is
@@ -340,7 +353,9 @@ export function createCommandPalette(deps) {
           fuzzyScore(query, `${cmd.title} ${rest}`, { loose: false }) ||
           (multiWord ? wordsScore(query, cmd.title, rest) : fuzzyScore(query, cmd.title));
         // Use history only breaks near-ties: it can lift a command past a slightly better match, never past a different tier.
-        if (score > 0) scored.push({ ...cmd, score: score + Math.min(80, frecency(stats[cmd.id]) * 12) });
+        // Of two equal answers, the one that suits this page wins ("where is this used" on a script include).
+        const pageBoost = onPage.has(cmd.id) ? 60 : 0;
+        if (score > 0) scored.push({ ...cmd, score: score + pageBoost + Math.min(80, frecency(stats[cmd.id]) * 12) });
       });
       scored.sort((a, b) => b.score - a.score);
     }
@@ -404,10 +419,17 @@ export function createCommandPalette(deps) {
       const item = document.createElement('div');
       item.className = 'msb-palette__item';
       item.setAttribute('role', 'option');
-      if (index === activeIndex) item.classList.add('msb-palette__item--active');
+      item.id = `msb-palette-opt-${index}`;
+      item.setAttribute('aria-selected', String(index === activeIndex));
+      if (index === activeIndex) {
+        item.classList.add('msb-palette__item--active');
+        input.setAttribute('aria-activedescendant', item.id);
+      }
 
       const iconWrap = el('span', 'msb-palette__itemIcon');
-      iconWrap.appendChild(createIcon(cmd.icon || GROUP_ICONS[cmd.group] || 'record', 15));
+      const iconName = cmd.icon || GROUP_ICONS[cmd.group] || 'record';
+      item.dataset.icon = iconName; // the icon name picks the category colour
+      iconWrap.appendChild(createIcon(iconName, 15));
       item.appendChild(iconWrap);
 
       const title = document.createElement('span');

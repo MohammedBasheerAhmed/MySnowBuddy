@@ -14,16 +14,19 @@ export const getSkill = (id) => SKILLS.find((s) => s.id === id) || null;
  * table such as incident), the primary is the client skill if the user is on a
  * form and the server skill otherwise.
  */
+/** "a" or "an" for a table name, so the reason reads "an incident form", not "a incident form". */
+const article = (word) => (/^[aeiou]/i.test(word) ? 'an' : 'a');
+
 export function selectSkills(context = {}) {
   const table = context.table || '';
   const byTable = SKILLS.find((s) => s.tables.includes(table));
   if (byTable) {
-    return { primary: byTable, secondary: SKILLS.find((s) => s !== byTable), reason: `the open record is a ${table}` };
+    return { primary: byTable, secondary: SKILLS.find((s) => s !== byTable), reason: `the open record is ${article(table)} ${table}` };
   }
   if (table && !context.isList) {
-    return { primary: CLIENT_SCRIPT_SKILL, secondary: SERVER_SCRIPT_SKILL, reason: `a ${table} form is open` };
+    return { primary: CLIENT_SCRIPT_SKILL, secondary: SERVER_SCRIPT_SKILL, reason: `${article(table)} ${table} form is open` };
   }
-  return { primary: SERVER_SCRIPT_SKILL, secondary: CLIENT_SCRIPT_SKILL, reason: table ? `a ${table} list is open` : 'no record is open' };
+  return { primary: SERVER_SCRIPT_SKILL, secondary: CLIENT_SCRIPT_SKILL, reason: table ? `${article(table)} ${table} list is open` : 'no record is open' };
 }
 
 /** Markdown for MCP resources and the get_skill_guide tool. */

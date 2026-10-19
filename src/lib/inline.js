@@ -153,9 +153,21 @@ export function fieldMenuModel({ table, field, script = false }) {
   const items = [{ id: 'copyName', label: 'Copy name' }, { id: 'copyValue', label: 'Copy value' }];
   // Dot-walked paths ("caller_id.email") have no dictionary entry or ACL of their own on this table.
   if (!String(field).includes('.')) items.push({ id: 'dictionary', label: 'Dictionary entry' }, { id: 'acls', label: 'Field ACLs' });
+  // The two calls developers type most: read this field on the form (client) and on a record (server).
+  if (!String(field).includes('.')) items.push({ id: 'copyClient', label: 'Copy g_form call' });
+  items.push({ id: 'copyServer', label: 'Copy GlideRecord call' });
   items.push({ id: 'xray', label: 'X-ray this field' });
   if (script) items.push({ id: 'edit', label: 'Full-screen editor' }, { id: 'lint', label: 'Lint' }, { id: 'ask', label: 'Ask AI' });
   return items;
+}
+
+/** Code that reads this field: `client` on a form (g_form), `server` on a GlideRecord. Dot-walks have no g_form form. */
+export function fieldCode(kind, field) {
+  const name = String(field || '');
+  if (!isName(name.split('.')[0])) return '';
+  if (kind === 'client') return name.includes('.') ? '' : `g_form.getValue('${name}')`;
+  if (kind === 'server') return name.includes('.') ? `gr.getElement('${name}').toString()` : `gr.getValue('${name}')`;
+  return '';
 }
 
 /** Actions in the menu opened from a list column header. */

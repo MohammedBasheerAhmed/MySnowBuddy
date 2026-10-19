@@ -912,7 +912,9 @@ const SHORT_TYPES = {
 /** Compact type label for a chip: "reference", "choice", "date/time"... */
 export function shortType(field) {
   if (!field) return '';
-  if (field.choiceType && field.type !== 'reference') return 'choice';
+  // Dictionary choice: 1 dropdown with --None--, 3 dropdown without it, 2 suggestion. A suggestion field (task.short_description,
+  // checked on a live instance) is free text that only offers values, so it stays a string.
+  if (field.choiceType && field.choiceType !== '2' && field.type !== 'reference') return 'choice';
   return SHORT_TYPES[field.type] || field.type || '';
 }
 

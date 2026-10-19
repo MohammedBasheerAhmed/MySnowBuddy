@@ -50,8 +50,9 @@ function el(tag, className, text) {
  * @param {{ shadow: ShadowRoot, openPalette: () => void }} deps
  * @returns {{ show: () => void, hide: () => void, maybeShow: () => Promise<void> }}
  */
-export function createWelcome({ shadow, openPalette }) {
+export function createWelcome({ shadow, openPalette, openGuide }) {
   let card = null;
+  let opener = null; // what had focus before the card opened, so closing it does not strand a keyboard user
   let timer = null;
 
   function build() {
@@ -88,10 +89,21 @@ export function createWelcome({ shadow, openPalette }) {
         openPalette();
       })
     );
+    const guideBtn = el('button', 'msb-btn msb-btn--sm', 'Everything it can do');
+    guideBtn.type = 'button';
+    guideBtn.addEventListener(
+      'click',
+      trustedDom(() => {
+        hide(true);
+        openGuide?.();
+      })
+    );
     const done = el('button', 'msb-btn msb-btn--sm', 'Got it');
     done.type = 'button';
     done.addEventListener('click', trustedDom(() => hide(true)));
-    actions.append(open, done);
+    actions.append(open);
+    if (openGuide) actions.append(guideBtn);
+    actions.append(done);
     root.appendChild(actions);
 
     root.addEventListener('keydown', (event) => {
@@ -102,6 +114,7 @@ export function createWelcome({ shadow, openPalette }) {
 
   function show() {
     if (card) return;
+    opener = document.activeElement;
     const built = build();
     card = built.root;
     shadow.appendChild(card);
@@ -112,6 +125,8 @@ export function createWelcome({ shadow, openPalette }) {
     clearTimeout(timer);
     card?.remove();
     card = null;
+    if (opener?.isConnected && typeof opener.focus === 'function') opener.focus({ preventScroll: true });
+    opener = null;
     if (remember) chrome.storage.local.set({ [STORAGE_KEY]: true }).catch?.(() => {});
   }
 

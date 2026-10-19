@@ -279,6 +279,9 @@ test('simulator: roles, references and promises', async () => {
 test('skills are chosen by page and exposed as resources', () => {
   assert.equal(selectSkills({ table: 'sys_script_client' }).primary.id, 'client-script');
   assert.equal(selectSkills({ table: 'sys_script' }).primary.id, 'server-script');
+  assert.equal(selectSkills({ table: 'incident' }).reason, 'an incident form is open', 'an, not a, before a vowel');
+  assert.equal(selectSkills({ table: 'problem' }).reason, 'a problem form is open');
+  assert.equal(selectSkills({ table: 'incident', isList: true }).reason, 'an incident list is open');
   assert.equal(selectSkills({ table: 'incident', isList: false }).primary.id, 'client-script');
   assert.equal(selectSkills({ table: 'incident', isList: true }).primary.id, 'server-script');
   assert.equal(skillResources().length, 2);
@@ -641,6 +644,9 @@ test('the catalog knows server methods found on a live instance (GlideRecord and
   });
   ['beginningOfTomorrow', 'endOfTomorrow', 'endOfLastYear', 'yesterday', 'lastWeek', 'dateDiff', 'calDateDiff', 'flushMessages', 'getErrorMessages', 'getInfoMessages', 'logError', 'logWarning', 'getImpersonatingUserName', 'getImpersonatingUserDisplayName'].forEach((name) => {
     assert.ok(lookupApi(`gs.${name}`, 'server').found, `gs.${name}`);
+  });
+  [['GlideAggregate', 'addTrend'], ['GlideElement', 'getDisplayValueExt'], ['GlideUser', 'getUserRoles'], ['GlideUser', 'getLocation']].forEach(([cls, name]) => {
+    assert.ok(lookupApi(`${cls}.${name}`, 'server').found, `${cls}.${name}`);
   });
   // The global-scope gap found earlier stays recorded.
   assert.match(lookupApi('gs.base64Encode', 'server').text, /scoped|missing/i);

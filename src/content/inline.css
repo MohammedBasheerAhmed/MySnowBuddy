@@ -18,7 +18,7 @@
   background: var(--msb-bg-raised);
   border: 1px solid var(--msb-accent-line);
   border-radius: var(--msb-radius-pill);
-  box-shadow: var(--msb-shadow), 0 6px 22px -8px rgba(99, 70, 229, 0.4);
+  box-shadow: var(--msb-shadow);
   font-family: var(--msb-font);
   font-size: var(--msb-text-sm);
   color: var(--msb-fg);

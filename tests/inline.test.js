@@ -12,6 +12,7 @@ const {
   toolbarModel,
   toolbarKey,
   fieldMenuModel,
+  fieldCode,
   columnMenuModel,
   dictionaryQuery,
   fieldAclQuery,
@@ -103,9 +104,9 @@ test('the toolbar shows record actions on a form, filter actions on a list, and 
 
 test('field and column menus only offer what applies', () => {
   const ids = (m) => m.map((i) => i.id);
-  assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id' })), ['copyName', 'copyValue', 'dictionary', 'acls', 'xray']);
-  assert.deepEqual(ids(fieldMenuModel({ table: 'sys_script', field: 'script', script: true })), ['copyName', 'copyValue', 'dictionary', 'acls', 'xray', 'edit', 'lint', 'ask']);
-  assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id.email' })), ['copyName', 'copyValue', 'xray'], 'a dot-walked path has no dictionary entry of its own');
+  assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id' })), ['copyName', 'copyValue', 'dictionary', 'acls', 'copyClient', 'copyServer', 'xray']);
+  assert.deepEqual(ids(fieldMenuModel({ table: 'sys_script', field: 'script', script: true })), ['copyName', 'copyValue', 'dictionary', 'acls', 'copyClient', 'copyServer', 'xray', 'edit', 'lint', 'ask']);
+  assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id.email' })), ['copyName', 'copyValue', 'copyServer', 'xray'], 'a dot-walked path has no dictionary entry or g_form call of its own');
   assert.deepEqual(fieldMenuModel({ table: 'not a table', field: 'x' }), []);
   assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'number' })), ['copyName', 'dictionary', 'acls']);
   assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'caller_id.name' })), ['copyName']);
@@ -162,4 +163,13 @@ test('on-page tools never use innerHTML and gate page-DOM handlers on trusted ev
   const inline = read('inline.js');
   assert.match(inline, /event\.isTrusted !== true/, 'the page-DOM buttons ignore synthetic clicks');
   assert.match(inline, /peekSysId[\s\S]{0,200}isTrusted/, 'the sys_id peek ignores synthetic mouseup');
+});
+
+test('field code is the call a developer would type, and nothing for a name that is not a field', () => {
+  assert.equal(fieldCode('client', 'caller_id'), "g_form.getValue('caller_id')");
+  assert.equal(fieldCode('server', 'caller_id'), "gr.getValue('caller_id')");
+  assert.equal(fieldCode('server', 'caller_id.email'), "gr.getElement('caller_id.email').toString()");
+  assert.equal(fieldCode('client', 'caller_id.email'), '', 'g_form cannot read a dot-walk');
+  assert.equal(fieldCode('server', "x');gs.print('"), '');
+  assert.equal(fieldCode('other', 'caller_id'), '');
 });

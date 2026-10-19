@@ -18,6 +18,7 @@ import { createPopover } from '../src/content/popover.js';
 import { createToastHost } from '../src/content/toast.js';
 import { createCommandPalette } from '../src/content/commandPalette.js';
 import { createWelcome } from '../src/content/welcome.js';
+import { createGuide } from '../src/content/guide.js';
 import { lintScript } from '../src/lib/lint.js';
 import { attachUiRoot, UI_HOST_ID } from '../src/content/uiRoot.js';
 import { writeGuard, flatValue } from '../src/lib/pushArtifact.js';
@@ -321,11 +322,12 @@ if (params.get('inline')) {
   window.__toast = toast;
   installInline({ shadow, toast, sidebar: api, popover: createPopover({ shadow, toast }), openEditor: () => toast.info('Full-screen editor'), tools: { lintScript }, enabled: true });
 }
-// ?palette=1: the real command palette over the fake page; ?welcome=1: the first-run card. ?scriptform=1 makes the
+// ?palette=1: the real command palette over the fake page; ?welcome=1: the first-run card; ?guide=1: the developer guide. ?scriptform=1 makes the
 // fake page a script form, ?record=<table>:<key> any other record.
 let palette = null;
 let welcome = null;
-if (params.get('palette') || params.get('welcome')) {
+let guide = null;
+if (params.get('palette') || params.get('welcome') || params.get('guide')) {
   const toast = window.__toast || createToastHost();
   if (!window.__toast) shadow.appendChild(toast.element);
   window.__toast = toast;
@@ -345,17 +347,20 @@ if (params.get('palette') || params.get('welcome')) {
     inlineOn: () => false,
     toggleTheme: () => {},
     showWelcome: () => welcome?.show(),
+    showGuide: () => guide?.show(),
     onOpenChange: () => {},
     impersonate: () => {},
     impersonateByQuery: () => {},
     impersonateUserName: () => {},
   });
   shadow.appendChild(palette.element);
-  welcome = createWelcome({ shadow, openPalette: () => palette.open() });
+  welcome = createWelcome({ shadow, openPalette: () => palette.open(), openGuide: () => guide?.show() });
+  guide = createGuide({ shadow, openPalette: (text) => palette.open(text), getContext: pageContext, showTour: () => welcome?.show() });
   if (params.get('welcome')) welcome.show();
+  if (params.get('guide')) guide.show();
   if (params.get('palette') === 'open') setTimeout(() => palette.open(), 300);
 }
-window.__msb = { api, agentTools, audit, shadow, palette, welcome };
+window.__msb = { api, agentTools, audit, shadow, palette, welcome, guide };
 
 // Script the panels for screenshots: ?open=api|bench|<any panel name from panelRegistry.js>
 const open = params.get('open');

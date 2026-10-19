@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { INTENTS, queryWords, wordsScore, intentText } = require('../src/lib/paletteIntents.js');
-const { pageKind, suggestFor, SUGGESTED, SUGGESTED_TITLES } = require('../src/lib/paletteContext.js');
+const { pageKind, pageSuggestions, suggestFor, SUGGESTED, SUGGESTED_TITLES } = require('../src/lib/paletteContext.js');
 
 const src = (file) => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
 
@@ -66,6 +66,8 @@ test('suggestions follow the list order and skip commands that are not on the pa
   assert.deepEqual(suggestFor(script, commands, 3).map((c) => c.id), ['tools.editor', 'analyze.lint', 'record.versionDiff']);
   assert.deepEqual(suggestFor(script, commands, 1).map((c) => c.id), ['tools.editor']);
   assert.deepEqual(suggestFor({}, [{ id: 'unrelated' }]), []);
+  assert.ok(pageSuggestions(script).includes('panel.impact'), 'the whole list, not only the first four');
+  assert.deepEqual(pageSuggestions({}), SUGGESTED.other);
 });
 
 test('the welcome tour is short, plain and names the real shortcut', () => {

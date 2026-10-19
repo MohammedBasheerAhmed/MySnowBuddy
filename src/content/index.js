@@ -1,6 +1,7 @@
 import { createCommandPalette } from './commandPalette.js';
 import { createToastHost } from './toast.js';
 import { createWelcome } from './welcome.js';
+import { createGuide } from './guide.js';
 import { getInstanceInfo, getCurrentUpdateSet, formDocuments, recordUrl } from './quickActions.js';
 import { createAgentTools } from './agentTools.js';
 import { createControlDeps } from './controlSession.js';
@@ -462,8 +463,10 @@ async function init() {
   }
 
   let welcome = null;
+  let guide = null;
   const palette = createCommandPalette({
     showWelcome: () => welcome?.show(),
+    showGuide: () => guide?.show(),
     getContext: detectPageContext,
     sidebar: sidebarApi,
     toast,
@@ -485,7 +488,8 @@ async function init() {
   shadow.appendChild(palette.element);
 
   // First-run card, shown once; "Quick tour" in the palette brings it back.
-  welcome = createWelcome({ shadow, openPalette: () => palette.open() });
+  welcome = createWelcome({ shadow, openPalette: () => palette.open(), openGuide: () => guide?.show() });
+  guide = createGuide({ shadow, openPalette: (text) => palette.open(text), getContext: detectPageContext, showTour: () => welcome?.show() });
   welcome.maybeShow();
 
   // On-page tools (page toolbar, field and column menus, sys_id peek). Installed always, dormant when
@@ -522,8 +526,9 @@ async function init() {
       getInstanceInfo,
       getCurrentUpdateSet,
       onChangeUpdateSet: () => {
+        // The notice says changes are going to Default; the fix is a named set, so open My work on its create form.
         sidebarApi.openForTool();
-        sidebarApi.openUpdateSetPanel();
+        if (!sidebarApi.openPanel?.('mywork', { args: 'new' })) sidebarApi.openUpdateSetPanel();
       },
     });
     watcher.subscribe((ctx) => guards.onPageChange(ctx));

@@ -235,6 +235,19 @@ test('page bridge finds form fields even when g_form.getFieldNames is missing (c
   assert.deepEqual(JSON.parse(JSON.stringify(scripts.result.map((f) => f.name))), ['script'], 'the script field is found, once');
   assert.equal(call('getFormModel').result.fieldCount, 2);
   assert.equal(call('getFormValues').result.values.name, 'My rule');
+
+  // Current releases answer isReadOnly(name) with true for every field; getEditableFields() is the honest source.
+  form.isReadOnly = () => true;
+  form.isMandatory = () => false;
+  form.getEditableFields = () => ['name'];
+  form.setValue = () => {};
+  const states = Object.fromEntries(call('getFormModel').result.fields.map((row) => [row.name, row.readOnly]));
+  assert.deepEqual(JSON.parse(JSON.stringify(states)), { name: false, script: true });
+  assert.equal(call('setFieldValue', ['name', 'Renamed']).ok, true, 'an editable field can be set');
+  assert.equal(call('setFieldValue', ['script', 'x']).ok, false, 'a field outside the editable list is refused');
+  // Nothing editable (a protected record) falls back to isReadOnly.
+  form.getEditableFields = () => [];
+  assert.equal(call('getFormModel').result.fields.every((row) => row.readOnly === true), true);
 });
 
 test('script field detection ignores the table prefix and empty fields (client scripts showed "none detected")', () => {

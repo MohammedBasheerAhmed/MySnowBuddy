@@ -51,7 +51,7 @@ export async function fetchTableFields(table) {
       definedOn: r.name,
       unique: r.unique === 'true',
       display: r.display === 'true',
-      // 0 = no choice list, 1 = dropdown, 3 = suggestion / dropdown with none (dictionary 'choice' column)
+      // 0 = no choice list, 1 = dropdown with --None--, 3 = dropdown without it, 2 = suggestion (dictionary 'choice' column)
       choiceType: r.choice && r.choice !== '0' ? String(r.choice) : '',
       calculated: Boolean(r.calculation),
       array: r.array === 'true',

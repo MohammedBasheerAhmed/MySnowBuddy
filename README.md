@@ -197,6 +197,7 @@ Type to fuzzy-match commands, or use the input as an omnibox:
 | --- | --- |
 | `incident` | Incident list / new Incident, plus a live `sys_db_object` lookup for any other table |
 | a 32-char sys_id | Resolves it through `sys_metadata`, `task`, `sys_user` and `cmdb_ci` and opens the record |
+| a record number (`INC0010001`, `CHG0030002`, `STRY0012345`, `KB0000015`) | That record, found across every task table, Enter to open |
 | `@jsmith` | Matching users, Enter to impersonate |
 | `/lint`, `/review`, … | Runs the chat slash command |
 | a problem, in your own words (`who changed this`, `why can't they see this`, `what did I change`) | The command that answers it |
@@ -214,14 +215,16 @@ First run shows a short tour card; "Quick tour" in the palette brings it back.
 
 What it covers beyond the analysis features below:
 
-- **This record** — copy sys_id / URL / markdown link, open XML, audit history,
+- **This record** — copy sys_id / URL / markdown link, the Table API URL, a
+  GlideRecord that loads it, or its values as JSON, open XML, audit history,
   versions, the update set entry that captured it, record info (created and
   updated by/when, update count)
 - **This table** — dictionary, business rules, client scripts, UI actions, UI
   policies, ACLs, data policies, notifications, form and list layouts, related
   lists, labels, choices and audit history, each as a pre-filtered list
 - **Instance** — flush cache, node stats and build, XML stats, thread info
-- **Tools** — background script runner, REST builder, impersonate, end
+- **Tools** — new update set (creates one in your current scope and switches to it),
+  background script runner, REST builder, impersonate, end
   impersonation, switch update set, toggle technical field names on the form
 - **Navigate** — properties, logs, transactions, update sets, scheduled jobs,
   email, events, users, groups, roles, applications, plugins, REST explorer,
@@ -235,8 +238,8 @@ The tools sit where you are working, not behind a panel:
   script: lint, edit in the full-screen editor or VS Code, ask the AI. On a list:
   explain the filter in plain words, count rows, copy the encoded query, copy
   the equivalent GlideRecord code.
-- **`⋯` on a form label** — copy the field name or value, open its dictionary
-  entry, see the ACLs on it, last change, or X-ray what controls it. Script
+- **`⋯` on a form label** — copy the field name or value, or the `g_form` and
+  GlideRecord call that reads it, open its dictionary entry, see the ACLs on it, last change, or X-ray what controls it. Script
   fields also get **Lint** and **AI** buttons.
 - **`⋯` on a list column header** — copy the name, dictionary entry, ACLs.
 - **Select a sys_id anywhere** to peek at the record it points to.

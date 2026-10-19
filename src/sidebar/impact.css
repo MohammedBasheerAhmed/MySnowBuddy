@@ -15,8 +15,6 @@
 .msb-impact__kind {
   font-size: var(--msb-text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--msb-fg-muted);
 }
 
@@ -54,8 +52,6 @@
   color: var(--msb-ok);
   font-size: var(--msb-text-xs);
   font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
 .msb-impact__level--high {

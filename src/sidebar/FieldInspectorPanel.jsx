@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 const copy = (text) => navigator.clipboard?.writeText(String(text));
 
-const CHOICE_LABEL = { 1: 'choice list', 3: 'suggestion list' };
+// Dictionary "choice" column: 1 dropdown with --None--, 3 dropdown without it, 2 suggestion (task.short_description is 2 on a live instance).
+const CHOICE_LABEL = { 1: 'choice list', 2: 'suggestion list', 3: 'choice list' };
 
 /** Everything about one column: help text, attributes, overrides and the choice list. */
 function ColumnDetail({ detail }) {

@@ -279,6 +279,8 @@ test('display helpers', () => {
   assert.equal(X.shortType({ type: 'glide_date_time' }), 'date/time');
   assert.equal(X.shortType({ type: 'string', choiceType: '1' }), 'choice');
   assert.equal(X.shortType({ type: 'reference', choiceType: '1' }), 'reference');
+  assert.equal(X.shortType({ type: 'string', choiceType: '2' }), 'string');
+  assert.equal(X.shortType({ type: 'string', choiceType: '3' }), 'choice');
   assert.equal(X.recordPath('sys_ui_policy', '0123456789abcdef0123456789abcdef'), '/sys_ui_policy.do?sys_id=0123456789abcdef0123456789abcdef');
   assert.equal(X.recordPath('bad table', '0123456789abcdef0123456789abcdef'), '');
   assert.equal(X.recordPath('sys_ui_policy', 'nope'), '');

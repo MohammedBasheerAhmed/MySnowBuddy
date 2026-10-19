@@ -16,15 +16,15 @@
   color: var(--msb-fg);
   border: 1px solid var(--msb-accent-line);
   border-radius: var(--msb-radius);
-  box-shadow: var(--msb-shadow-lg), 0 12px 40px -14px rgba(99, 70, 229, 0.4);
+  box-shadow: var(--msb-shadow-lg);
   font-family: var(--msb-font);
   font-size: var(--msb-text-md);
-  animation: msb-welcome-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: msb-welcome-in 0.12s ease-out;
 }
 
 @keyframes msb-welcome-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .msb-welcome__line {

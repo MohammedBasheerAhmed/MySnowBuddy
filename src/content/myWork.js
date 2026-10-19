@@ -8,7 +8,7 @@
 // instances). Every write is re-read afterwards and the result shown as the
 // instance reports it.
 
-import { queryTable, fetchRecord, countRecords, queryInChunks, updateRecord } from './tableApi.js';
+import { queryTable, fetchRecord, countRecords, queryInChunks, updateRecord, createRecord } from './tableApi.js';
 import { sessionHeaders, getSessionToken } from './sessionToken.js';
 import { callPage } from './pageBridge.js';
 import { setCurrentUpdateSet, setCurrentApplication, getInstanceInfo } from './quickActions.js';
@@ -28,6 +28,7 @@ import {
   dictionaryUpdateNames,
   planMove,
   confirmMatches,
+  validateNewUpdateSetName,
 } from '../lib/updateSetReview.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
@@ -254,6 +255,51 @@ export async function switchUpdateSet(sysId) {
   await setCurrentUpdateSet(sysId, await getSessionToken());
   const [updateSet, application] = await Promise.all([readCurrentUpdateSet().catch(() => null), readCurrentApplication().catch(() => null)]);
   return { requested: sysId, applied: updateSet?.sysId === sysId, updateSet, application };
+}
+
+/**
+ * Create an in-progress update set in the current application and make it the current one. This is the fix for the
+ * "your changes are going to Default" warning. Refuses a taken or Default name, asks for the typed instance name on
+ * guarded instances, re-reads what the instance reports, and audits the creation with an undo (delete the set).
+ */
+export async function createAndSwitchUpdateSet({ name, confirmName } = {}) {
+  const info = getInstanceInfo();
+  if (isGuardedEnv(info.env) && !confirmMatches(confirmName, info.instance)) {
+    throw new Error(`Type "${info.instance}" to confirm a change on this instance.`);
+  }
+  const existing = await queryTable('sys_update_set', 'state=in progress', ['name'], { limit: 200 });
+  const checked = validateNewUpdateSetName(name, existing.map((r) => r.name));
+  if (!checked.ok) throw new Error(checked.error);
+
+  const application = await readCurrentApplication().catch(() => null);
+  const fields = { name: checked.name, state: 'in progress', description: 'Created from MySnowBuddy.' };
+  if (application?.sysId) fields.application = application.sysId;
+  const created = await createRecord('sys_update_set', fields);
+  const sysId = refValue(created?.sys_id);
+  if (!SYS_ID_RE.test(sysId)) throw new Error('The instance did not return the new update set. Check the Update Sets list before trying again.');
+
+  await createAudit(chromeStorageAdapter)
+    .record({
+      instance: info.host,
+      tool: 'create_update_set',
+      args: { name: checked.name, application: application?.sysId || '' },
+      ok: true,
+      summary: `Created update set "${checked.name}"`,
+      source: 'mywork',
+      undo: { kind: 'record', table: 'sys_update_set', sysId, created: true },
+    })
+    .catch(() => {});
+
+  let switched;
+  try {
+    switched = await switchUpdateSet(sysId);
+  } catch (err) {
+    // The set exists now. Say so: a retry would otherwise look like it never worked and create a duplicate.
+    const wrapped = new Error(`Created "${checked.name}", but switching to it failed (${err.message.replace(/\.$/, '')}). It is in your in-progress list: use Switch to pick it.`);
+    wrapped.created = { sysId, name: checked.name };
+    throw wrapped;
+  }
+  return { ...switched, created: { sysId, name: checked.name } };
 }
 
 /** Switch the application scope, then re-read what the instance now reports. */
@@ -524,6 +570,7 @@ export const myWorkServices = {
   myWorkUncaptured: (options) => fetchMyUncaptured(options),
   myWorkSwitchTargets: () => fetchSwitchTargets(),
   myWorkSwitchUpdateSet: (sysId) => switchUpdateSet(sysId),
+  myWorkCreateUpdateSet: (args) => createAndSwitchUpdateSet(args),
   myWorkSwitchApplication: (appId) => switchApplication(appId),
   myWorkInstance: () => getInstanceInfo(),
   myWorkKnownInstances: () => listInstances(),

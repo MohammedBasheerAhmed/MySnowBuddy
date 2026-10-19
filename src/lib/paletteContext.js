@@ -27,6 +27,11 @@ export const SUGGESTED = {
   other: ['panel.mywork', 'analyze.search', 'tools.background', 'tools.api', 'panel.health'],
 };
 
+/** Every command id that suits this page, for nudging search results toward it. */
+export function pageSuggestions(ctx) {
+  return SUGGESTED[pageKind(ctx)] || [];
+}
+
 /** Up to `limit` commands from `commands` that suit this page, in the order of SUGGESTED. */
 export function suggestFor(ctx, commands, limit = 4) {
   const byId = new Map(commands.map((command) => [command.id, command]));

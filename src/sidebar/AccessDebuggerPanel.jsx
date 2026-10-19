@@ -615,6 +615,17 @@ export default function AccessDebuggerPanel({ context, params, services, onClose
   const [fields, setFields] = useState(null);
   const [fieldsFor, setFieldsFor] = useState('');
   const [busy, setBusy] = useState(false);
+  // A user with 120 roles takes ~20 s to trace; without a sign of progress that looks like a hang.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return undefined;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const [runtime, setRuntime] = useState(null);
@@ -868,7 +879,11 @@ export default function AccessDebuggerPanel({ context, params, services, onClose
           Pick a user, a table and an operation. You get the roles, every ACL in the order ServiceNow checks them, and other rules that hide or lock records. Read-only.
         </div>
       )}
-      {busy && !full && <div className="msb-panel__hint msb-acc__pad">Reading roles, groups and ACLs...</div>}
+      {busy && !full && (
+        <div className="msb-panel__hint msb-acc__pad">
+          Reading roles, groups and ACLs...{elapsed >= 4 ? ` ${elapsed}s. A user with many roles can take 20 seconds.` : ''}
+        </div>
+      )}
 
       {full && (
         <TraceView full={full} busy={busy} runtime={runtime} copied={copied} onRun={trusted(runRuntime)} onAskAi={askAi} onCopy={copyTrace} />

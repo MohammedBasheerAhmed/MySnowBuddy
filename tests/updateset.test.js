@@ -358,6 +358,15 @@ test('typed confirmation matches the instance name only', () => {
 test('picker and aggregate responses are read leniently', () => {
   assert.deepEqual(parsePickerCurrent({ result: { current: { sysId: ID1, name: 'Mine' } } }), { sysId: ID1, name: 'Mine' });
   assert.deepEqual(parsePickerCurrent({ result: { current: { sys_id: 'global', displayValue: 'Global' } } }), { sysId: 'global', name: 'Global' });
+  // The shape a live Australia instance returns for the application picker: the id as a string, the names in a list.
+  assert.deepEqual(
+    parsePickerCurrent({ result: { current: 'global', list: [{ sysId: ID1, name: 'Mine', scopeName: 'x_mine' }, { sysId: 'global', name: 'Global', scopeName: 'global' }] } }),
+    { sysId: 'global', name: 'Global' }
+  );
+  assert.deepEqual(parsePickerCurrent({ result: { current: ID1, list: [{ sysId: ID1, name: 'Mine' }] } }), { sysId: ID1, name: 'Mine' });
+  // An id that is not in the list, or has no name, is not guessed.
+  assert.equal(parsePickerCurrent({ result: { current: ID1, list: [{ sysId: 'global', name: 'Global' }] } }), null);
+  assert.equal(parsePickerCurrent({ result: { current: 'global', list: [] } }), null);
   assert.equal(parsePickerCurrent({ result: { list: [] } }), null);
   assert.equal(parsePickerCurrent(null), null);
 

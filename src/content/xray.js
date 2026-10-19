@@ -605,7 +605,7 @@ function findShellFrame() {
 }
 
 /** Documents that may hold ServiceNow UI: the page, the classic gsft_main frame, the shell's classic frame. */
-function xrayDocuments() {
+export function xrayDocuments() {
   const docs = [document];
   try {
     const frame = document.getElementById('gsft_main');
@@ -685,9 +685,9 @@ function ownText(el) {
 // Fixed colours that read on both the light and dark ServiceNow themes: white on deep indigo (13:1),
 // amber count badge with near-black text (12:1), magenta outline with a white halo (3:1+ on either).
 const PAGE_CSS = `
-.msb-xray-chip{all:initial;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:4px;max-width:100%;margin:0 0 0 6px!important;padding:0 6px!important;border-radius:9px!important;background:#1f2a5c!important;color:#fff!important;font:500 10.5px/17px ui-monospace,"Cascadia Code",Consolas,Menlo,monospace!important;letter-spacing:0!important;text-transform:none!important;vertical-align:middle;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.45);user-select:none;overflow:hidden}
+.msb-xray-chip{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:4px;max-width:100%;margin:0 0 0 6px!important;padding:0 6px!important;border-radius:9px!important;background:#1f2a5c!important;color:#fff!important;font:500 10.5px/17px ui-monospace,"Cascadia Code",Consolas,Menlo,monospace!important;letter-spacing:0!important;text-transform:none!important;vertical-align:middle;white-space:nowrap;cursor:pointer;box-shadow:0 0 0 1px rgba(255,255,255,.45);user-select:none;overflow:hidden}
 .msb-xray-chip:hover{background:#2f3f8f!important}
-.msb-xray-chip>span{all:initial;font:inherit!important;color:inherit!important;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.msb-xray-chip>span{all:initial;visibility:inherit!important;font:inherit!important;color:inherit!important;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .msb-xray-chip>.msb-xray-chip__type{color:#c9d2fb!important;flex-shrink:20}
 .msb-xray-chip>.msb-xray-chip__count{flex-shrink:0;padding:0 5px!important;border-radius:8px;background:#ffd166!important;color:#1a1a1a!important;font-weight:700!important}
 .msb-xray-chip>.msb-xray-chip__count:empty,.msb-xray-chip>.msb-xray-chip__type:empty{display:none}
@@ -816,13 +816,40 @@ function formFieldFromId(id, prefix) {
   return parsed;
 }
 
+/**
+ * Every classic form label with the field it names. Older releases id labels "label.<table>.<field>";
+ * newer ones only set `for="<table>.<field>"` (references use "sys_display.<table>.<field>").
+ */
+export function classicFormLabels(doc) {
+  const hasText = (label) => {
+    // Our own buttons and chips live inside labels; they are not the label's text.
+    const walker = doc.createTreeWalker(label, 4, {
+      acceptNode: (node) => (node.parentElement?.closest('[data-msb-inline],[data-msb-xray]') ? 2 : 1),
+    });
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.nodeValue.trim()) return true;
+    return false;
+  };
+  // Checkboxes get two labels for one field (the text one and an empty "label.ni.<table>.<field>"): keep one.
+  const byField = new Map();
+  doc.querySelectorAll('label[id^="label."], label[for]').forEach((label) => {
+    // Newer releases: the field is named by the wrapping "element.<table>.<field>" container. A bare for= is not
+    // enough: related-list row checkboxes use for="check_<table>.<...>.<sys_id>" and look like fields.
+    const group = !label.id.startsWith('label.') && label.closest('[id^="element."]');
+    const parsed = (label.id.startsWith('label.') && formFieldFromId(label.id, 'label.')) || (group && formFieldFromId(group.id, 'element.'));
+    if (!parsed || parsed.io) return;
+    const key = `${parsed.table}.${parsed.field}`;
+    const kept = byField.get(key);
+    if (!kept || (!kept.text && hasText(label))) byField.set(key, { label, parsed, text: hasText(label) });
+  });
+  return [...byField.values()].map(({ label, parsed }) => ({ label, parsed }));
+}
+
 function annotateForm(doc) {
   const table = formTable(doc);
   if (!table) return false;
-  doc.querySelectorAll('label[id^="label."]').forEach((label) => {
+  classicFormLabels(doc).forEach(({ label, parsed }) => {
     if (label.querySelector(`[${ATTR}]`)) return;
-    const parsed = formFieldFromId(label.id, 'label.');
-    if (!parsed || parsed.io || parsed.table !== table) return;
+    if (parsed.table !== table) return;
     label.appendChild(makeChip(doc, { kind: 'field', table, field: parsed.field }, (chip) => openPanel(chip.dataset.field)));
   });
   want(`dict:${table}`, () => loadDictionary(table), table);
@@ -1439,7 +1466,8 @@ function collectFormFields(doc, table) {
   doc.querySelectorAll(`[id^="element.${table}."], label[id^="label.${table}."]`).forEach((el) => {
     const parsed = parsePrefixedId(el.id, el.id.startsWith('label.') ? 'label.' : 'element.');
     if (!parsed || parsed.io || parsed.table !== table) return;
-    add(parsed.field, doc.getElementById(`label.${table}.${parsed.field}`));
+    const target = `${table}.${parsed.field}`;
+    add(parsed.field, doc.getElementById(`label.${target}`) || doc.querySelector(`label[for="${target}"], label[for="sys_display.${target}"]`));
   });
   return out;
 }

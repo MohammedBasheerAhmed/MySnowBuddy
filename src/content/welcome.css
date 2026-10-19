@@ -1,0 +1,128 @@
+/* ---------------------------------------------------------------------------
+   First-run welcome card (src/content/welcome.js). Tokens come from theme.css.
+   --------------------------------------------------------------------------- */
+
+.msb-welcome {
+  position: fixed;
+  right: 16px;
+  bottom: 70px;
+  z-index: calc(var(--msb-z) + 7);
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--msb-bg-raised);
+  color: var(--msb-fg);
+  border: 1px solid var(--msb-accent-line);
+  border-radius: var(--msb-radius);
+  box-shadow: var(--msb-shadow-lg), 0 12px 40px -14px rgba(99, 70, 229, 0.4);
+  font-family: var(--msb-font);
+  font-size: var(--msb-text-md);
+  animation: msb-welcome-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes msb-welcome-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.msb-welcome__line {
+  height: 2px;
+  flex: none;
+  background: var(--msb-aurora-line);
+}
+
+.msb-welcome__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 8px 8px 14px;
+  background: var(--msb-hero-bg);
+  border-bottom: 1px solid var(--msb-accent-line);
+}
+
+.msb-welcome__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.msb-welcome__title {
+  font-size: var(--msb-text-lg);
+  font-weight: 700;
+}
+
+.msb-welcome__sub {
+  margin-top: 1px;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-welcome__close {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--msb-radius-xs);
+  background: transparent;
+  color: var(--msb-fg-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.msb-welcome__close:hover {
+  background: var(--msb-accent-soft);
+  color: var(--msb-active-fg);
+}
+
+.msb-welcome__steps {
+  list-style: none;
+  margin: 0;
+  padding: 6px 14px 4px;
+  overflow-y: auto;
+}
+
+.msb-welcome__step {
+  display: grid;
+  gap: 2px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--msb-border);
+}
+
+.msb-welcome__step:last-child {
+  border-bottom: none;
+}
+
+.msb-welcome__key {
+  justify-self: start;
+  padding: 1px 7px;
+  border: 1px solid var(--msb-border);
+  border-bottom-width: 2px;
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-active-fg);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  line-height: 1.6;
+}
+
+.msb-welcome__stepTitle {
+  margin-top: 3px;
+  font-weight: 600;
+}
+
+.msb-welcome__stepText {
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+}
+
+.msb-welcome__actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--msb-border);
+  background: var(--msb-bg-subtle);
+}

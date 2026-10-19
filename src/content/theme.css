@@ -50,6 +50,20 @@
   --msb-shadow-lg: 0 8px 16px rgba(16, 21, 28, 0.1), 0 24px 64px rgba(16, 21, 28, 0.24);
   --msb-ring: 0 0 0 3px rgba(63, 91, 217, 0.28);
 
+  /* Surface colour for the command palette and sidebar. Text pairs: --msb-fg on the *-bg fills,
+     --msb-active-fg on --msb-active-bg (AA); --msb-on-gradient on --msb-aurora (icons only). */
+  --msb-aurora: linear-gradient(135deg, #4338ca 0%, #7c3aed 55%, #c026d3 100%);
+  --msb-aurora-line: linear-gradient(90deg, #4f46e5, #8b5cf6, #d946ef, #06b6d4);
+  --msb-glow: 0 4px 14px rgba(99, 70, 229, 0.38);
+  --msb-hero-bg: linear-gradient(180deg, #eceeff 0%, #f6f7ff 100%);
+  --msb-canvas: linear-gradient(180deg, #fafaff 0%, #ffffff 40%);
+  --msb-active-bg: linear-gradient(90deg, #e4e8ff 0%, #efe8ff 100%);
+  --msb-active-fg: #3040b8;
+  --msb-user-bg: linear-gradient(135deg, #e8ebff 0%, #f1eaff 100%);
+  --msb-group-fg: #5a4fcf;
+  --msb-icon-bg: linear-gradient(135deg, #eef0ff, #f4eeff);
+  --msb-backdrop: radial-gradient(ellipse at 50% 0%, rgba(91, 70, 229, 0.28), transparent 60%), rgba(15, 20, 36, 0.5);
+
   /* Shape */
   --msb-radius-xs: 5px;
   --msb-radius-sm: 8px;
@@ -98,6 +112,15 @@
     --msb-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.42);
     --msb-shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5), 0 32px 72px rgba(0, 0, 0, 0.55);
     --msb-ring: 0 0 0 3px rgba(113, 137, 255, 0.32);
+    --msb-glow: 0 4px 16px rgba(124, 92, 255, 0.45);
+    --msb-hero-bg: linear-gradient(180deg, #232850 0%, #1a1e36 100%);
+    --msb-canvas: linear-gradient(180deg, #191d2c 0%, #161a21 40%);
+    --msb-active-bg: linear-gradient(90deg, #262e5e 0%, #302760 100%);
+    --msb-active-fg: #c2ccff;
+    --msb-user-bg: linear-gradient(135deg, #252d5c 0%, #2e2561 100%);
+    --msb-group-fg: #a99bff;
+    --msb-icon-bg: linear-gradient(135deg, #232a52, #2a2354);
+    --msb-backdrop: radial-gradient(ellipse at 50% 0%, rgba(110, 80, 255, 0.3), transparent 60%), rgba(4, 7, 14, 0.66);
     color-scheme: dark;
   }
 }
@@ -136,6 +159,15 @@
   --msb-shadow: 0 2px 6px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.42);
   --msb-shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5), 0 32px 72px rgba(0, 0, 0, 0.55);
   --msb-ring: 0 0 0 3px rgba(113, 137, 255, 0.32);
+  --msb-glow: 0 4px 16px rgba(124, 92, 255, 0.45);
+  --msb-hero-bg: linear-gradient(180deg, #232850 0%, #1a1e36 100%);
+  --msb-canvas: linear-gradient(180deg, #191d2c 0%, #161a21 40%);
+  --msb-active-bg: linear-gradient(90deg, #262e5e 0%, #302760 100%);
+  --msb-active-fg: #c2ccff;
+  --msb-user-bg: linear-gradient(135deg, #252d5c 0%, #2e2561 100%);
+  --msb-group-fg: #a99bff;
+  --msb-icon-bg: linear-gradient(135deg, #232a52, #2a2354);
+  --msb-backdrop: radial-gradient(ellipse at 50% 0%, rgba(110, 80, 255, 0.3), transparent 60%), rgba(4, 7, 14, 0.66);
   color-scheme: dark;
 }
 

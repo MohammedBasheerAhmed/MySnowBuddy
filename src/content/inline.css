@@ -1,0 +1,92 @@
+/* ---------------------------------------------------------------------------
+   Page toolbar (src/content/inline.js). The buttons placed inside the classic page are styled by
+   the page-level sheet in inline.js; this file is only the pill in the shadow root.
+   Tokens come from theme.css, concatenated ahead of this file.
+   --------------------------------------------------------------------------- */
+
+.msb-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: calc(var(--msb-z) + 1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 24px);
+  padding: 4px;
+  background: var(--msb-bg-raised);
+  border: 1px solid var(--msb-accent-line);
+  border-radius: var(--msb-radius-pill);
+  box-shadow: var(--msb-shadow), 0 6px 22px -8px rgba(99, 70, 229, 0.4);
+  font-family: var(--msb-font);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg);
+  animation: msb-bar-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.msb-bar[hidden] {
+  display: none;
+}
+
+@keyframes msb-bar-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+
+.msb-bar__handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--msb-aurora);
+  color: var(--msb-on-gradient);
+  box-shadow: var(--msb-glow);
+  cursor: pointer;
+}
+
+.msb-bar__handle:hover {
+  filter: brightness(1.12);
+}
+
+.msb-bar__items {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.msb-bar--collapsed {
+  padding: 3px;
+}
+
+.msb-bar--collapsed .msb-bar__items {
+  display: none;
+}
+
+.msb-bar__btn {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--msb-radius-pill);
+  background: transparent;
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.msb-bar__btn:hover {
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+}

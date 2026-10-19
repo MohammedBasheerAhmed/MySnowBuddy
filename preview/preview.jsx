@@ -13,6 +13,12 @@ import { fetchLiveUpdateSets, findCollisions, findUncapturedChanges } from '../s
 import { fetchTableFields, fetchTableInfo, fetchColumnDetail, fetchListLayout } from '../src/content/fieldInspector.js';
 import { listInstances } from '../src/content/stores.js';
 import { installXray } from '../src/content/xray.js';
+import { installInline } from '../src/content/inline.js';
+import { createPopover } from '../src/content/popover.js';
+import { createToastHost } from '../src/content/toast.js';
+import { createCommandPalette } from '../src/content/commandPalette.js';
+import { createWelcome } from '../src/content/welcome.js';
+import { lintScript } from '../src/lib/lint.js';
 import { attachUiRoot, UI_HOST_ID } from '../src/content/uiRoot.js';
 import { writeGuard, flatValue } from '../src/lib/pushArtifact.js';
 import { mountSidebar } from '../src/sidebar/mount.js';
@@ -306,7 +312,50 @@ api.registerServices({
 });
 api.open();
 installXray({ sidebar: api });
-window.__msb = { api, agentTools, audit, shadow };
+
+// ?inline=1: the on-page tools (toolbar, label and column menus) over the fake classic form or list.
+if (params.get('inline')) {
+  history.replaceState(null, '', params.get('page') === 'list' ? '/incident_list.do?sysparm_query=active%3Dtrue' : '/incident.do?sys_id=9de5069c0b0f0300b8b9e5cd35673a5b');
+  const toast = createToastHost();
+  shadow.appendChild(toast.element);
+  window.__toast = toast;
+  installInline({ shadow, toast, sidebar: api, popover: createPopover({ shadow, toast }), openEditor: () => toast.info('Full-screen editor'), tools: { lintScript }, enabled: true });
+}
+// ?palette=1: the real command palette over the fake page; ?welcome=1: the first-run card. ?scriptform=1 makes the
+// fake page a script form, ?record=<table>:<key> any other record.
+let palette = null;
+let welcome = null;
+if (params.get('palette') || params.get('welcome')) {
+  const toast = window.__toast || createToastHost();
+  if (!window.__toast) shadow.appendChild(toast.element);
+  window.__toast = toast;
+  const pageContext = () => (params.get('scriptform') ? { ...context(), table: 'sys_script', scriptBody: GOOD_SCRIPT, scriptFieldLabel: 'Script' } : context());
+  palette = createCommandPalette({
+    getContext: pageContext,
+    sidebar: api,
+    toast,
+    getCsrfToken: async () => 'preview',
+    openScriptEditor: () => toast.info('Full-screen editor'),
+    startFileSync: () => toast.info('File sync'),
+    stopFileSync: () => {},
+    isFileSyncActive: () => false,
+    setTheme: async () => {},
+    setToolSurface: async () => {},
+    setInline: async () => {},
+    inlineOn: () => false,
+    toggleTheme: () => {},
+    showWelcome: () => welcome?.show(),
+    onOpenChange: () => {},
+    impersonate: () => {},
+    impersonateByQuery: () => {},
+    impersonateUserName: () => {},
+  });
+  shadow.appendChild(palette.element);
+  welcome = createWelcome({ shadow, openPalette: () => palette.open() });
+  if (params.get('welcome')) welcome.show();
+  if (params.get('palette') === 'open') setTimeout(() => palette.open(), 300);
+}
+window.__msb = { api, agentTools, audit, shadow, palette, welcome };
 
 // Script the panels for screenshots: ?open=api|bench|<any panel name from panelRegistry.js>
 const open = params.get('open');

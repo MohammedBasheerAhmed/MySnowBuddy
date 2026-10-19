@@ -30,6 +30,8 @@ export const ICON_PATHS = {
     '<circle cx="12" cy="8.5" r="3.5" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M5 20a7 7 0 0 1 14 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/>',
   drag:
     '<circle cx="9" cy="6" r="1.3" fill="currentColor"/><circle cx="15" cy="6" r="1.3" fill="currentColor"/><circle cx="9" cy="12" r="1.3" fill="currentColor"/><circle cx="15" cy="12" r="1.3" fill="currentColor"/><circle cx="9" cy="18" r="1.3" fill="currentColor"/><circle cx="15" cy="18" r="1.3" fill="currentColor"/>',
+  pin:
+    '<path d="M9 4h6l-1 6 3 3H7l3-3z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" fill="none"/><path d="M12 13v7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   command:
     '<path d="M9 6a2.5 2.5 0 1 0-2.5 2.5H17.5A2.5 2.5 0 1 1 15 6v12a2.5 2.5 0 1 0 2.5-2.5H6.5A2.5 2.5 0 1 1 9 18z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" fill="none"/>',
   send:

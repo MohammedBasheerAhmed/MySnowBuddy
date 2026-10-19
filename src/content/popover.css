@@ -1,0 +1,192 @@
+/* ---------------------------------------------------------------------------
+   Popover: small answers shown next to what was clicked (src/content/popover.js).
+   Tokens come from theme.css, concatenated ahead of this file.
+   --------------------------------------------------------------------------- */
+
+.msb-pop {
+  position: fixed;
+  z-index: calc(var(--msb-z) + 8);
+  width: min(380px, calc(100vw - 16px));
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--msb-bg-raised);
+  color: var(--msb-fg);
+  border: 1px solid var(--msb-accent-line);
+  border-left-width: 3px;
+  border-radius: var(--msb-radius);
+  box-shadow: var(--msb-shadow-lg), 0 10px 36px -12px rgba(99, 70, 229, 0.35);
+  font-family: var(--msb-font);
+  font-size: var(--msb-text-md);
+  animation: msb-pop-in 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.msb-pop[hidden] {
+  display: none;
+}
+
+.msb-pop--ok {
+  border-left-color: var(--msb-ok);
+}
+
+.msb-pop--warn {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-pop--danger {
+  border-left-color: var(--msb-danger);
+}
+
+.msb-pop--info {
+  border-left-color: #7c3aed;
+}
+
+@keyframes msb-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.msb-pop__line {
+  height: 2px;
+  flex: none;
+  background: var(--msb-aurora-line);
+}
+
+.msb-pop__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 8px 6px 12px;
+  background: var(--msb-hero-bg);
+  border-bottom: 1px solid var(--msb-accent-line);
+}
+
+.msb-pop__titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.msb-pop__title {
+  font-size: var(--msb-text-lg);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.msb-pop__subtitle {
+  margin-top: 1px;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.msb-pop__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--msb-radius-xs);
+  background: transparent;
+  color: var(--msb-fg-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.msb-pop__close:hover {
+  background: var(--msb-accent-soft);
+  color: var(--msb-active-fg);
+}
+
+.msb-pop__rows {
+  margin: 0;
+  padding: 8px 12px 4px;
+  overflow-y: auto;
+}
+
+.msb-pop__row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+}
+
+.msb-pop__row dt {
+  margin: 0;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-pop__row dd {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.msb-pop__mono {
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-pop__copy {
+  padding: 0 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-xs);
+  line-height: 1.7;
+  cursor: pointer;
+}
+
+.msb-pop__copy:hover {
+  background: var(--msb-accent-soft);
+  border-color: var(--msb-accent-line);
+}
+
+.msb-pop__body {
+  flex: 1;
+  min-height: 0;
+  margin: 4px 12px 8px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg-soft);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msb-pop__busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 8px;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-pop__busy[hidden],
+.msb-pop__rows[hidden],
+.msb-pop__body[hidden],
+.msb-pop__actions[hidden],
+.msb-pop__subtitle[hidden] {
+  display: none;
+}
+
+.msb-pop__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--msb-border);
+  background: var(--msb-bg-subtle);
+}

@@ -199,11 +199,18 @@ Type to fuzzy-match commands, or use the input as an omnibox:
 | a 32-char sys_id | Resolves it through `sys_metadata`, `task`, `sys_user` and `cmdb_ci` and opens the record |
 | `@jsmith` | Matching users, Enter to impersonate |
 | `/lint`, `/review`, … | Runs the chat slash command |
-| nothing | Recent commands first, then everything grouped |
+| a problem, in your own words (`who changed this`, `why can't they see this`, `what did I change`) | The command that answers it |
+| nothing | Pinned commands, then Suggested for this page, then recent commands and records, then everything grouped |
 
 `Enter` runs, `Shift`/`Ctrl+Enter` opens navigations in a new tab, `↑`/`↓` or
 `Ctrl+N`/`Ctrl+P` move, `Esc` closes. Commands are context-aware: when a record
 is open, "This record" and "This table" groups appear.
+
+The palette is page-aware: on a script record it suggests lint, the full-screen
+editor and versions; on a list it suggests explain, count and copy query; on an
+update set it suggests review and ship check. `Alt+P` pins the highlighted
+command (up to 8, kept at the top), and `Alt+1`..`Alt+9` runs the Nth result.
+First run shows a short tour card; "Quick tour" in the palette brings it back.
 
 What it covers beyond the analysis features below:
 
@@ -219,6 +226,29 @@ What it covers beyond the analysis features below:
 - **Navigate** — properties, logs, transactions, update sets, scheduled jobs,
   email, events, users, groups, roles, applications, plugins, REST explorer,
   Flow Designer, Script Debugger
+
+### On the page itself
+The tools sit where you are working, not behind a panel:
+
+- **Bottom bar** — quick actions for the current page. On a record: copy sys_id
+  or link, open XML, who changed it, recent versions, record info, and on a
+  script: lint, edit in the full-screen editor or VS Code, ask the AI. On a list:
+  explain the filter in plain words, count rows, copy the encoded query, copy
+  the equivalent GlideRecord code.
+- **`⋯` on a form label** — copy the field name or value, open its dictionary
+  entry, see the ACLs on it, last change, or X-ray what controls it. Script
+  fields also get **Lint** and **AI** buttons.
+- **`⋯` on a list column header** — copy the name, dictionary entry, ACLs.
+- **Select a sys_id anywhere** to peek at the record it points to.
+- **Floating tool windows** — code search, REST builder, script runner, My work,
+  Ship check, Access debugger and the API explorer open as draggable windows over
+  the page. Several can be open at once; the dock button moves one into the
+  sidebar.
+
+These need the classic form and list DOM (including classic pages inside the
+Next Experience shell). Native workspace forms get the bottom bar only. In the
+options page, "Where tools open" switches windows to the sidebar, and the page
+toolbar and menus can be turned off.
 
 ### Chat sidebar
 Toggle with `Alt+Shift+C` or from the extension icon. The header shows an

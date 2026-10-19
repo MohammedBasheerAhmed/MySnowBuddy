@@ -1,3 +1,5 @@
+import { pruneStats } from '../lib/paletteRank.js';
+
 const SETTINGS_KEY = 'mysnowbuddy_settings';
 const UI_STATE_KEY = 'mysnowbuddy_ui_state';
 
@@ -14,6 +16,8 @@ const DEFAULT_SETTINGS = {
   mcpPort: 17345,
   mcpAutonomy: 'ask',
   theme: 'system',
+  toolSurface: 'window', // where tools open: 'window' (floating, over the page) or 'sidebar' (docked)
+  inlineEnabled: true, // page toolbar, field and list menus on the page itself
 };
 
 export const THEMES = ['system', 'light', 'dark'];
@@ -21,6 +25,8 @@ export const nextTheme = (theme) => THEMES[(THEMES.indexOf(theme) + 1) % THEMES.
 
 const DEFAULT_UI_STATE = {
   recentCommands: [], // command ids, most recent first
+  pinnedCommands: [], // command ids the user pinned; shown first when the palette opens
+  commandStats: {}, // command id -> { n: times run, t: last run (epoch ms) }, for frecency ranking
 };
 
 export async function getSettings() {
@@ -58,10 +64,13 @@ export async function saveUiState(patch) {
 }
 
 const MAX_RECENTS = 8;
+const MAX_TRACKED_COMMANDS = 150;
 
 export async function recordCommandUse(commandId) {
   if (!commandId) return;
-  const { recentCommands } = await getUiState();
+  const { recentCommands, commandStats } = await getUiState();
   const next = [commandId, ...recentCommands.filter((id) => id !== commandId)].slice(0, MAX_RECENTS);
-  await saveUiState({ recentCommands: next });
+  const now = Date.now();
+  const stats = pruneStats({ ...commandStats, [commandId]: { n: (commandStats[commandId]?.n || 0) + 1, t: now } }, MAX_TRACKED_COMMANDS, now);
+  await saveUiState({ recentCommands: next, commandStats: stats });
 }

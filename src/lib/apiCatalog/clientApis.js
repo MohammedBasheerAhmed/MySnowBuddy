@@ -400,7 +400,9 @@ export const CLIENT_APIS = [
     kind: 'global',
     side: 'client',
     summary: 'GlideUser: information about the logged-in user and their roles, available in client scripts.',
-    complete: true,
+    // The documented methods and properties. The browser object also carries more functions (getUserID, getPreference,
+    // setPreference, ...; read from a live instance), so a missing name is a note to confirm, not proof it does not exist.
+    complete: false,
     properties: [
       { name: 'userName', type: 'string', summary: 'User ID (user_name) of the current user.' },
       { name: 'firstName', type: 'string', summary: 'First name of the current user.' },
@@ -715,6 +717,45 @@ export const CLIENT_APIS = [
         summary: 'Returns the answer of a completed getXMLWait call.',
         deprecated: 'Only used with the synchronous getXMLWait; use getXMLAnswer instead.',
         unsupportedIn: DOM_ONLY,
+      },
+      // Present on the class in the browser (checked against a live instance's GlideAjax.prototype).
+      {
+        name: 'setWantSessionMessages',
+        sig: 'setWantSessionMessages(want)',
+        returns: 'void',
+        summary: 'Asks for the UI messages the server queued during the request (gs.addInfoMessage and the like) to be shown.',
+        example: 'ga.setWantSessionMessages(true);',
+      },
+      {
+        name: 'setErrorCallback',
+        sig: 'setErrorCallback(callback)',
+        returns: 'void',
+        summary: 'Sets a function that runs when the request fails.',
+        example: "ga.setErrorCallback(function () { g_form.addErrorMessage('Request failed'); });",
+      },
+      {
+        name: 'setScope',
+        sig: 'setScope(scopeName)',
+        returns: 'void',
+        summary: 'Sets the application scope the Script Include is called in.',
+      },
+      {
+        name: 'preventLoadingIcon',
+        sig: 'preventLoadingIcon()',
+        returns: 'void',
+        summary: 'Stops the loading indicator from showing while the request runs.',
+      },
+      {
+        name: 'preventCancelNotification',
+        sig: 'preventCancelNotification()',
+        returns: 'void',
+        summary: 'Suppresses the notification shown when the request is cancelled, for example by navigating away.',
+      },
+      {
+        name: 'disableRunInBatch',
+        sig: 'disableRunInBatch()',
+        returns: 'void',
+        summary: 'Sends this request on its own instead of batching it with other client requests.',
       },
     ],
   },

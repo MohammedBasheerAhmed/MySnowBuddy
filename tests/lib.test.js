@@ -260,3 +260,61 @@ test('script field detection ignores the table prefix and empty fields (client s
   const widget = el('sp_widget.client_script', 'function(){}');
   assert.equal(pickScriptField([widget]), widget);
 });
+
+test('palette tells code from a sentence, so lookups can come before Ask AI', () => {
+  const { looksLikeCode } = require('../src/lib/paletteRank.js');
+  ['current.setValue', 'g_form.getValue(', 'getUserByID', 'g_user', 'gr.addQuery("a", 1)', 'a == b'].forEach((q) => assert.equal(looksLikeCode(q), true, q));
+  ['why is my business rule slow', 'incident', 'how do I query', 'what is it.', '', '   '].forEach((q) => assert.equal(looksLikeCode(q), false, q));
+});
+
+test('palette ranking: recent use outweighs old use, and legacy recents still rank', () => {
+  const { frecency, rankRecent, pruneStats, matchPositions, highlightRuns } = require('../src/lib/paletteRank.js');
+  const now = Date.UTC(2026, 9, 18);
+  const day = 86400000;
+  assert.equal(frecency(undefined, now), 0);
+  assert.ok(frecency({ n: 5, t: now }, now) > frecency({ n: 5, t: now - 30 * day }, now));
+  assert.equal(frecency({ n: 500, t: now }, now), frecency({ n: 20, t: now }, now), 'use count is capped');
+  const stats = { often: { n: 10, t: now }, stale: { n: 3, t: now - 60 * day }, once: { n: 1, t: now } };
+  assert.deepEqual(rankRecent(stats, ['legacy'], 3, now), ['often', 'once', 'stale']);
+  assert.deepEqual(rankRecent({}, ['b', 'a'], 5, now), ['b', 'a'], 'ids from before use counts keep their recency order');
+  assert.deepEqual(Object.keys(pruneStats(stats, 2, now)).sort(), ['often', 'once']);
+  assert.equal(pruneStats(stats, 5, now), stats);
+
+  assert.deepEqual(matchPositions('rule', 'Business Rules'), [9, 10, 11, 12]);
+  assert.deepEqual(matchPositions('bru', 'Business Rules'), [0, 9, 10]);
+  assert.deepEqual(matchPositions('zz', 'Business Rules'), []);
+  assert.deepEqual(highlightRuns('abc', [1]), [{ text: 'a', hit: false }, { text: 'b', hit: true }, { text: 'c', hit: false }]);
+});
+
+test('tool windows: clamping keeps a window reachable, resizing stays in the viewport', () => {
+  const { clampRect, resizeRect, defaultWindowRect, upsertWindow, MIN_WINDOW } = require('../src/lib/toolWindow.js');
+  const view = { w: 1200, h: 800 };
+  // Dragged far off the right and bottom: a grab strip stays on screen.
+  const off = clampRect({ x: 5000, y: 5000, w: 480, h: 580 }, view);
+  assert.ok(off.x < view.w && off.y < view.h);
+  assert.ok(off.x + off.w > 0);
+  // Off the top is not allowed (the drag bar would be unreachable).
+  assert.equal(clampRect({ x: 100, y: -50, w: 480, h: 580 }, view).y, 0);
+  // Too small is raised to the minimum; too large is cut to the viewport.
+  const tiny = clampRect({ x: 0, y: 0, w: 10, h: 10 }, view);
+  assert.deepEqual([tiny.w, tiny.h], [MIN_WINDOW.w, MIN_WINDOW.h]);
+  assert.ok(clampRect({ x: 0, y: 0, w: 9000, h: 9000 }, view).w <= view.w);
+
+  const r = { x: 100, y: 100, w: 480, h: 580 };
+  assert.deepEqual(resizeRect(r, 'e', 50, 999, view), { ...r, w: 530 }, 'the east edge changes only the width');
+  assert.equal(resizeRect(r, 'se', -9999, -9999, view).w, MIN_WINDOW.w);
+  assert.ok(resizeRect(r, 'se', 9999, 9999, view).w + r.x <= view.w);
+
+  // New windows open beside the sidebar and cascade, never on top of each other.
+  const a = defaultWindowRect({ view, sidebarWidth: 400, index: 0 });
+  const b = defaultWindowRect({ view, sidebarWidth: 400, index: 1 });
+  assert.ok(a.x + a.w <= view.w - 400);
+  assert.ok(b.x < a.x && b.y > a.y);
+
+  // Opening a tool that already has a window reuses it with the new parameters.
+  const list = [{ wid: 1, name: 'search', z: 10, query: 'a' }, { wid: 2, name: 'rest', z: 11 }];
+  const next = upsertWindow(list, { wid: 3, name: 'search', query: 'b' }, 12);
+  assert.equal(next.length, 2);
+  assert.deepEqual(next[0], { wid: 1, name: 'search', query: 'b', z: 12 });
+  assert.equal(upsertWindow(list, { wid: 4, name: 'api' }, 13).length, 3);
+});

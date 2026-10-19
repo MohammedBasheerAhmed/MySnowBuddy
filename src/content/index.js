@@ -1,5 +1,6 @@
 import { createCommandPalette } from './commandPalette.js';
 import { createToastHost } from './toast.js';
+import { createWelcome } from './welcome.js';
 import { getInstanceInfo, getCurrentUpdateSet, formDocuments, recordUrl } from './quickActions.js';
 import { createAgentTools } from './agentTools.js';
 import { createControlDeps } from './controlSession.js';
@@ -40,6 +41,8 @@ import { getSettings, saveSettings, onSettingsChanged } from './storage.js';
 import { startInstanceTag } from './instanceTag.js';
 import { installFieldTools } from './fieldTools.js';
 import { installXray, forwardXrayHotkey } from './xray.js';
+import { installInline, toggleInline, inlineStatus } from './inline.js';
+import { createPopover } from './popover.js';
 import { openScriptEditor } from './scriptEditor.js';
 import { findDefinitionUrl } from './storedCommands.js';
 import { extractScriptOutput } from '../lib/logTail.js';
@@ -130,6 +133,7 @@ async function init() {
     open() {},
     close() {},
     toggle() {},
+    openForTool() {},
     notify() {},
     openBackgroundScriptPanel() {},
     openComparePanel() {},
@@ -457,7 +461,9 @@ async function init() {
     }
   }
 
+  let welcome = null;
   const palette = createCommandPalette({
+    showWelcome: () => welcome?.show(),
     getContext: detectPageContext,
     sidebar: sidebarApi,
     toast,
@@ -467,6 +473,9 @@ async function init() {
     stopFileSync,
     isFileSyncActive,
     setTheme: (theme) => saveSettings({ theme }),
+    setToolSurface: (toolSurface) => saveSettings({ toolSurface }),
+    setInline: (inlineEnabled) => saveSettings({ inlineEnabled }),
+    inlineOn: () => inlineStatus().on,
     toggleTheme,
     onOpenChange: broadcastPaletteState,
     impersonate: () => impersonate(),
@@ -474,6 +483,27 @@ async function init() {
     impersonateUserName: (userName) => impersonateUserName(userName),
   });
   shadow.appendChild(palette.element);
+
+  // First-run card, shown once; "Quick tour" in the palette brings it back.
+  welcome = createWelcome({ shadow, openPalette: () => palette.open() });
+  welcome.maybeShow();
+
+  // On-page tools (page toolbar, field and column menus, sys_id peek). Installed always, dormant when
+  // switched off in Options, so the setting (or the palette command) can turn them on without a reload.
+  try {
+    installInline({
+      shadow,
+      toast,
+      sidebar: sidebarApi,
+      popover: createPopover({ shadow, toast }),
+      openEditor,
+      tools: { lintScript },
+      enabled: settings.inlineEnabled !== false,
+    });
+    onSettingsChanged((next) => toggleInline(next.inlineEnabled !== false));
+  } catch (err) {
+    console.error('[MySnowBuddy] on-page tools failed', err);
+  }
 
   // Notice navigation (classic and Next Experience change pages without a reload).
   try {
@@ -492,7 +522,7 @@ async function init() {
       getInstanceInfo,
       getCurrentUpdateSet,
       onChangeUpdateSet: () => {
-        sidebarApi.open();
+        sidebarApi.openForTool();
         sidebarApi.openUpdateSetPanel();
       },
     });

@@ -54,6 +54,18 @@ test('lookupApi resolves classes, methods and typos', () => {
   assert.equal(closest('setValeu', ['setValue', 'getValue']), 'setValue');
 });
 
+test('API search and lookup understand the variables developers type before a method', () => {
+  ['current.setValue', 'previous.setValue', 'gr.setValue', 'GlideRecord.setValue'].forEach((q) => {
+    const hits = searchApis(q);
+    assert.ok(hits.length > 0, q);
+    assert.ok(hits.every((h) => h.api.name === 'GlideRecord'), q);
+    assert.equal(hits[0].method.name, 'setValue', q);
+  });
+  assert.ok(searchApis('ga.addAggregate').every((h) => ['GlideAggregate', 'GlideRecord'].includes(h.api.name)));
+  assert.ok(lookupApi('current.addQuery').found);
+  assert.equal(searchApis('current.nosuchmethodxyz').length, 0);
+});
+
 // ---- verifier: server -------------------------------------------------------------------
 
 test('verify flags a misspelled GlideDateTime-style method and ES6 on the server', () => {
@@ -606,4 +618,30 @@ test('query_table and count_records reject columns the table does not have (Serv
   assert.equal(ran, 0, 'nothing reached the instance');
   await tools.execute('query_table', { table: 'incident', query: 'short_descriptionLIKEfoo^caller_id.name=Abel^ORDERBYnumber', fields: ['number', 'sys_id'] });
   assert.equal(ran, 1, 'valid columns, including a dot-walk and system columns, go through');
+});
+
+test('the catalog knows the GlideAjax methods the browser class has', () => {
+  ['setWantSessionMessages', 'setErrorCallback', 'setScope', 'preventLoadingIcon', 'preventCancelNotification', 'disableRunInBatch'].forEach((name) => {
+    assert.ok(lookupApi(`GlideAjax.${name}`, 'client').found, name);
+  });
+});
+
+test('g_user is not treated as exhaustive: the browser object has more functions than the documented six', () => {
+  const api = getApi('g_user', 'client');
+  assert.equal(api.complete, false);
+  // A real but undocumented function is a note to confirm, a typo still gets a suggestion.
+  assert.match(lookupApi('g_user.getUserID', 'client').text, /not exhaustive|official docs|Did you mean/);
+  assert.ok(!/does not exist/.test(lookupApi('g_user.getUserID', 'client').text));
+  assert.match(lookupApi('g_user.hasRol', 'client').text, /Did you mean g_user\.hasRole/);
+});
+
+test('the catalog knows server methods found on a live instance (GlideRecord and gs)', () => {
+  ['addInactiveQuery', 'addFunction', 'getBooleanAttribute', 'getEscapedDisplayValue', 'getLocation', 'getRelatedLists', 'getRelatedTables', 'insertWithReferences', 'isEncodedQueryValid', 'setUseEngines'].forEach((name) => {
+    assert.ok(lookupApi(`GlideRecord.${name}`, 'server').found, `GlideRecord.${name}`);
+  });
+  ['beginningOfTomorrow', 'endOfTomorrow', 'endOfLastYear', 'yesterday', 'lastWeek', 'dateDiff', 'calDateDiff', 'flushMessages', 'getErrorMessages', 'getInfoMessages', 'logError', 'logWarning', 'getImpersonatingUserName', 'getImpersonatingUserDisplayName'].forEach((name) => {
+    assert.ok(lookupApi(`gs.${name}`, 'server').found, `gs.${name}`);
+  });
+  // The global-scope gap found earlier stays recorded.
+  assert.match(lookupApi('gs.base64Encode', 'server').text, /scoped|missing/i);
 });

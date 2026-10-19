@@ -1,0 +1,180 @@
+/* ===========================================================================
+   Floating tool windows (ToolWindow.jsx). Tokens come from theme.css.
+   Sits between the sidebar (z - 2) and the command palette (z + 10); per-window
+   stacking is the inline z-index ToolWindow sets from the window's rank.
+   =========================================================================== */
+
+.msb-win {
+  position: fixed;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-width: 340px;
+  min-height: 260px;
+  overflow: hidden;
+  background: var(--msb-canvas), var(--msb-bg);
+  border: 1px solid var(--msb-accent-line);
+  border-radius: var(--msb-radius-lg);
+  box-shadow: var(--msb-shadow-lg), 0 12px 40px -14px rgba(99, 70, 229, 0.35);
+  font-family: var(--msb-font);
+  font-size: var(--msb-text-md);
+  color: var(--msb-fg);
+  animation: msb-win-in 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes msb-win-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Drag strip with the window buttons. */
+.msb-win__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  background: var(--msb-hero-bg);
+  border-bottom: 1px solid var(--msb-accent-line);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.msb-win__bar:active {
+  cursor: grabbing;
+}
+
+.msb-win--max .msb-win__bar {
+  cursor: default;
+}
+
+/* Aurora hairline, as on the palette and sidebar. */
+.msb-win__bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--msb-aurora-line);
+}
+
+.msb-win__grip {
+  flex: none;
+  width: 10px;
+  height: 14px;
+  background-image: radial-gradient(circle, var(--msb-fg-faint) 1.2px, transparent 1.4px);
+  background-size: 5px 5px;
+  opacity: 0.7;
+}
+
+.msb-win__title {
+  flex: 1;
+  min-width: 0;
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msb-win__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.msb-win__actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--msb-radius-xs);
+  background: transparent;
+  color: var(--msb-fg-muted);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.msb-win__actions button:hover {
+  background: var(--msb-accent-soft);
+  color: var(--msb-active-fg);
+}
+
+.msb-win__actions button:last-child:hover {
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+/* The panel fills the body and scrolls inside it; its own max-height is for the sidebar. */
+.msb-win__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.msb-win__body > .msb-panel,
+.msb-win__body > .msb-compare,
+.msb-win__body > .msb-sidebar__bg-panel {
+  max-height: none;
+  min-height: 100%;
+  overflow: visible;
+  border-bottom: none;
+}
+
+/* Resize handles: the right and bottom edges, and the corner. */
+.msb-win__edge {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.msb-win__edge--e {
+  top: 30px;
+  right: 0;
+  bottom: 14px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.msb-win__edge--s {
+  left: 0;
+  right: 14px;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.msb-win__edge--se {
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 55%, var(--msb-border-strong) 55%, var(--msb-border-strong) 62%, transparent 62%, transparent 74%, var(--msb-border-strong) 74%, var(--msb-border-strong) 81%, transparent 81%);
+}
+
+.msb-win__edge--e:hover,
+.msb-win__edge--s:hover {
+  background: var(--msb-accent-line);
+}
+
+/* The window bar already carries the title and the close button. Keep whatever else a panel header holds:
+   a Back button (inside the title), Refresh, and so on. A header with nothing left goes away. */
+.msb-win .msb-panel__header > strong:not(:has(button)),
+.msb-win .msb-panel__header button[aria-label='Close'] {
+  display: none;
+}
+
+.msb-win .msb-panel__header:not(:has(button:not([aria-label='Close']))) {
+  display: none;
+}

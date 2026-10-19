@@ -97,6 +97,30 @@ export default function Options() {
       </section>
 
       <section>
+        <h2>Tools</h2>
+        <p className="msb-options__hint">
+          Where tools such as code search, the REST builder and the script runner open. Floating windows sit over the
+          page beside the record you are on and several can be open at once; docked tools share the chat sidebar.
+        </p>
+        <select
+          value={settings.toolSurface === 'sidebar' ? 'sidebar' : 'window'}
+          onChange={(e) => updateSettings({ toolSurface: e.target.value })}
+          aria-label="Where tools open"
+        >
+          <option value="window">Floating windows over the page</option>
+          <option value="sidebar">Docked in the sidebar</option>
+        </select>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.inlineEnabled !== false}
+            onChange={() => updateSettings({ inlineEnabled: settings.inlineEnabled === false })}
+          />
+          Show the page toolbar and field, column and script menus on the page itself
+        </label>
+      </section>
+
+      <section>
         <h2>Features</h2>
         <label>
           <input

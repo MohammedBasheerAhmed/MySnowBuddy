@@ -144,6 +144,10 @@ const PATHS = {
   briefcase: <path d="M4 8h16v11H4zM9 8V5.5h6V8M4 13h16" strokeLinecap="round" strokeLinejoin="round" />,
   upload: <path d="M12 15.5V4.5M7.5 9L12 4.5 16.5 9M5 15v4.5h14V15" strokeLinecap="round" strokeLinejoin="round" />,
   pulse: <path d="M3 12h4l2.5-6.5 4.5 13 2.5-6.5H21" strokeLinecap="round" strokeLinejoin="round" />,
+  maximize: <path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4" strokeLinecap="round" strokeLinejoin="round" />,
+  minimize: <path d="M9 5v4H5M19 9h-4V5M15 19v-4h4M5 15h4v4" strokeLinecap="round" strokeLinejoin="round" />,
+  dock: <path d="M4 5.5h16v13H4zM14.5 5.5v13" strokeLinecap="round" strokeLinejoin="round" />,
+  popout: <path d="M13 4.5h6.5V11M19.5 4.5L11 13M17 14v5.5H4.5V7H10" strokeLinecap="round" strokeLinejoin="round" />,
   xray: <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" strokeLinecap="round" strokeLinejoin="round" />,
 };
 

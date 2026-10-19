@@ -27,6 +27,77 @@ docs/decisions.md. REST builder presets were expanded (Import Set, CMDB, Attachm
 Next step for impact: the save-time breaking-change check for Script Includes (warn when a removed or renamed method
 is still called), then "find all references" in the editor.
 
+**Added 2026-10-18 (UI pass, not yet committed):** (1) Palette and sidebar restyled (aurora tokens in theme.css). (2) Palette: frecency
+ranking (src/lib/paletteRank.js, ui state commandStats), match highlighting, Alt+1..9 quick run, Alt+Enter copy link, and
+Ask AI / API catalog / code search fallbacks on every query. (3) SNUtils-style "show it on the page": tools open in
+floating windows by default (src/sidebar/ToolWindow.jsx, windows.css, src/lib/toolWindow.js; setting toolSurface =
+window|sidebar, palette commands "Tools: ..."; sidebar API openForTool); on-page tools (src/content/inline.js,
+popover.js, src/lib/inline.js; setting inlineEnabled, palette "Toggle on-page tools"): bottom toolbar, field label
+menus, script-field strip, list column menus, sys_id peek. All checked in the preview harness (?inline=1) in light and
+dark with headless Chrome, 519 tests pass.
+**Live-verified on the PDI 2026-10-18** (Australia patch 7): toolbar, Explain/Count popovers, floating windows, field menus,
+script strip + Lint, sys_id peek, column menus, classic list inside the /now/nav/ui/classic shell. Live run found and fixed
+three bugs the preview could not show: (a) labels carry no `label.<table>.<field>` id on this release, only
+`for="<table>.<field>"` (also `ni.`/`sys_display.`/`sys_readonly.` prefixes), so annotation now goes through
+`classicFormLabels()` in xray.js (+ `parseLabelFor` in lib/xray.js), shared by X-ray and the inline tools; (b) list column
+buttons were appended after `.list_header_cell_container` and sat under the next column's resize handle, they now go
+after `a.column_head`; (c) checkboxes have two labels per field, one empty, so labels are de-duplicated per field (live-checked:
+one button per field on sys_script); (d) our `all:initial` buttons/chips reset inherited `visibility`, so a field hidden by a UI
+policy (visibility:hidden) still showed a stray button: `visibility:inherit!important` added to inline and X-ray styles.
+Second live pass (same day) found and fixed: (e) a bare `for=` is not a field: related-list row checkboxes use
+`for="check_<table>.<...>.<sys_id>"`, got stray buttons and outvoted the form's table, so labels now resolve through their
+wrapping `element.<table>.<field>` container (legacy `label.` ids still work); (f) the context's script field falls back to the
+longest text field, so the toolbar offered Edit/Lint on an incident: `isScriptLabel()` (lib/inline.js) now gates the toolbar and
+the palette's "Edit script in full-screen editor" / VS Code commands, which also now need a record (they showed on lists);
+(g) API explorer search ignored `current.setValue` / `gr.addQuery`: `searchApis`/`lookupApi` resolve receiver aliases
+(current, previous, gr, ga); (h) palette: name matches that start with the query now outrank mid-word ones, and code-like
+input (`looksLikeCode`) puts the free API / code lookups before "Ask AI". Checked clean live: idle DOM stability (0 mutations
+in 6 s), label click still focuses the field, button click does not, Versions/Info/Field ACLs/column menus, palette open +
+fallbacks + Alt+N, window drag/dock/pop-out/close, Toggle on-page tools off (0 injected nodes) and on, console errors.
+**Usability pass (same day, built and preview-verified, not yet live-checked):** the palette now understands problems, not
+just tool names. `src/lib/paletteIntents.js` maps command ids to plain phrases ("who changed this", "why can't a user see
+it", "where is this script include used") and matches multi-word queries by words in any order (`wordsScore`; two or more
+words no longer fall into the loose character match). `src/lib/paletteContext.js` picks a page kind (script / record /
+list / update set / other) and the palette opens with "Suggested for this script|record|list|update set" after Pinned and
+Recent. Alt+P pins or unpins the highlighted action (ui state `pinnedCommands`, max 8, shown first, "pinned" badge while
+searching). A first-run card (`src/content/welcome.js`, key `mysnowbuddy_welcomed`) says the four things worth knowing;
+"Quick tour" in the palette shows it again. The palette placeholder and empty state teach describing a problem. Palette
+footer wraps cleanly. Tests: tests/palette.test.js checks that every intent and suggestion id exists in commands.js /
+the panel registry, so the index cannot drift. Preview: `?palette=open[&scriptform=1|&page=list]`, `?welcome=1`.
+**Live-verified usability pass (PDI):** welcome card, Suggested/Pinned groups, Alt+P, problem phrases, `/tn`, GlideRecord
+popover, AI button with no key (clear "Missing API key" message + banner), full-screen editor (read-only label is accurate:
+`g_form.isReadOnly` is true for protected OOTB records), Access debugger end to end (about 20 s for a 126-role admin),
+classic form inside the /now/nav shell (fields live in shadow roots). Found and fixed on the PDI: suggestions sat below the
+fold under Recent (order is now Pinned, Suggested, Recent, Recent records; the page you are on is not a "recent record");
+23 commands had no hint line; loose letter matching ran over the long intent text so an exact name like `GlideAggregate`
+matched unrelated commands (loose match is title-only now); a resting mouse pointer stole the highlight when the list
+redrew (hover now needs real movement; preview check fails without the fix); "Run /tn x -> AI chat" row on navigation
+shortcuts removed; toasts overlapped the page toolbar (stack lifted above it); Access debugger shows elapsed seconds.
+Verified live after the reload: exact-name search has no noise, a parked pointer no longer changes what Enter runs, the toast
+sits above the toolbar, `/tn` has no AI row, the update-set page kind suggests Ship check / Update set review / Push, and
+the welcome card does not return once dismissed (storage persists).
+**API catalog checked against the live instance** (client classes from `window`, server classes with a `typeof` probe through
+read-only POST /sys.scripts.do): Verify flagged `ga.setWantSessionMessages()` as unknown although the browser's GlideAjax has
+it. Added GlideAjax (setWantSessionMessages, setErrorCallback, setScope, preventLoadingIcon, preventCancelNotification,
+disableRunInBatch), GlideRecord (addInactiveQuery, addFunction, getBooleanAttribute, getEscapedDisplayValue, getLocation,
+getRelatedLists, getRelatedTables, insertWithReferences, isEncodedQueryValid, setUseEngines) and gs (beginningOfTomorrow,
+endOfTomorrow, endOfLastYear, yesterday, lastWeek, dateDiff, calDateDiff, flushMessages, getErrorMessages, getInfoMessages,
+logError, logWarning, getImpersonatingUserName/DisplayName). `g_user` was marked `complete: true` but the live object has
+getUserID, getPreference, setPreference and more, so it is `complete: false` now (a missing name is a note, not "does not
+exist"). The earlier note that gs.urlEncode/urlDecode/base64Encode/base64Decode are missing from the global scope was
+re-confirmed. Left out on purpose: live functions whose meaning could not be stated reliably (GlideRecord.find,
+setQueryReferences, gs.addMessage, getDisplayValueFor, getEscapedProperty, isScopedApp, workflowFlush). Not yet probed: the
+other server classes (GlideDateTime, GlideAggregate, GlideElement, GlideQuery) and g_form's long internal list.
+Also fixed: windows hid a panel's Back button (My work) and left a nested Close button (Ship check).
+Verified live after the next reload: window header fix (Ship check: no stray ×; My work keeps its Refresh), Access debugger
+elapsed timer ("... 11s. A user with many roles can take 20 seconds."), /verify no longer flags GlideAjax
+setWantSessionMessages, dark theme on the real page (restored to "match system" afterwards), no console errors.
+Found live and fixed (needs one more reload to confirm): My work showed "Scope: Unknown". This release's application picker
+returns `current` as a plain id string plus a `list` of {sysId, name, scopeName}; `parsePickerCurrent` only accepted an
+object, and a user who never switched scope has no `apps.current_app` preference. The parser now resolves id + list, and
+no preference means Global (default) instead of Unknown (a real read failure still shows Unknown).
+Native Next Experience *workspace* forms get only the toolbar.
+
 **Open work, in priority order**
 - Live verification above (Phase 8, `/impact` and the ~35 older endpoints: concoursepicker, /api/sn_cicd, /impersonate.do,
   /logout_impersonate.do, cache.do, threads.do, xmlstats.do, stats API).
@@ -442,3 +513,5 @@ the toolbar menu was regrouped into Navigate / This record / Instance / Tools;
 4. Fix the endpoints/selectors/field lists; record findings in `docs/decisions.md`
 5. Spike Instance Compare against two real instances to confirm which auth path works
 6. Initialize the git repo and push with branch protection before the team scales up
+
+**2026-10-19 (offline pass, PDI session had expired so no live checks):** README now documents the on-page tools (bottom bar, label/column menus, sys_id peek, floating windows), palette suggestions, pins and the tour. Added problem phrases for 10 more palette commands (versions, copy URL/markdown, unsaved form changes, ATF, bookmark, automation, X-ray toggle, XML stats). Welcome card text corrected to name the real toolbar actions. Still to confirm live after logging in: My work "Scope: Global".

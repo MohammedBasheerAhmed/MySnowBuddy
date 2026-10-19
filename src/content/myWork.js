@@ -144,8 +144,10 @@ export async function readCurrentUpdateSet() {
 export async function readCurrentApplication() {
   const picked = await readPicker('application');
   if (picked) return { ...picked, source: 'picker' };
-  const id = await readPreference('apps.current_app').catch(() => null);
+  // undefined = the preference could not be read; null = the user has none, which ServiceNow treats as Global.
+  const id = await readPreference('apps.current_app').catch(() => undefined);
   if (id === 'global') return { sysId: 'global', name: 'Global', source: 'preference' };
+  if (id === null) return { sysId: 'global', name: 'Global', scope: 'global', source: 'default' };
   if (!SYS_ID_RE.test(id || '')) return null;
   const scope = await fetchRecord('sys_scope', id, ['sys_id', 'name', 'scope']).catch(() => null);
   return { sysId: id, name: scope?.name || id, scope: scope?.scope || '', source: 'preference' };

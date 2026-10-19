@@ -145,7 +145,8 @@ export function lookupApi(query, side) {
   if (!text) return { found: false, text: 'Give a class, method or Class.method.' };
 
   const sides = side ? [side] : ['client', 'server'];
-  const [first, second] = text.split('.');
+  const [receiver, second] = text.split('.');
+  const first = GLOBAL_TYPE_ALIASES[receiver] || receiver;
 
   // Class or Class.method
   const apis = sides.map((s) => getApi(first, s)).filter(Boolean);
@@ -179,9 +180,34 @@ export function lookupApi(query, side) {
   return { found: false, text: `Nothing in the catalog matches "${text}".${near ? ` Did you mean ${near}?` : ''}` };
 }
 
+// Names developers type before a method that are not catalog classes: `current.setValue`, `gr.addQuery`.
+const SEARCH_RECEIVERS = { ...GLOBAL_TYPE_ALIASES, gr: 'GlideRecord', ga: 'GlideAggregate' };
+
+/** "current.setval" -> methods of the class that variable stands for (or of the class named) matching "setval". */
+function searchReceiverMember(needle, side) {
+  const dot = needle.indexOf('.');
+  if (dot <= 0) return [];
+  const className = String(SEARCH_RECEIVERS[needle.slice(0, dot)] || needle.slice(0, dot)).toLowerCase();
+  const member = needle.slice(dot + 1);
+  const results = [];
+  for (const api of ALL_APIS) {
+    if (api.name.toLowerCase() !== className || (side && api.side !== side)) continue;
+    const owners = [api, ...(INHERITS[api.name] || []).map((p) => getApi(p, api.side)).filter(Boolean)];
+    owners.forEach((owner) =>
+      owner.methods.forEach((m) => {
+        const name = m.name.toLowerCase();
+        if (name.includes(member)) results.push({ type: 'method', api, method: m, score: name === member ? 1 : name.startsWith(member) ? 2 : 3 });
+      })
+    );
+  }
+  return results;
+}
+
 /** Free-text search over class and method names and summaries. */
 export function searchApis(text, { side, limit = 40 } = {}) {
   const needle = String(text || '').trim().toLowerCase();
+  const typed = searchReceiverMember(needle, side);
+  if (typed.length) return typed.sort((a, b) => a.score - b.score || a.method.name.localeCompare(b.method.name)).slice(0, limit);
   const results = [];
   for (const api of ALL_APIS) {
     if (side && api.side !== side) continue;

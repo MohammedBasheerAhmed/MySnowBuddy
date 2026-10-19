@@ -233,10 +233,10 @@ export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, 
         ];
 
       case 'code':
-        return [{ id: 'slash.code', title: 'Code search', group: GROUP, score: 1100, run: () => { sidebar.open(); sidebar.openSearchPanel(); } }];
+        return [{ id: 'slash.code', title: 'Code search', group: GROUP, score: 1100, run: () => { sidebar.openForTool(); sidebar.openSearchPanel(); } }];
 
       case 'bg':
-        return [{ id: 'slash.bg', title: 'Background script runner', group: GROUP, score: 1100, run: () => { sidebar.open(); sidebar.openBackgroundScriptPanel(); } }];
+        return [{ id: 'slash.bg', title: 'Background script runner', group: GROUP, score: 1100, run: () => { sidebar.openForTool(); sidebar.openBackgroundScriptPanel(); } }];
 
       case 'edit':
         return openScriptEditor ? [{ id: 'slash.edit', title: 'Edit script in full-screen editor', group: GROUP, score: 1100, run: () => openScriptEditor() }] : [];

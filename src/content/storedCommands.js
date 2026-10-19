@@ -42,7 +42,7 @@ async function favouriteCommands({ ctx, sidebar, toast }) {
         run: async () => {
           const { text, missing } = renderTemplate(entry.template, contextValues(ctx, window.location.hostname), { kind });
           if (missing.length) {
-            sidebar.open();
+            sidebar.openForTool();
             sidebar.openPromptPanel(kind);
             toast.info(`"${entry.title}" needs more input (${missing.join(', ')}).`);
             return;
@@ -133,7 +133,8 @@ export function openByNameProvider() {
           title: row.name,
           hint: label,
           group: GROUPS.navigate,
-          score: 700 - index * 5,
+          // A name that starts with the query beats one that only contains it.
+          score: 700 - index * 5 + (String(row.name).toLowerCase().startsWith(term.toLowerCase()) ? 60 : 0),
           url: recordUrl(table, row.sys_id),
         })
       );

@@ -9,8 +9,8 @@ const TABLE_OPTIONS = searchableTableOptions();
  * The actual query runs in the content script (same-origin, user's session);
  * this component only collects options and renders results.
  */
-export default function SearchPanel({ onClose, runSearch, onAskAi }) {
-  const [term, setTerm] = useState('');
+export default function SearchPanel({ onClose, runSearch, onAskAi, initialTerm = '' }) {
+  const [term, setTerm] = useState(initialTerm);
   const [wholeWord, setWholeWord] = useState(false);
   const [activeOnly, setActiveOnly] = useState(true);
   const [selectedTables, setSelectedTables] = useState([]);

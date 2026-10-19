@@ -6,18 +6,30 @@
 // and /slash commands.
 //
 // Keyboard: Up/Down or Ctrl+N/P to move, Enter to run, Shift/Ctrl+Enter to
-// open a navigation in a new tab, Esc to close.
+// open a navigation in a new tab, Alt+Enter to copy a navigation's link,
+// Alt+1..9 to run the numbered result, Esc to close.
+//
+// Ranking learns from use: commands you run often and lately rise to the top
+// of the empty palette and of ties in a search. Any search also ends with
+// fallbacks (ask the AI, search the API catalog, search instance code), so
+// the palette never dead-ends.
 
 import { buildCommands, buildProviders, slashCommand, GROUPS } from './commands.js';
+import { SPECIAL_VERBS, findCommand } from '../lib/slashCommands.js';
 import { buildStoredCommands, goToDefinitionCommand, openByNameProvider, STORED_GROUPS } from './storedCommands.js';
 import { slashNavProvider } from './slashBar.js';
 import { buildInstanceCommands } from './instanceTag.js';
-import { navigate } from './quickActions.js';
-import { recordCommandUse, getUiState } from './storage.js';
+import { navigate, absoluteUrl, copyText, isSysId } from './quickActions.js';
+import { recordCommandUse, getUiState, saveUiState } from './storage.js';
+import { frecency, rankRecent, matchPositions, highlightRuns, looksLikeCode } from '../lib/paletteRank.js';
+import { intentText, queryWords, wordsScore } from '../lib/paletteIntents.js';
+import { pageKind, suggestFor, SUGGESTED_TITLES } from '../lib/paletteContext.js';
 import { createIcon } from './icons.js';
 import { trustedDom } from '../sidebar/trusted.js';
 
 const GROUP_ICONS = {
+  Pinned: 'pin',
+  ...Object.fromEntries(Object.values(SUGGESTED_TITLES).map((title) => [title, 'ai'])),
   Recent: 'clock',
   [GROUPS.record]: 'record',
   [GROUPS.table]: 'table',
@@ -33,6 +45,18 @@ const GROUP_ICONS = {
 
 const PROVIDER_DEBOUNCE_MS = 180;
 const MAX_RESULTS = 40;
+const RECENT_SHOWN = 6;
+const QUICK_KEYS = 9; // Alt+1..Alt+9
+const FALLBACK_GROUP = 'Anything else';
+
+// Alt changes event.key on some layouts, so the digit comes from the physical key.
+const quickIndex = (event) => {
+  const m = event.altKey && !event.ctrlKey && !event.metaKey ? /^(?:Digit|Numpad)([1-9])$/.exec(event.code || '') : null;
+  return m ? Number(m[1]) - 1 : -1;
+};
+
+// Alt+P pins or unpins the highlighted action (read from event.code: Alt changes event.key on some layouts).
+const isPinKey = (event) => event.altKey && !event.ctrlKey && !event.metaKey && event.code === 'KeyP';
 
 export function createCommandPalette(deps) {
   const { getContext, sidebar, toast } = deps;
@@ -60,7 +84,7 @@ export function createCommandPalette(deps) {
   input.type = 'text';
   input.spellcheck = false;
   input.autocomplete = 'off';
-  input.placeholder = 'Search actions, or type /tn table, a sys_id, @user';
+  input.placeholder = 'Search, or describe what you need: "who changed this", /tn incident, a sys_id';
   input.setAttribute('aria-label', 'Command');
 
   const escHint = el('kbd', 'msb-palette__esc', 'Esc');
@@ -72,10 +96,16 @@ export function createCommandPalette(deps) {
   resultsEl.setAttribute('role', 'listbox');
 
   const footer = el('div', 'msb-palette__footer');
+  // The new-tab and copy-link hints only apply to navigations, so they follow the highlighted row.
+  const urlHints = el('span', 'msb-palette__hintGroup');
+  urlHints.append(hintGroup(['Shift', 'Enter'], 'new tab'), hintGroup(['Alt', 'Enter'], 'copy link'));
+  urlHints.hidden = true;
   footer.append(
     hintGroup(['\u2191', '\u2193'], 'navigate'),
     hintGroup(['Enter'], 'run'),
-    hintGroup(['Shift', 'Enter'], 'new tab')
+    urlHints,
+    hintGroup(['Alt', '1-9'], 'jump'),
+    hintGroup(['Alt', 'P'], 'pin')
   );
   const contextEl = el('span', 'msb-palette__context');
   footer.appendChild(contextEl);
@@ -90,6 +120,9 @@ export function createCommandPalette(deps) {
   let providers = [];
   let providerTimer = null;
   let recents = [];
+  let pinned = [];
+  let pageCtx = {};
+  let stats = {};
   const searchProviders = latestOnly((term) => Promise.allSettled(providers.map((provider) => provider(term))));
 
   overlay.addEventListener('mousedown', (event) => {
@@ -118,7 +151,7 @@ export function createCommandPalette(deps) {
       // A page script's synthetic Enter must not run the selected command (impersonate, switch, ...).
       if (overlay.hidden || event.isComposing || !event.isTrusted) return;
       const letter = event.key.toLowerCase();
-      if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p'))) return;
+      if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p')) && quickIndex(event) === -1 && !isPinKey(event)) return;
       event.stopImmediatePropagation();
       onKeyDown(event);
     },
@@ -127,6 +160,17 @@ export function createCommandPalette(deps) {
 
   function onKeyDown(event) {
     const key = event.key;
+    if (isPinKey(event)) {
+      event.preventDefault();
+      togglePin(results[activeIndex]);
+      return;
+    }
+    const quick = quickIndex(event);
+    if (quick !== -1) {
+      event.preventDefault();
+      execute(results[quick], false);
+      return;
+    }
     if (key === 'Escape') {
       event.preventDefault();
       close();
@@ -154,8 +198,43 @@ export function createCommandPalette(deps) {
     }
     if (key === 'Enter') {
       event.preventDefault();
-      execute(results[activeIndex], event.shiftKey || event.ctrlKey || event.metaKey);
+      if (event.altKey) copyLink(results[activeIndex]);
+      else execute(results[activeIndex], event.shiftKey || event.ctrlKey || event.metaKey);
     }
+  }
+
+  // Alt+Enter: put a navigation's address on the clipboard instead of following it.
+  async function copyLink(command) {
+    if (!command) return;
+    if (!command.url) {
+      toast.info('This action has no link to copy.');
+      return;
+    }
+    close();
+    try {
+      await copyText(absoluteUrl(command.url));
+      toast.success('Copied link');
+    } catch (err) {
+      toast.error(err.message || String(err));
+    }
+  }
+
+  // Pinned actions open at the top of the palette. Only built-in actions can be pinned: records, bookmarks and
+  // search hits change from page to page.
+  async function togglePin(command) {
+    if (!command) return;
+    if (!commands.some((c) => c.id === command.id) || command.id.startsWith('recent.') || command.id.startsWith('bookmark.')) {
+      toast.info('Only actions can be pinned, not records or search results.');
+      return;
+    }
+    const wasPinned = pinned.includes(command.id);
+    pinned = wasPinned ? pinned.filter((id) => id !== command.id) : [...pinned, command.id].slice(-8);
+    await saveUiState({ pinnedCommands: pinned });
+    toast.success(wasPinned ? `Unpinned "${command.title}"` : `Pinned "${command.title}". It now opens at the top.`);
+    const keep = command.id;
+    render();
+    const at = results.findIndex((r) => r.id === keep);
+    if (at !== -1) setActive(at);
   }
 
   function move(delta) {
@@ -170,13 +249,15 @@ export function createCommandPalette(deps) {
       el.classList.toggle('msb-palette__item--active', i === activeIndex);
       if (i === activeIndex) el.scrollIntoView({ block: 'nearest' });
     });
+    urlHints.hidden = !results[activeIndex]?.url;
   }
 
   async function execute(command, newTab) {
     if (!command) return;
     close();
     try {
-      recordCommandUse(command.id);
+      // Only the registered actions are worth learning; one-off results (a sys_id, a user, a typed query) are not.
+      if (commands.some((c) => c.id === command.id)) recordCommandUse(command.id);
       if (command.url) {
         navigate(command.url, { newTab: newTab || command.newTab, raw: command.raw });
         return;
@@ -217,39 +298,83 @@ export function createCommandPalette(deps) {
 
     if (!query) {
       const recentSet = new Map(commands.map((c) => [c.id, c]));
-      recents
+      // Pinned, then what suits the page on screen (the palette shows about seven rows, so this must not sit below
+      // a long history), then what was used lately, then everything else.
+      pinned
         .map((id) => recentSet.get(id))
         .filter(Boolean)
-        .forEach((cmd) => scored.push({ ...cmd, group: 'Recent', score: 10000 }));
-      commands.filter((cmd) => cmd.id.startsWith('recent.') && !recents.includes(cmd.id)).slice(0, 5).forEach((cmd) => scored.push({ ...cmd, score: 5000 }));
+        .forEach((cmd) => scored.push({ ...cmd, group: 'Pinned', score: 20000 }));
+      const kind = pageKind(pageCtx);
+      suggestFor(pageCtx, commands, 4).forEach((cmd) => scored.push({ ...cmd, group: SUGGESTED_TITLES[kind], score: 10000 }));
+      recents
+        .filter((id) => !pinned.includes(id))
+        .map((id) => recentSet.get(id))
+        .filter(Boolean)
+        .forEach((cmd) => scored.push({ ...cmd, group: 'Recent', score: 5000 }));
+      // The record on screen is not a "recent record" worth listing.
+      const hereId = pageCtx.sysId ? `recent.${pageCtx.sysId}` : '';
+      commands
+        .filter((cmd) => cmd.id.startsWith('recent.') && cmd.id !== hereId && !recents.includes(cmd.id))
+        .slice(0, 4)
+        .forEach((cmd) => scored.push({ ...cmd, score: 4000 }));
       commands.forEach((cmd) => {
         if (recents.includes(cmd.id) || cmd.id.startsWith('recent.')) return;
         scored.push({ ...cmd, score: 0 });
       });
     } else {
-      const slash = slashCommand(query, sidebar);
+      // "Send this to the chat" is only the answer for a slash command the palette does not handle itself;
+      // for /tn, /sys, /props and the like it is a confusing extra row.
+      const verb = query.startsWith('/') ? query.slice(1).split(/\s+/)[0].toLowerCase() : '';
+      const handledHere = verb && (SPECIAL_VERBS.some(([name]) => name === verb) || findCommand(verb));
+      const slash = handledHere ? null : slashCommand(query, sidebar);
       if (slash) scored.push(slash);
       dynamic.forEach((cmd) => scored.push(cmd));
+      // Two or more words describe a problem ("who changed this"): every word must be found, in any order.
+      // A loose character match across that much text would match nearly everything.
+      const multiWord = queryWords(query).length >= 2;
       commands.forEach((cmd) => {
-        const score = fuzzyScore(query, `${cmd.title} ${cmd.hint || ''} ${cmd.keywords || ''}`);
-        if (score > 0) scored.push({ ...cmd, score: score + (recents.includes(cmd.id) ? 20 : 0) });
+        const rest = `${cmd.hint || ''} ${cmd.keywords || ''} ${intentText(cmd.id)}`;
+        // The exact text may be anywhere (title, hint, keywords, problem phrases). A loose "letters in order" match is
+        // only trusted on the title: across all that text it matches nearly everything for a name like AssessmentUtils.
+        const score =
+          fuzzyScore(query, `${cmd.title} ${rest}`, { loose: false }) ||
+          (multiWord ? wordsScore(query, cmd.title, rest) : fuzzyScore(query, cmd.title));
+        // Use history only breaks near-ties: it can lift a command past a slightly better match, never past a different tier.
+        if (score > 0) scored.push({ ...cmd, score: score + Math.min(80, frecency(stats[cmd.id]) * 12) });
       });
       scored.sort((a, b) => b.score - a.score);
     }
 
-    results = dedupe(scored).slice(0, MAX_RESULTS);
+    const fallbacks = query ? fallbackCommands(query) : [];
+    results = [...dedupe(scored).slice(0, MAX_RESULTS - fallbacks.length), ...fallbacks];
     activeIndex = 0;
     paint();
   }
 
+  // What to offer after the matches, so a query that names no command still leads somewhere.
+  function fallbackCommands(query) {
+    if (query.length < 2 || query.startsWith('/') || query.startsWith('@') || isSysId(query)) return [];
+    const shown = query.length > 34 ? `${query.slice(0, 33)}…` : query;
+    const open = (fn) => () => fn(query);
+    const rows = [
+      { id: 'fallback.ask', title: `Ask AI: “${shown}”`, hint: 'Send it to the chat sidebar', group: FALLBACK_GROUP, icon: 'ai', run: open((q) => sidebar.runCommand(q)) },
+      { id: 'fallback.api', title: `Look up “${shown}” in the API catalog`, hint: 'GlideRecord, g_form, gs and more', group: FALLBACK_GROUP, icon: 'search', run: () => { sidebar.openForTool(); sidebar.openApiPanel(query); } },
+      { id: 'fallback.code', title: `Search instance code for “${shown}”`, hint: 'Every script field', group: FALLBACK_GROUP, icon: 'search', run: () => { sidebar.openForTool(); sidebar.openSearchPanel(query); } },
+    ];
+    // Code goes to the free lookups first; asking the AI needs a key and is a worse first guess for `current.setValue`.
+    return looksLikeCode(query) ? [rows[1], rows[2], rows[0]] : rows;
+  }
+
   function paint() {
     resultsEl.replaceChildren();
+    const query = grouped ? '' : input.value.trim();
 
     if (!results.length) {
       const empty = el('div', 'msb-palette__empty');
       empty.appendChild(el('div', null, 'No matching action.'));
       const tips = el('div', 'msb-palette__emptyTips');
       [
+        ['who changed this', 'describe the problem'],
         ['incident', 'open a table'],
         ['/tn table', 'list with a filter'],
         ['a sys_id', 'jump to the record'],
@@ -287,7 +412,13 @@ export function createCommandPalette(deps) {
 
       const title = document.createElement('span');
       title.className = 'msb-palette__title';
-      title.textContent = cmd.title;
+      const hits = query && cmd.group !== FALLBACK_GROUP ? matchPositions(query, cmd.title) : [];
+      if (hits.length) {
+        // Text nodes and <mark>s only: instance data never goes through innerHTML.
+        highlightRuns(cmd.title, hits).forEach((run) => title.appendChild(run.hit ? el('mark', 'msb-palette__hl', run.text) : document.createTextNode(run.text)));
+      } else {
+        title.textContent = cmd.title;
+      }
       item.appendChild(title);
 
       // Always rendered, even when empty: it is the flexible spacer that keeps
@@ -306,6 +437,7 @@ export function createCommandPalette(deps) {
         item.appendChild(tag);
       }
 
+      if (!grouped && pinned.includes(cmd.id)) item.appendChild(el('span', 'msb-palette__badge', 'pinned'));
       if (cmd.url) {
         const badge = document.createElement('span');
         badge.className = 'msb-palette__badge msb-palette__badge--open';
@@ -313,10 +445,19 @@ export function createCommandPalette(deps) {
         item.appendChild(badge);
       }
 
-      item.addEventListener('mouseenter', () => setActive(index));
+      if (index < QUICK_KEYS) item.appendChild(el('kbd', 'msb-palette__num', String(index + 1)));
+
+      // Hover moves the highlight only when the mouse really moves. When the list redraws under a pointer that is
+      // resting there, the browser reports a mouse event with no movement; following it would silently change which
+      // row Enter runs.
+      item.addEventListener('mousemove', (event) => {
+        if (!event.movementX && !event.movementY) return;
+        if (index !== activeIndex) setActive(index);
+      });
       item.addEventListener('click', trustedDom((event) => execute(cmd, event.shiftKey || event.ctrlKey || event.metaKey)));
       resultsEl.appendChild(item);
     });
+    urlHints.hidden = !results[activeIndex]?.url;
   }
 
   // ServiceNow (and the classic gsft_main iframe) can hold focus, so retry until the input has it.
@@ -357,7 +498,11 @@ export function createCommandPalette(deps) {
         getCsrfToken: deps.getCsrfToken,
       }),
     ];
-    recents = (await getUiState()).recentCommands || [];
+    const ui = await getUiState();
+    stats = ui.commandStats || {};
+    recents = rankRecent(stats, ui.recentCommands || [], RECENT_SHOWN);
+    pinned = Array.isArray(ui.pinnedCommands) ? ui.pinnedCommands : [];
+    pageCtx = ctx;
 
     contextEl.textContent = ctx.table
       ? `${ctx.table}${ctx.sysId ? ` · ${ctx.sysId.slice(0, 8)}…` : ''}`
@@ -450,7 +595,7 @@ function dedupe(list) {
  * Subsequence fuzzy match with bonuses for consecutive hits and word-boundary
  * starts, so "bru" ranks "Business Rules" above "Debug runner".
  */
-export function fuzzyScore(query, target) {
+export function fuzzyScore(query, target, { loose = true } = {}) {
   const q = query.toLowerCase();
   const t = target.toLowerCase();
   if (!q) return 1;
@@ -460,6 +605,7 @@ export function fuzzyScore(query, target) {
     const boundary = at === 0 || /[\s._\-/]/.test(t[at - 1]);
     return 500 + (boundary ? 100 : 0) - Math.min(at, 50);
   }
+  if (!loose) return 0;
 
   let score = 0;
   let ti = 0;

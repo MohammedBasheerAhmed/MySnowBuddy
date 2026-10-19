@@ -27,6 +27,7 @@ import { queryTable } from './tableApi.js';
 import { addBookmark } from './stores.js';
 import { currentPageHref } from './context.js';
 import { resolveTarget } from '../lib/urlTarget.js';
+import { isScriptLabel } from '../lib/inline.js';
 import { formDocuments } from './quickActions.js';
 import { PANELS } from '../sidebar/panelRegistry.js';
 import { toggleXray, xrayServices } from './xray.js';
@@ -66,16 +67,19 @@ export function buildCommands(deps) {
   const commands = [];
 
   const add = (cmd) => commands.push(cmd);
+  // Tools open where the user chose (floating window or docked); only the chat itself needs the sidebar.
   const openPanel = (fn) => () => {
-    sidebar.open();
+    sidebar.openForTool();
     fn();
   };
   const runSlash = (command) => () => {
-    sidebar.open();
     sidebar.runCommand(command);
   };
 
-  if (table && openScriptEditor) {
+  // A list or a form without a script column has nothing to edit.
+  const hasScript = Boolean(table && sysId && ctx.scriptBody && isScriptLabel(ctx.scriptFieldLabel));
+
+  if (hasScript && openScriptEditor) {
     add({
       id: 'tools.editor',
       title: 'Edit script in full-screen editor',
@@ -86,7 +90,7 @@ export function buildCommands(deps) {
     });
   }
 
-  if (table && startFileSync) {
+  if (hasScript && startFileSync) {
     add({
       id: 'tools.fileSync',
       title: 'Edit script in VS Code (sync to a folder)',
@@ -101,6 +105,7 @@ export function buildCommands(deps) {
     add({
       id: 'tools.fileSyncStop',
       title: 'Stop file sync',
+      hint: 'Stop syncing this script to your local file',
       group: GROUPS.record,
       keywords: 'stop end file sync vscode',
       run: () => {
@@ -141,6 +146,7 @@ export function buildCommands(deps) {
     add({
       id: 'record.copyMarkdown',
       title: 'Copy record as markdown link',
+      hint: 'A [title](link) to paste into a ticket or doc',
       group: GROUPS.record,
       keywords: 'link share clipboard markdown',
       run: async () => {
@@ -184,6 +190,7 @@ export function buildCommands(deps) {
     add({
       id: 'record.history',
       title: 'Record audit history',
+      hint: 'Who changed which field, and when (needs auditing on)',
       group: GROUPS.record,
       keywords: 'audit changes history who',
       url: listUrl('sys_audit', `documentkey=${sysId}^ORDERBYDESCsys_created_on`),
@@ -219,6 +226,7 @@ export function buildCommands(deps) {
     add({
       id: 'record.updateEntry',
       title: 'Update set entry for this record',
+      hint: 'Check this change was captured for deployment',
       group: GROUPS.record,
       keywords: 'update set xml captured deployment',
       url: listUrl('sys_update_xml', `name=${table}_${sysId}^ORDERBYDESCsys_updated_on`),
@@ -227,6 +235,7 @@ export function buildCommands(deps) {
     add({
       id: 'record.newTab',
       title: 'Open this record in a new tab',
+      hint: 'Keep this one and open another copy',
       group: GROUPS.record,
       keywords: 'tab window duplicate',
       url: recordUrl(table, sysId),
@@ -248,6 +257,7 @@ export function buildCommands(deps) {
     add({
       id: 'table.new',
       title: `New ${table} record`,
+      hint: 'Create a blank record on this table',
       group: GROUPS.table,
       keywords: 'create insert new',
       url: newRecordUrl(table),
@@ -313,6 +323,7 @@ export function buildCommands(deps) {
   add({
     id: 'analyze.search',
     title: 'Code search across the instance',
+    hint: 'Find a word or call in every script field',
     group: GROUPS.analyze,
     keywords: 'find grep script search text',
     run: openPanel(() => sidebar.openSearchPanel()),
@@ -330,6 +341,7 @@ export function buildCommands(deps) {
   add({
     id: 'analyze.audit',
     title: 'Security audit',
+    hint: 'Look for ACLs that expose data too widely',
     group: GROUPS.analyze,
     keywords: 'security acl public risk audit',
     run: runSlash('/audit'),
@@ -338,6 +350,7 @@ export function buildCommands(deps) {
   add({
     id: 'analyze.compare',
     title: 'Compare instances',
+    hint: 'See what differs between two instances',
     group: GROUPS.analyze,
     keywords: 'diff instances compare environments',
     run: openPanel(() => sidebar.openComparePanel()),
@@ -346,6 +359,7 @@ export function buildCommands(deps) {
   add({
     id: 'analyze.conflict',
     title: 'Conflict check',
+    hint: 'Find other rules on this table that could clash',
     group: GROUPS.analyze,
     keywords: 'conflict order collision duplicate',
     run: runSlash('/conflictcheck'),
@@ -382,6 +396,7 @@ export function buildCommands(deps) {
   add({
     id: 'ai.review',
     title: 'AI code review',
+    hint: 'The AI reviews this script (uses tokens)',
     group: GROUPS.ai,
     keywords: 'review ai quality security',
     run: runSlash('/review'),
@@ -390,6 +405,7 @@ export function buildCommands(deps) {
   add({
     id: 'ai.logs',
     title: 'Error triage',
+    hint: 'The AI explains the recent errors (uses tokens)',
     group: GROUPS.ai,
     keywords: 'errors logs triage syslog',
     run: runSlash('/logs'),
@@ -398,6 +414,7 @@ export function buildCommands(deps) {
   add({
     id: 'ai.atf',
     title: 'Generate ATF test outline',
+    hint: 'The AI drafts ATF test steps (uses tokens)',
     group: GROUPS.ai,
     keywords: 'atf test automated outline',
     run: runSlash('/atf'),
@@ -406,6 +423,7 @@ export function buildCommands(deps) {
   add({
     id: 'ai.document',
     title: 'Generate documentation',
+    hint: 'The AI drafts documentation for this script (uses tokens)',
     group: GROUPS.ai,
     keywords: 'document docs describe',
     run: runSlash('/document'),
@@ -424,6 +442,7 @@ export function buildCommands(deps) {
   add({
     id: 'tools.atf',
     title: 'ATF: run suites and results',
+    hint: 'Run automated test suites and read the results',
     group: GROUPS.tools,
     keywords: 'atf test suite run results automated',
     run: openPanel(() => sidebar.openAtfPanel()),
@@ -441,6 +460,7 @@ export function buildCommands(deps) {
   add({
     id: 'tools.bookmark',
     title: 'Bookmark this page',
+    hint: 'Save this page so the palette can open it later',
     group: GROUPS.tools,
     keywords: 'bookmark save favourite page link',
     run: async () => {
@@ -453,6 +473,7 @@ export function buildCommands(deps) {
   add({
     id: 'tools.rest',
     title: 'REST builder',
+    hint: 'Build and send a REST request to this instance',
     group: GROUPS.tools,
     keywords: 'rest api request http builder',
     run: openPanel(() => sidebar.openRestPanel()),
@@ -544,6 +565,47 @@ export function buildCommands(deps) {
     })
   );
 
+  [
+    ['window', 'Tools: open in floating windows', 'tools open over the page, several at once'],
+    ['sidebar', 'Tools: dock in the sidebar', 'tools open inside the chat sidebar, one at a time'],
+  ].forEach(([value, title, hint]) =>
+    add({
+      id: `tools.surface.${value}`,
+      title,
+      hint,
+      group: GROUPS.tools,
+      keywords: 'tools windows floating dock sidebar panel surface layout where open',
+      run: async () => {
+        await deps.setToolSurface(value);
+        toast.info(value === 'window' ? 'Tools now open in floating windows.' : 'Tools now dock in the sidebar.');
+      },
+    })
+  );
+
+  if (deps.showWelcome) {
+    add({
+      id: 'help.tour',
+      title: 'Quick tour',
+      hint: 'What the palette, the page bar and the field menus do',
+      group: GROUPS.tools,
+      keywords: 'help tour tutorial getting started learn how to use what can this do welcome onboarding',
+      run: () => deps.showWelcome(),
+    });
+  }
+
+  add({
+    id: 'tools.inline.toggle',
+    title: 'Toggle on-page tools',
+    hint: 'Page toolbar and the field, column and script menus',
+    group: GROUPS.tools,
+    keywords: 'inline page toolbar menus buttons labels columns on page tools hide show',
+    run: async () => {
+      const on = deps.inlineOn();
+      await deps.setInline(!on);
+      toast.info(on ? 'On-page tools hidden.' : 'On-page tools shown.');
+    },
+  });
+
   add({
     id: 'tools.fieldNameTip',
     title: 'Copy a field name or value',
@@ -565,6 +627,7 @@ export function buildCommands(deps) {
   add({
     id: 'tools.endImpersonation',
     title: 'End impersonation',
+    hint: 'Go back to your own user',
     group: GROUPS.tools,
     keywords: 'stop end impersonation revert',
     url: '/logout_impersonate.do',
@@ -574,6 +637,7 @@ export function buildCommands(deps) {
   add({
     id: 'tools.switchUpdateSet',
     title: 'Switch update set…',
+    hint: 'Change the update set your changes are captured in',
     group: GROUPS.tools,
     keywords: 'update set switch current pick',
     run: async () => {
@@ -621,6 +685,7 @@ export function buildCommands(deps) {
   add({
     id: 'instance.nodeInfo',
     title: 'Show node and build',
+    hint: 'Which node and build you are on',
     group: GROUPS.instance,
     keywords: 'node build version release',
     run: async () => {
@@ -635,6 +700,7 @@ export function buildCommands(deps) {
   add({
     id: 'instance.xmlstats',
     title: 'XML stats',
+    hint: 'Transactions and semaphores on this node',
     group: GROUPS.instance,
     keywords: 'xmlstats semaphore transactions node',
     url: '/xmlstats.do',
@@ -645,6 +711,7 @@ export function buildCommands(deps) {
   add({
     id: 'instance.threads',
     title: 'Thread info',
+    hint: 'What is running now; spot stuck work',
     group: GROUPS.instance,
     keywords: 'threads stuck performance',
     url: '/threads.do',
@@ -655,6 +722,7 @@ export function buildCommands(deps) {
   add({
     id: 'instance.copyInstanceUrl',
     title: 'Copy current page URL',
+    hint: 'Copy the address of this page',
     group: GROUPS.instance,
     keywords: 'url copy share link page',
     run: async () => {
@@ -811,7 +879,6 @@ export function slashCommand(query, sidebar) {
     group: GROUPS.ai,
     score: 1000,
     run: () => {
-      sidebar.open();
       sidebar.runCommand(term);
     },
   };

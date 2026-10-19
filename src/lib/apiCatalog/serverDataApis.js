@@ -240,6 +240,34 @@ const GR_METHODS = [
     'Returns true if the current user\'s ACLs permit creating records in this table.'),
   m('canDelete', 'canDelete()', 'boolean',
     'Returns true if the current user\'s ACLs permit deleting this record.'),
+
+  // ---- found on a live instance (typeof check against a real GlideRecord on dev364920, Australia patch 7) ----
+  m('addInactiveQuery', 'addInactiveQuery()', 'GlideQueryCondition',
+    'Adds a filter for inactive records (active=false).'),
+  m('addFunction', 'addFunction(functionDefinition)', 'void',
+    'Applies a database function built with GlideDBFunctionBuilder to the query.'),
+  m('getBooleanAttribute', 'getBooleanAttribute(attributeName)', 'boolean',
+    'Returns true if the table has the dictionary attribute set to true.'),
+  m('getEscapedDisplayValue', 'getEscapedDisplayValue()', 'string',
+    'Returns the display value of the record with HTML special characters escaped.'),
+  m('getLocation', 'getLocation()', 'number',
+    'Returns the current row position in the result set.', {
+      notes: 'Pairs with setLocation(), saveLocation() and restoreLocation().',
+    }),
+  m('getRelatedLists', 'getRelatedLists()', 'Object',
+    'Returns the names and display values of the related lists of the record.'),
+  m('getRelatedTables', 'getRelatedTables()', 'Object',
+    'Returns the names and display values of the tables that refer to the record.'),
+  m('insertWithReferences', 'insertWithReferences()', 'string',
+    'Inserts the record and also creates the records its reference fields point to.', {
+      notes: 'Documented loosely; test before relying on it.',
+    }),
+  m('isEncodedQueryValid', 'isEncodedQueryValid(encodedQuery)', 'boolean',
+    'Returns true if the encoded query string is valid.'),
+  m('setUseEngines', 'setUseEngines(enable)', 'void',
+    'Turns the rule engines (assignment, approval and similar) on or off for the next insert or update.', {
+      notes: 'Used together with setWorkflow(); documented loosely.',
+    }),
 ];
 
 const GLIDE_RECORD_METHODS = GR_METHODS;

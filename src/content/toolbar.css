@@ -38,8 +38,8 @@
 .msb-palette__backdrop {
   position: absolute;
   inset: 0;
-  background: var(--msb-bg-overlay);
-  backdrop-filter: blur(3px) saturate(0.9);
+  background: var(--msb-backdrop);
+  backdrop-filter: blur(4px) saturate(1.1);
   animation: msb-fade 0.14s ease-out;
 }
 
@@ -50,12 +50,24 @@
   max-height: 66vh;
   display: flex;
   flex-direction: column;
-  background: var(--msb-bg);
-  border: 1px solid var(--msb-border);
-  border-radius: 14px;
-  box-shadow: var(--msb-shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.02);
+  background: var(--msb-canvas), var(--msb-bg);
+  border: 1px solid var(--msb-accent-line);
+  border-radius: 16px;
+  box-shadow: var(--msb-shadow-lg), 0 0 0 1px rgba(255, 255, 255, 0.02), 0 12px 48px -12px rgba(99, 70, 229, 0.35);
   overflow: hidden;
   animation: msb-pop 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Aurora hairline along the top edge. */
+.msb-palette__dialog::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--msb-aurora-line);
+  z-index: 1;
 }
 
 @keyframes msb-pop {
@@ -73,8 +85,8 @@
   align-items: center;
   gap: 12px;
   padding: 16px 18px;
-  border-bottom: 1px solid var(--msb-border);
-  background: linear-gradient(to bottom, var(--msb-bg), var(--msb-bg-subtle));
+  border-bottom: 1px solid var(--msb-accent-line);
+  background: var(--msb-hero-bg);
 }
 
 .msb-palette__mode {
@@ -82,8 +94,8 @@
   padding: 2px 9px;
   border: 1px solid var(--msb-accent-line);
   border-radius: var(--msb-radius-pill);
-  background: var(--msb-accent-soft);
-  color: var(--msb-accent);
+  background: var(--msb-bg);
+  color: var(--msb-active-fg);
   font-size: var(--msb-text-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -96,7 +108,7 @@
 
 .msb-palette__icon {
   display: flex;
-  color: var(--msb-fg-faint);
+  color: var(--msb-accent);
 }
 
 .msb-palette__input {
@@ -139,7 +151,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--msb-fg-faint);
+  color: var(--msb-group-fg);
 }
 
 .msb-palette__item {
@@ -149,19 +161,23 @@
   padding: 9px 12px;
   border-radius: var(--msb-radius);
   cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.msb-palette__item:not(.msb-palette__item--active):hover {
+  background: var(--msb-accent-soft);
 }
 
 .msb-palette__item--active::after {
   content: '\21B5';
   flex: none;
-  color: var(--msb-accent);
+  color: var(--msb-active-fg);
   font-size: var(--msb-text-lg);
-  opacity: 0.8;
 }
 
 .msb-palette__item--active {
-  background: var(--msb-accent-soft);
-  box-shadow: inset 2px 0 0 var(--msb-accent);
+  background: var(--msb-active-bg);
+  box-shadow: inset 3px 0 0 #7c3aed, 0 1px 0 var(--msb-accent-line);
 }
 
 .msb-palette__itemIcon {
@@ -172,15 +188,16 @@
   height: 30px;
   flex: none;
   border-radius: var(--msb-radius-sm);
-  background: var(--msb-bg-subtle);
-  border: 1px solid var(--msb-border);
-  color: var(--msb-fg-muted);
+  background: var(--msb-icon-bg);
+  border: 1px solid var(--msb-accent-line);
+  color: var(--msb-group-fg);
 }
 
 .msb-palette__item--active .msb-palette__itemIcon {
-  background: var(--msb-bg);
-  border-color: var(--msb-accent-line);
-  color: var(--msb-accent);
+  background: var(--msb-aurora);
+  border-color: transparent;
+  color: var(--msb-on-gradient);
+  box-shadow: var(--msb-glow);
 }
 
 .msb-palette__title {
@@ -194,7 +211,35 @@
 }
 
 .msb-palette__item--active .msb-palette__title {
-  color: var(--msb-accent);
+  color: var(--msb-active-fg);
+  font-weight: 600;
+}
+
+/* Matched letters: weight and an underline, so the colour (and its contrast) stays the row's own. */
+.msb-palette__hl {
+  background: none;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: #7c3aed;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* Alt+N quick-run number on the first nine rows. */
+.msb-palette__num {
+  flex: none;
+  min-width: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--msb-border);
+  border-bottom-width: 2px;
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  line-height: 1.55;
+  text-align: center;
 }
 
 .msb-palette__hint {
@@ -221,7 +266,7 @@
 }
 
 .msb-palette__badge--open {
-  color: var(--msb-accent);
+  color: var(--msb-active-fg);
   border-color: var(--msb-accent-line);
   background: var(--msb-accent-soft);
 }
@@ -263,15 +308,17 @@
 .msb-palette__footer {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   padding: 9px 16px;
-  border-top: 1px solid var(--msb-border);
-  background: var(--msb-bg-subtle);
+  border-top: 1px solid var(--msb-accent-line);
+  background: var(--msb-hero-bg);
   font-size: var(--msb-text-sm);
-  color: var(--msb-fg-faint);
+  color: var(--msb-fg-muted);
 }
 
 .msb-palette__footer kbd {
+  white-space: nowrap;
   font-family: var(--msb-mono);
   font-size: var(--msb-text-xs);
   line-height: 1.55;
@@ -286,7 +333,18 @@
 .msb-palette__hintGroup {
   display: inline-flex;
   align-items: center;
+  flex: none;
   gap: 3px;
+  white-space: nowrap;
+}
+
+/* The url hints wrap two hint groups: space them like the footer does. */
+.msb-palette__hintGroup > .msb-palette__hintGroup {
+  margin-left: 11px;
+}
+
+.msb-palette__hintGroup > .msb-palette__hintGroup:first-child {
+  margin-left: 0;
 }
 
 .msb-palette__context {
@@ -304,7 +362,8 @@
    --------------------------------------------------------------------------- */
 .msb-toasts {
   position: fixed;
-  bottom: 22px;
+  /* Above the page toolbar (bottom: 14px, about 36px tall), so a toast never covers its buttons. */
+  bottom: 62px;
   left: 50%;
   transform: translateX(-50%);
   z-index: calc(var(--msb-z) + 20);

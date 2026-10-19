@@ -32,6 +32,8 @@ import TestBenchPanel from './TestBenchPanel.jsx';
 import { PANELS, panelByName, panelForSlash, panelHelpLines } from './panelRegistry.js';
 import AgentRun from './AgentRun.jsx';
 import Icon from './Icon.jsx';
+import ToolWindow from './ToolWindow.jsx';
+import { defaultWindowRect, upsertWindow } from '../lib/toolWindow.js';
 import MessageBody, { HelpBody } from './MessageBody.jsx';
 import { runAgent } from '../lib/agent/agentLoop.js';
 import { TOOL_SCHEMAS } from '../lib/agent/toolSchemas.js';
@@ -131,6 +133,32 @@ const SLASH_HELP = [
   '  /clear                 clear conversation history',
 ].join('\n');
 
+// Window titles for the panels that Sidebar.jsx renders itself; registered panels use their registry title.
+const WINDOW_TITLES = {
+  compare: 'Compare instances',
+  search: 'Code search',
+  updateset: 'Update sets',
+  rest: 'REST builder',
+  prompts: 'Prompt library',
+  query: 'List filter tools',
+  logtail: 'Live log',
+  apply: 'Apply to the form',
+  remote: 'Other instance',
+  versions: 'Version history',
+  fields: 'Table explorer',
+  atf: 'ATF',
+  scope: 'Scope export',
+  automation: 'Automation',
+  api: 'API explorer',
+  testbench: 'Client script test bench',
+  bgscript: 'Script runner',
+};
+const windowTitle = (name) => WINDOW_TITLES[name] || panelByName(name)?.title || name;
+
+// Tools that show wide tables, diffs or logs open larger.
+const WIDE_TOOLS = new Set(['compare', 'search', 'query', 'logtail', 'rest', 'versions', 'fields', 'remote', 'updateset', 'xray', 'health', 'access', 'impact', 'atf', 'testbench', 'bgscript']);
+const windowSize = (name) => (WIDE_TOOLS.has(name) ? { w: 560, h: 620 } : { w: 480, h: 580 });
+
 const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpenPalette = null }, ref) {
   const [theme, changeTheme] = useTheme();
   const [themeMenu, setThemeMenu] = useState(false);
@@ -151,6 +179,13 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   const [showBgPanel, setShowBgPanel] = useState(false);
   // One panel at a time: { name, ...params } or null.
   const [panel, setPanel] = useState(null);
+  // Where tools open: floating windows over the page (default) or docked in the sidebar. Windows are
+  // { wid, name, z, ...params }; the script runner is the one tool with its own state, so it has no entry.
+  const [toolSurface, setToolSurface] = useState('window');
+  const [windows, setWindows] = useState([]);
+  const [bgZ, setBgZ] = useState(0);
+  const zRef = useRef(10);
+  const widRef = useRef(0);
   const [bgScript, setBgScript] = useState('');
   const [bgResult, setBgResult] = useState(null);
   const [bgOutput, setBgOutput] = useState('');
@@ -219,6 +254,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   useEffect(() => {
     const apply = (settings) => {
       setAgentEnabled(settings.agentEnabled !== false);
+      setToolSurface(settings.toolSurface === 'sidebar' ? 'sidebar' : 'window');
       setAutonomy(AUTONOMY_LEVELS.some((l) => l.id === settings.agentAutonomy) ? settings.agentAutonomy : DEFAULT_AUTONOMY);
     };
     getSettings().then(apply);
@@ -280,15 +316,59 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     window.addEventListener('pointerup', onUp);
   }
 
+  // Closes the docked panel. Floating windows belong to the page, so a chat action leaves them open.
   function closeAllPanels() {
     setPanel(null);
-    setShowBgPanel(false);
+    if (toolSurface !== 'window') setShowBgPanel(false);
+  }
+
+  function raise() {
+    zRef.current += 1;
+    return zRef.current;
   }
 
   function openPanel(name, params = {}) {
+    if (toolSurface === 'window') {
+      const entry = { wid: ++widRef.current, name, ...params };
+      const z = raise();
+      setWindows((prev) => upsertWindow(prev, entry, z));
+      return;
+    }
     setShowBgPanel(false);
     setPanel({ name, ...params });
   }
+
+  function closeWindow(wid) {
+    setWindows((prev) => prev.filter((w) => w.wid !== wid));
+  }
+
+  function focusWindow(wid) {
+    if (windows.find((w) => w.wid === wid)?.z === zRef.current) return;
+    const z = raise();
+    setWindows((prev) => prev.map((w) => (w.wid === wid ? { ...w, z } : w)));
+  }
+
+  // Dock a window into the sidebar, or pop the docked panel out into a window.
+  function dockWindow(entry) {
+    const { wid, z, ...rest } = entry;
+    closeWindow(wid);
+    setShowBgPanel(false);
+    setPanel(rest);
+    setVisible(true);
+  }
+
+  function popOutPanel() {
+    if (!panel) return;
+    const entry = { wid: ++widRef.current, ...panel };
+    const z = raise();
+    setWindows((prev) => upsertWindow(prev, entry, z));
+    setPanel(null);
+  }
+
+  // The script runner is a window of its own while tools float.
+  useEffect(() => {
+    if (showBgPanel) setBgZ(raise());
+  }, [showBgPanel]);
 
   // Panels that read the open record get a snapshot of the page at open time.
   function openWithContext(name, params = {}) {
@@ -353,7 +433,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     },
     openBackgroundScriptPanel: () => setShowBgPanel(true),
     openComparePanel: () => openPanel('compare'),
-    openSearchPanel: () => openPanel('search'),
+    openSearchPanel: (query = '') => openPanel('search', { query }),
     openUpdateSetPanel: () => openPanel('updateset'),
     openRestPanel: () => openPanel('rest'),
     openPromptPanel: (kind = 'prompts') => openWithContext('prompts', { kind }),
@@ -369,8 +449,15 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     openTestPanel: () => openPanel('testbench'),
     openApplyPanel: (code) => openWithContext('apply', { code }),
     openPanel: (name, params = {}) => {
-      setVisible(true);
+      if (toolSurface !== 'window') setVisible(true);
       return openRegisteredPanel(name, params);
+    },
+    // Callers that are about to open a tool: the sidebar only needs to appear when tools dock there.
+    openForTool: () => {
+      if (toolSurface !== 'window') {
+        setContext(getContext());
+        setVisible(true);
+      }
     },
     sendPrompt: (label, prompt) => {
       setContext(getContext());
@@ -379,7 +466,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     },
     runCommand: (command) => {
       setContext(getContext());
-      setVisible(true);
+      // A command that only opens a tool must not pop the chat open when tools float.
+      const word = String(command).trim().split(/\s+/)[0];
+      const opensTool = word === '/api' || Boolean(PANEL_COMMANDS[word]) || Boolean(panelForSlash(word));
+      if (!(toolSurface === 'window' && opensTool)) setVisible(true);
       handleSendRef.current?.(command);
     },
     registerBackgroundScriptRunner: (fn) => {
@@ -950,8 +1040,9 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   // Send a prepared prompt to the model from a panel rather than the chat box.
   async function askAi(displayLabel, prompt) {
     if (busy) return;
-    // The answer lands in the chat, so leave the panel view.
+    // The answer lands in the chat, so leave the panel view and make sure the chat is showing.
     closeAllPanels();
+    setVisible(true);
     setBusy(true);
     setStatusText('Waiting for the model...');
     try {
@@ -1018,6 +1109,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   }
 
   function insertIntoComposer(text) {
+    setVisible(true);
     setInput(text);
     baseInputRef.current = text;
     setTimeout(() => textareaRef.current?.focus(), 0);
@@ -1041,13 +1133,286 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     handleSendRef.current = handleSend;
   });
 
-  if (!visible) return null;
+  const windowMode = toolSurface === 'window';
+
+  // One tool panel, wherever it is shown (docked in the sidebar or in a window).
+  function renderPanel(p, onClose) {
+    return (
+      <>
+        {p.name === 'compare' && (
+          <ComparePanel onClose={onClose} currentInstanceUrl={window.location.hostname} />
+        )}
+
+        {p.name === 'search' && (
+          <SearchPanel
+            key={p.query}
+            initialTerm={p.query || ''}
+            onClose={onClose}
+            runSearch={(term, options) => requireService('searchCode', 'Code search')(term, options)}
+            onAskAi={(search) =>
+              askAi(
+                `Explain the usages of "${search.term}"`,
+                'The following are all references to a symbol across a ServiceNow instance. Explain how it ' +
+                  'is used, group the callers by purpose, identify the riskiest places to change it, and ' +
+                  'flag anything that looks like duplicated or dead logic.\n\n' +
+                  search.results
+                    .slice(0, 40)
+                    .map(
+                      (r) =>
+                        `### ${r.label}: ${r.name} (${r.field})\n` +
+                        r.matches.map((m) => `${m.lineNumber}: ${m.text}`).join('\n')
+                    )
+                    .join('\n\n')
+                    .slice(0, 12000)
+              )
+            }
+          />
+        )}
+
+        {p.name === 'updateset' && (
+          <UpdateSetPanel
+            onClose={onClose}
+            services={servicesRef.current}
+            onAskAi={(data) => askAi('Assess deployment risk for this update set', buildUpdateSetPrompt(data))}
+          />
+        )}
+
+        {p.name === 'rest' && (
+          <RestPanel
+            onClose={onClose}
+            runRequest={(request) => requireService('runRestRequest', 'REST builder')(request)}
+            onAskAi={({ method, path, response }) =>
+              askAi(
+                `Explain the response from ${method} ${path}`,
+                'Explain this ServiceNow API response for a developer. Cover what the HTTP status means, ' +
+                  'what the payload represents, and anything that looks wrong.\n\n' +
+                  `Request: ${method} ${path}\nStatus: ${response.status}\n\n` +
+                  redactSecrets(response.body).slice(0, 8000)
+              )
+            }
+          />
+        )}
+
+        {p.name === 'prompts' && (
+          <PromptLibraryPanel
+            key={p.kind}
+            initialKind={p.kind}
+            onClose={onClose}
+            getContext={getContext}
+            onRun={(title, prompt) => askAi(title, prompt)}
+            onInsert={insertIntoComposer}
+            onUseScript={loadScriptIntoRunner}
+          />
+        )}
+
+        {p.name === 'query' && (
+          <QueryPanel
+            onClose={onClose}
+            services={servicesRef.current}
+            onUseScript={loadScriptIntoRunner}
+            onAskAi={({ table, query, explanation }) =>
+              askAi(
+                `Improve the filter on ${table}`,
+                'Review this ServiceNow list filter. Point out conditions that are slow on large tables ' +
+                  '(leading wildcards, unindexed fields, dot-walks), anything that looks wrong, and a better ' +
+                  'equivalent if one exists.\n\n' +
+                  `Table: ${table}\nEncoded query: ${query}\n\nPlain English:\n${explanation}`
+              )
+            }
+          />
+        )}
+
+        {p.name === 'logtail' && (
+          <LogTailPanel
+            onClose={onClose}
+            services={servicesRef.current}
+            onAskAi={(text) =>
+              askAi(
+                'Explain these log entries',
+                'Explain these ServiceNow system log entries. Group related lines, identify the root cause of ' +
+                  'any errors, and say what to check first.\n\n' +
+                  text
+              )
+            }
+          />
+        )}
+
+        {p.name === 'apply' && (
+          <ApplyPanel
+            code={p.code}
+            table={p.context?.table}
+            services={servicesRef.current}
+            onClose={onClose}
+          />
+        )}
+
+        {p.name === 'remote' && (
+          <RemoteRecordPanel context={p.context} services={servicesRef.current} onClose={onClose} />
+        )}
+
+        {p.name === 'versions' && (
+          <VersionPanel context={p.context} services={servicesRef.current} onClose={onClose} />
+        )}
+
+        {p.name === 'fields' && (
+          <FieldInspectorPanel context={p.context} services={servicesRef.current} onClose={onClose} />
+        )}
+
+        {p.name === 'atf' && (
+          <AtfPanel
+            services={servicesRef.current}
+            onClose={onClose}
+            onAskAi={(label, prompt) => askAi(label, prompt)}
+          />
+        )}
+
+        {p.name === 'scope' && <ScopeExportPanel services={servicesRef.current} onClose={onClose} />}
+
+        {p.name === 'automation' && <AutomationPanel services={servicesRef.current} onClose={onClose} />}
+
+        {p.name === 'api' && <ApiExplorerPanel key={p.query} initialQuery={p.query || ''} onClose={onClose} />}
+
+        {p.name === 'testbench' && (
+          <TestBenchPanel services={servicesRef.current} onClose={onClose} onAskAi={(label, prompt) => askAi(label, prompt)} />
+        )}
+
+        {(() => {
+          const entry = panelByName(p.name);
+          if (!entry) return null;
+          const Panel = entry.component;
+          return (
+            <Panel
+              key={`${p.name}:${p.params?.args || ''}`}
+              context={p.context || null}
+              params={p.params || {}}
+              services={servicesRef.current}
+              onClose={onClose}
+              onAskAi={(label, prompt) => askAi(label, prompt)}
+              onUseScript={loadScriptIntoRunner}
+              onInsert={insertIntoComposer}
+            />
+          );
+        })()}
+      </>
+    );
+  }
+
+  const bgPanelNode = showBgPanel ? (
+      <div className="msb-sidebar__bg-panel">
+        <textarea
+          value={bgScript}
+          onChange={(e) => setBgScript(e.target.value)}
+          placeholder="Write a background script..."
+        />
+  
+        {bgHistory.length > 0 && (
+          <div className="msb-sidebar__bg-history">
+            <select
+              value=""
+              onChange={(e) => {
+                const entry = bgHistory[Number(e.target.value)];
+                if (entry) {
+                  setBgScript(entry.script);
+                  setBgOutput('');
+                  setBgDryRun(true);
+                }
+              }}
+              aria-label="Script history"
+            >
+              <option value="">History ({bgHistory.length})</option>
+              {bgHistory.map((entry, i) => (
+                <option key={entry.ts + i} value={i}>
+                  {new Date(entry.ts).toLocaleString()} {entry.dryRun ? '(dry) ' : ''}
+                  {entry.script.replace(/\s+/g, ' ').slice(0, 40)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Clear the saved script history?')) {
+                  clearHistory().then(() => setBgHistory([]));
+                }
+              }}
+            >
+              Clear history
+            </button>
+          </div>
+        )}
+  
+        {bgScript.trim() && (
+          <div className={`msb-sidebar__risk msb-sidebar__risk--${scriptRisk.highestSeverity || 'none'}`}>
+            {formatRiskSummary(scriptRisk)}
+          </div>
+        )}
+  
+        <label className="msb-sidebar__dryrun">
+          <input type="checkbox" checked={bgDryRun} onChange={trusted((e) => setBgDryRun(e.target.checked))} />
+          Dry run (intercept GlideRecord writes and log them instead)
+        </label>
+  
+        {bgDryRun && (
+          <div className="msb-sidebar__hint">
+            Dry run does not intercept direct SQL, outbound REST, gs.setProperty, or side effects of
+            events and flows that have already been triggered.
+          </div>
+        )}
+  
+        <div className="msb-sidebar__bg-actions">
+          <button onClick={trusted(handleRunBackgroundScript)} disabled={busy || !bgScript.trim()}>
+            {bgDryRun ? 'Dry run' : 'Run for real'}
+          </button>
+          <button onClick={() => setShowBgPanel(false)}>Close</button>
+        </div>
+        {bgResult && <div className="msb-sidebar__bg-result">{bgResult}</div>}
+        {bgOutput && <pre className="msb-sidebar__bg-output">{bgOutput}</pre>}
+      </div>
+  ) : null;
+
+  const view = { w: window.innerWidth, h: window.innerHeight };
+  // Stacking order -> rank, so the CSS z-index stays inside the band between the sidebar and the palette.
+  const stack = [...windows.map((w) => ({ id: w.wid, z: w.z })), ...(windowMode && showBgPanel ? [{ id: 'bg', z: bgZ }] : [])].sort((a, b) => a.z - b.z);
+  const rankOf = (id) => Math.min(8, stack.findIndex((x) => x.id === id));
+  const windowsNode = (
+    <>
+      {windows.map((w, index) => (
+        <ToolWindow
+          key={w.wid}
+          name={w.name}
+          title={windowTitle(w.name)}
+          z={rankOf(w.wid)}
+          defaultRect={defaultWindowRect({ view, sidebarWidth: visible ? width : 0, size: windowSize(w.name), index })}
+          onFocus={() => focusWindow(w.wid)}
+          onClose={() => closeWindow(w.wid)}
+          onDock={() => dockWindow(w)}
+        >
+          {renderPanel(w, () => closeWindow(w.wid))}
+        </ToolWindow>
+      ))}
+      {windowMode && showBgPanel && (
+        <ToolWindow
+          key="bgscript"
+          name="bgscript"
+          title={windowTitle('bgscript')}
+          z={rankOf('bg')}
+          defaultRect={defaultWindowRect({ view, sidebarWidth: visible ? width : 0, size: windowSize('bgscript'), index: windows.length })}
+          onFocus={() => bgZ !== zRef.current && setBgZ(raise())}
+          onClose={() => setShowBgPanel(false)}
+        >
+          {bgPanelNode}
+        </ToolWindow>
+      )}
+    </>
+  );
+
+  if (!visible) return windowsNode;
 
   const heroSkill = selectSkills(context || {});
 
   return (
+    <>
     <div
-      className={`msb-sidebar${panel || showBgPanel ? ' msb-sidebar--focus' : ''}`}
+      className={`msb-sidebar${panel || (showBgPanel && !windowMode) ? ' msb-sidebar--focus' : ''}`}
       style={{ '--msb-sidebar-width': `${width}px` }}
     >
       <div
@@ -1084,6 +1449,11 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
           </span>
         </span>
         <div className="msb-sidebar__header-actions">
+          {panel && (
+            <button onClick={popOutPanel} title="Pop out to a window" aria-label="Pop out to a window">
+              <Icon name="popout" />
+            </button>
+          )}
           {onOpenPalette && (
             <button onClick={onOpenPalette} title="Command palette (Ctrl+Shift+Space)" aria-label="Command palette">
               <Icon name="command" />
@@ -1178,230 +1548,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
         </div>
       )}
 
-      {showBgPanel && (
-        <div className="msb-sidebar__bg-panel">
-          <textarea
-            value={bgScript}
-            onChange={(e) => setBgScript(e.target.value)}
-            placeholder="Write a background script..."
-          />
+      {!windowMode && bgPanelNode}
 
-          {bgHistory.length > 0 && (
-            <div className="msb-sidebar__bg-history">
-              <select
-                value=""
-                onChange={(e) => {
-                  const entry = bgHistory[Number(e.target.value)];
-                  if (entry) {
-                    setBgScript(entry.script);
-                    setBgOutput('');
-                    setBgDryRun(true);
-                  }
-                }}
-                aria-label="Script history"
-              >
-                <option value="">History ({bgHistory.length})</option>
-                {bgHistory.map((entry, i) => (
-                  <option key={entry.ts + i} value={i}>
-                    {new Date(entry.ts).toLocaleString()} {entry.dryRun ? '(dry) ' : ''}
-                    {entry.script.replace(/\s+/g, ' ').slice(0, 40)}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => {
-                  if (window.confirm('Clear the saved script history?')) {
-                    clearHistory().then(() => setBgHistory([]));
-                  }
-                }}
-              >
-                Clear history
-              </button>
-            </div>
-          )}
+      {panel && renderPanel(panel, closeAllPanels)}
 
-          {bgScript.trim() && (
-            <div className={`msb-sidebar__risk msb-sidebar__risk--${scriptRisk.highestSeverity || 'none'}`}>
-              {formatRiskSummary(scriptRisk)}
-            </div>
-          )}
-
-          <label className="msb-sidebar__dryrun">
-            <input type="checkbox" checked={bgDryRun} onChange={trusted((e) => setBgDryRun(e.target.checked))} />
-            Dry run (intercept GlideRecord writes and log them instead)
-          </label>
-
-          {bgDryRun && (
-            <div className="msb-sidebar__hint">
-              Dry run does not intercept direct SQL, outbound REST, gs.setProperty, or side effects of
-              events and flows that have already been triggered.
-            </div>
-          )}
-
-          <div className="msb-sidebar__bg-actions">
-            <button onClick={trusted(handleRunBackgroundScript)} disabled={busy || !bgScript.trim()}>
-              {bgDryRun ? 'Dry run' : 'Run for real'}
-            </button>
-            <button onClick={() => setShowBgPanel(false)}>Close</button>
-          </div>
-          {bgResult && <div className="msb-sidebar__bg-result">{bgResult}</div>}
-          {bgOutput && <pre className="msb-sidebar__bg-output">{bgOutput}</pre>}
-        </div>
-      )}
-
-      {panel?.name === 'compare' && (
-        <ComparePanel onClose={closeAllPanels} currentInstanceUrl={window.location.hostname} />
-      )}
-
-      {panel?.name === 'search' && (
-        <SearchPanel
-          onClose={closeAllPanels}
-          runSearch={(term, options) => requireService('searchCode', 'Code search')(term, options)}
-          onAskAi={(search) =>
-            askAi(
-              `Explain the usages of "${search.term}"`,
-              'The following are all references to a symbol across a ServiceNow instance. Explain how it ' +
-                'is used, group the callers by purpose, identify the riskiest places to change it, and ' +
-                'flag anything that looks like duplicated or dead logic.\n\n' +
-                search.results
-                  .slice(0, 40)
-                  .map(
-                    (r) =>
-                      `### ${r.label}: ${r.name} (${r.field})\n` +
-                      r.matches.map((m) => `${m.lineNumber}: ${m.text}`).join('\n')
-                  )
-                  .join('\n\n')
-                  .slice(0, 12000)
-            )
-          }
-        />
-      )}
-
-      {panel?.name === 'updateset' && (
-        <UpdateSetPanel
-          onClose={closeAllPanels}
-          services={servicesRef.current}
-          onAskAi={(data) => askAi('Assess deployment risk for this update set', buildUpdateSetPrompt(data))}
-        />
-      )}
-
-      {panel?.name === 'rest' && (
-        <RestPanel
-          onClose={closeAllPanels}
-          runRequest={(request) => requireService('runRestRequest', 'REST builder')(request)}
-          onAskAi={({ method, path, response }) =>
-            askAi(
-              `Explain the response from ${method} ${path}`,
-              'Explain this ServiceNow API response for a developer. Cover what the HTTP status means, ' +
-                'what the payload represents, and anything that looks wrong.\n\n' +
-                `Request: ${method} ${path}\nStatus: ${response.status}\n\n` +
-                redactSecrets(response.body).slice(0, 8000)
-            )
-          }
-        />
-      )}
-
-      {panel?.name === 'prompts' && (
-        <PromptLibraryPanel
-          key={panel.kind}
-          initialKind={panel.kind}
-          onClose={closeAllPanels}
-          getContext={getContext}
-          onRun={(title, prompt) => askAi(title, prompt)}
-          onInsert={insertIntoComposer}
-          onUseScript={loadScriptIntoRunner}
-        />
-      )}
-
-      {panel?.name === 'query' && (
-        <QueryPanel
-          onClose={closeAllPanels}
-          services={servicesRef.current}
-          onUseScript={loadScriptIntoRunner}
-          onAskAi={({ table, query, explanation }) =>
-            askAi(
-              `Improve the filter on ${table}`,
-              'Review this ServiceNow list filter. Point out conditions that are slow on large tables ' +
-                '(leading wildcards, unindexed fields, dot-walks), anything that looks wrong, and a better ' +
-                'equivalent if one exists.\n\n' +
-                `Table: ${table}\nEncoded query: ${query}\n\nPlain English:\n${explanation}`
-            )
-          }
-        />
-      )}
-
-      {panel?.name === 'logtail' && (
-        <LogTailPanel
-          onClose={closeAllPanels}
-          services={servicesRef.current}
-          onAskAi={(text) =>
-            askAi(
-              'Explain these log entries',
-              'Explain these ServiceNow system log entries. Group related lines, identify the root cause of ' +
-                'any errors, and say what to check first.\n\n' +
-                text
-            )
-          }
-        />
-      )}
-
-      {panel?.name === 'apply' && (
-        <ApplyPanel
-          code={panel.code}
-          table={panel.context?.table}
-          services={servicesRef.current}
-          onClose={closeAllPanels}
-        />
-      )}
-
-      {panel?.name === 'remote' && (
-        <RemoteRecordPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
-      )}
-
-      {panel?.name === 'versions' && (
-        <VersionPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
-      )}
-
-      {panel?.name === 'fields' && (
-        <FieldInspectorPanel context={panel.context} services={servicesRef.current} onClose={closeAllPanels} />
-      )}
-
-      {panel?.name === 'atf' && (
-        <AtfPanel
-          services={servicesRef.current}
-          onClose={closeAllPanels}
-          onAskAi={(label, prompt) => askAi(label, prompt)}
-        />
-      )}
-
-      {panel?.name === 'scope' && <ScopeExportPanel services={servicesRef.current} onClose={closeAllPanels} />}
-
-      {panel?.name === 'automation' && <AutomationPanel services={servicesRef.current} onClose={closeAllPanels} />}
-
-      {panel?.name === 'api' && <ApiExplorerPanel key={panel.query} initialQuery={panel.query || ''} onClose={closeAllPanels} />}
-
-      {panel?.name === 'testbench' && (
-        <TestBenchPanel services={servicesRef.current} onClose={closeAllPanels} onAskAi={(label, prompt) => askAi(label, prompt)} />
-      )}
-
-      {(() => {
-        const entry = panel && panelByName(panel.name);
-        if (!entry) return null;
-        const Panel = entry.component;
-        return (
-          <Panel
-            key={`${panel.name}:${panel.params?.args || ''}`}
-            context={panel.context || null}
-            params={panel.params || {}}
-            services={servicesRef.current}
-            onClose={closeAllPanels}
-            onAskAi={(label, prompt) => askAi(label, prompt)}
-            onUseScript={loadScriptIntoRunner}
-            onInsert={insertIntoComposer}
-          />
-        );
-      })()}
 
       <div className="msb-sidebar__messages" ref={messagesRef}>
         {!messages.length && !statusText && (
@@ -1579,6 +1729,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
         </div>
       </div>
     </div>
+    {windowsNode}
+    </>
   );
 });
 

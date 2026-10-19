@@ -930,6 +930,12 @@ export { confirmMatches } from './pushArtifact.js';
 export function parsePickerCurrent(data) {
   const result = data?.result ?? data;
   if (!result || typeof result !== 'object') return null;
+  // Current releases (seen on Australia): `current` is just the id and `list` holds every choice with its name.
+  if (typeof result.current === 'string' && Array.isArray(result.list)) {
+    const hit = result.list.find((entry) => entry && (entry.sysId || entry.sys_id || entry.value || entry.id) === result.current);
+    const name = hit && (hit.name || hit.displayValue || hit.display_value || hit.label);
+    if (name && (SYS_ID_RE.test(result.current) || result.current === 'global')) return { sysId: result.current, name: String(name) };
+  }
   const candidates = [result.current, result.currentUpdateSet, result.current_update_set, result.currentApplication, result.current_app, result.selected, result];
   for (const c of candidates) {
     if (!c || typeof c !== 'object') continue;

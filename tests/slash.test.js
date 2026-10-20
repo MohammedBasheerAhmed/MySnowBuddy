@@ -55,3 +55,18 @@ test('help rows include custom commands', () => {
   assert.ok(rows.some(([verb, args]) => verb === 'mine' && args === '<text>'));
   assert.ok(rows.some(([verb]) => verb === 'sa'));
 });
+
+test('slash commands typed in the navigator filter are caught, nothing else is', () => {
+  const { isNavFilter, navSlashQuery } = require('../src/lib/navSlash.js');
+  const field = { tag: 'INPUT', id: 'filter', placeholder: 'Filter', type: 'text' };
+  assert.equal(isNavFilter(field), true);
+  assert.equal(isNavFilter({ ...field, id: 'sncwsgs-typeahead-input', placeholder: 'Search' }), false, 'the global search is not the navigator');
+  assert.equal(isNavFilter({ ...field, tag: 'TEXTAREA' }), false);
+  assert.equal(navSlashQuery({ field, key: 'Enter', value: '  /tn incident ' }), '/tn incident');
+  assert.equal(navSlashQuery({ field, key: 'Enter', value: 'incident' }), '', 'a normal filter is left alone');
+  assert.equal(navSlashQuery({ field, key: 'Enter', value: '/' }), '', 'a bare slash is not a command');
+  assert.equal(navSlashQuery({ field, key: 'Enter', value: '/tn x', isComposing: true }), '', 'an IME composition is not a submit');
+  assert.equal(navSlashQuery({ field, key: 'Enter', value: '/tn x', ctrlKey: true }), '');
+  assert.equal(navSlashQuery({ field, key: 'a', value: '/tn x' }), '');
+  assert.equal(navSlashQuery({ field: { ...field, id: 'other' }, key: 'Enter', value: '/tn x' }), '', 'other inputs are never touched');
+});

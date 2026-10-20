@@ -20,6 +20,7 @@ export default function QueryPanel({ onClose, services, onUseScript, onAskAi }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [dynamicInfo, setDynamicInfo] = useState(null); // result of "Make dynamic": { changes, notes, before }
 
   async function loadFromPage() {
     setError(null);
@@ -80,6 +81,33 @@ export default function QueryPanel({ onClose, services, onUseScript, onAskAi }) 
       .split(',')
       .map((f) => f.trim())
       .filter(Boolean);
+
+  // Static -> dynamic: relative dates and "me", with every change listed and one click to undo.
+  const handleDynamic = () =>
+    run(async () => {
+      const result = await services.makeQueryDynamic(query);
+      if (!result.changes.length) {
+        setDynamicInfo(null);
+        flash('Nothing here can be made dynamic: no day-boundary dates or sys_ids of yours.');
+        return;
+      }
+      setDynamicInfo({ ...result, before: query });
+      setQuery(result.query);
+      setCount(null);
+      setRows(null);
+    });
+
+  const handleUndoDynamic = () => {
+    if (!dynamicInfo) return;
+    setQuery(dynamicInfo.before);
+    setDynamicInfo(null);
+  };
+
+  const handleApply = () =>
+    run(async () => {
+      const applied = await services.applyListFilter(table.trim(), query);
+      if (applied) flash('Opening the list with this filter...');
+    });
 
   const handleCount = () => run(async () => setCount(await services.countRecords(table.trim(), query)));
 
@@ -147,6 +175,36 @@ export default function QueryPanel({ onClose, services, onUseScript, onAskAi }) 
       {notice && <div className="msb-panel__hint">{notice}</div>}
 
       {explanation && <pre className="msb-panel__snippet">{explanation}</pre>}
+
+      <div className="msb-panel__actions">
+        <button className="msb-panel__run" onClick={handleApply} disabled={!canRun || !query.trim()} title="Open this table's list with the filter applied (javascript: parts run on the instance)">
+          Apply to the list
+        </button>
+        <button className="msb-panel__secondary" onClick={handleDynamic} disabled={!canRun || !query.trim()} title="Replace dates and your own sys_id with expressions that stay correct tomorrow">
+          Make dynamic
+        </button>
+        {dynamicInfo && (
+          <button className="msb-panel__secondary" onClick={handleUndoDynamic}>
+            Undo
+          </button>
+        )}
+      </div>
+      {dynamicInfo && (
+        <div className="msb-panel__hint">
+          <div>{dynamicInfo.changes.length} change(s) made dynamic:</div>
+          <ul>
+            {dynamicInfo.changes.map((change, i) => (
+              <li key={i}>
+                <code>{change.to}</code> - {change.why}
+                {change.alternatives?.length ? ` (or ${change.alternatives.join(', ')})` : ''}
+              </li>
+            ))}
+          </ul>
+          {dynamicInfo.notes.map((note) => (
+            <div key={note}>{note}</div>
+          ))}
+        </div>
+      )}
 
       <div className="msb-panel__actions">
         <button className="msb-panel__run" onClick={handleCount} disabled={!canRun}>

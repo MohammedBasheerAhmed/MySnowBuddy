@@ -4,6 +4,7 @@
 // icon click, toggling the sidebar in the active tab's content script.
 import { loadProviderConfig, sendChat, validateKey } from '../providers/index.js';
 import { PROVIDERS } from '../providers/config.js';
+import { validateBaseUrl } from '../lib/aiUsage.js';
 import { compareInstances, buildDiffSummaryPrompt } from './compare.js';
 import { fetchRecords, normalizeInstanceUrl } from './instanceClient.js';
 import { normalizeRun } from '../lib/automation.js';
@@ -23,7 +24,7 @@ async function sendToTab(tab, type) {
 
   if (!isServiceNowUrl(tab.url)) {
     chrome.action.setBadgeText({ tabId: tab.id, text: '!' });
-    chrome.action.setTitle({ tabId: tab.id, title: 'MySnowBuddy only works on *.service-now.com pages' });
+    chrome.action.setTitle({ tabId: tab.id, title: 'NowBuddy only works on *.service-now.com pages' });
     return;
   }
 
@@ -32,7 +33,7 @@ async function sendToTab(tab, type) {
     await new Promise((resolve) => setTimeout(resolve, 600));
     await chrome.tabs.sendMessage(tab.id, { type });
   } catch (err) {
-    console.warn('[MySnowBuddy] could not reach the page', err);
+    console.warn('[NowBuddy] could not reach the page', err);
   }
 }
 
@@ -150,8 +151,17 @@ async function handleChatCompletion(payload, sender) {
   requireServiceNowSender(sender);
   const { messages } = payload || {};
   const config = await loadProviderConfig();
-  const reply = await sendChat(config, { messages });
+  const reply = await sendChat(config, { messages, kind: 'chat', host: hostOf(sender) });
   return { ok: true, content: reply.content };
+}
+
+// The instance a call came from, for the usage log (host name only).
+function hostOf(sender) {
+  try {
+    return new URL(sender?.tab?.url || sender?.url || '').hostname;
+  } catch {
+    return '';
+  }
 }
 
 // One model turn of the agent loop. The loop itself runs in the page's content
@@ -161,7 +171,7 @@ async function handleAgentStep(payload, sender) {
   const { messages, tools, effort } = payload || {};
   if (!Array.isArray(messages) || !messages.length) throw new Error('No messages.');
   const config = await loadProviderConfig();
-  const reply = await sendChat(config, { messages, tools: Array.isArray(tools) ? tools : [], effort });
+  const reply = await sendChat(config, { messages, tools: Array.isArray(tools) ? tools : [], effort, kind: 'agent', host: hostOf(sender) });
   return { ok: true, reply, provider: config.provider, model: config.model };
 }
 
@@ -176,13 +186,19 @@ async function handleProviderInfo() {
     label: provider.label,
     model: config.model,
     modelLabel: (model?.label || config.model).split(' - ')[0],
-    hasKey: Boolean(config.apiKey),
+    hasKey: Boolean(config.apiKey) || Boolean(config.keyOptional),
+    // A custom endpoint is shown by its host, so it is clear where prompts go.
+    endpoint: config.baseUrl ? new URL(config.baseUrl).host : '',
   };
 }
 
 async function handleValidateKey(payload) {
   const config = await loadProviderConfig();
-  return validateKey({ provider: payload?.provider || config.provider, model: payload?.model || config.model, apiKey: payload?.apiKey });
+  // Validate what is on screen in Options: its provider, model, key and (optional) endpoint.
+  const provider = payload?.provider || config.provider;
+  const base = payload && 'baseUrl' in payload ? validateBaseUrl(payload.baseUrl) : { ok: true, url: config.provider === provider ? config.baseUrl : '', local: config.keyOptional };
+  if (!base.ok) return { ok: false, error: base.error };
+  return validateKey({ provider, model: payload?.model || config.model, apiKey: payload?.apiKey, baseUrl: base.url, keyOptional: Boolean(base.local && provider === 'openai') });
 }
 
 // The dispatcher already checked the sender; handlers that reach the model or another
@@ -248,7 +264,7 @@ async function handleCompareInstances(payload, sender) {
 async function handleSummarizeDiff(payload, sender) {
   requireServiceNowSender(sender);
   const prompt = buildDiffSummaryPrompt(payload?.result || {});
-  const reply = await sendChat(await loadProviderConfig(), { messages: [{ role: 'user', content: prompt }] });
+  const reply = await sendChat(await loadProviderConfig(), { messages: [{ role: 'user', content: prompt }], kind: 'chat', host: hostOf(sender) });
   return { ok: true, content: reply.content };
 }
 

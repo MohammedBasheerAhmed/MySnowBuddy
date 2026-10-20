@@ -38,15 +38,20 @@ import MessageBody, { HelpBody } from './MessageBody.jsx';
 import { runAgent } from '../lib/agent/agentLoop.js';
 import { TOOL_SCHEMAS } from '../lib/agent/toolSchemas.js';
 import { approvalMode, isGuardedEnv, AUTONOMY_LEVELS, DEFAULT_AUTONOMY } from '../lib/agent/policy.js';
+import { resolveGuardrails } from '../lib/agent/guardrails.js';
 import { buildSystemPrompt } from '../lib/agent/systemPrompt.js';
 import { newRun, reduceRun } from '../lib/agent/runState.js';
 import { selectSkills } from '../lib/skills/index.js';
 import { kindForTable } from '../lib/verify.js';
 import { getSettings, saveSettings, onSettingsChanged } from '../content/storage.js';
 import { getInstanceInfo } from '../content/quickActions.js';
+import { askConfirm } from '../content/confirmDialog.js';
+import { USAGE_KEY, CAPS_KEY, usageChip, historyExpired, normalizeHistoryDays, DEFAULT_HISTORY_DAYS } from '../lib/aiUsage.js';
+import { runWritesAsk, clearHistoryAsk } from '../lib/confirmCopy.js';
 
 // One transcript per instance: a consultant's client A chat must never load (or reach the model) on client B.
 const HISTORY_KEY = `mysnowbuddy_chat_history:${window.location.hostname}`;
+const HISTORY_SAVED_KEY = `${HISTORY_KEY}:savedAt`;
 const WIDTH_KEY = 'mysnowbuddy_sidebar_width';
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 720;
@@ -156,21 +161,44 @@ const WINDOW_TITLES = {
 const windowTitle = (name) => WINDOW_TITLES[name] || panelByName(name)?.title || name;
 
 // Tools that show wide tables, diffs or logs open larger.
-const WIDE_TOOLS = new Set(['compare', 'search', 'query', 'logtail', 'rest', 'versions', 'fields', 'remote', 'updateset', 'xray', 'health', 'access', 'impact', 'atf', 'testbench', 'bgscript']);
+const WIDE_TOOLS = new Set(['compare', 'search', 'query', 'logtail', 'rest', 'versions', 'fields', 'remote', 'updateset', 'xray', 'health', 'access', 'impact', 'hotspots', 'atf', 'testbench', 'bgscript']);
 const windowSize = (name) => (WIDE_TOOLS.has(name) ? { w: 560, h: 620 } : { w: 480, h: 580 });
 
 const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpenPalette = null }, ref) {
   const [theme, changeTheme] = useTheme();
   const [themeMenu, setThemeMenu] = useState(false);
+  const guardRef = useRef(resolveGuardrails({})); // the user's agent safety settings (Options > Agent > Agent safety)
+  const themeButtonRef = useRef(null);
+  const themeMenuRef = useRef(null);
   useEffect(() => {
     if (!themeMenu) return undefined;
     const close = () => setThemeMenu(false);
     const timer = setTimeout(() => document.addEventListener('click', close), 0);
+    // Keyboard: the menu takes focus on the chosen item, as a menu button should.
+    (themeMenuRef.current?.querySelector('[aria-checked="true"]') || themeMenuRef.current?.querySelector('button'))?.focus();
     return () => {
       clearTimeout(timer);
       document.removeEventListener('click', close);
     };
   }, [themeMenu]);
+
+  // Arrows, Home and End move through the theme menu; Escape and Tab close it (Escape returns focus to its button).
+  function onThemeMenuKeyDown(event) {
+    const items = [...themeMenuRef.current.querySelectorAll('button')];
+    const at = items.indexOf(event.target);
+    const target = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (target !== undefined) {
+      event.preventDefault();
+      items[(target + items.length) % items.length].focus();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      setThemeMenu(false);
+      themeButtonRef.current?.focus();
+    } else if (event.key === 'Tab') {
+      setThemeMenu(false);
+    }
+  }
   const [visible, setVisible] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -204,6 +232,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   const [agentEnabled, setAgentEnabled] = useState(true);
   const [autonomy, setAutonomy] = useState(DEFAULT_AUTONOMY);
   const [providerInfo, setProviderInfo] = useState(null);
+  const [usage, setUsage] = useState({ log: [], caps: {} });
+  const historyDays = useRef(DEFAULT_HISTORY_DAYS);
   const abortRef = useRef(null);
   const approvalsRef = useRef(new Map());
 
@@ -231,9 +261,13 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     speech.toggle();
   }
 
+  // Chat history stays for the number of days chosen in Options (0 = nothing survives a page load).
   useEffect(() => {
-    chrome.storage.local.get(HISTORY_KEY).then((res) => {
-      if (res[HISTORY_KEY]) {
+    chrome.storage.local.get([HISTORY_KEY, HISTORY_SAVED_KEY, 'mysnowbuddy_settings']).then((res) => {
+      historyDays.current = normalizeHistoryDays(res.mysnowbuddy_settings?.chatHistoryDays);
+      if (res[HISTORY_KEY] && historyExpired(res[HISTORY_SAVED_KEY], historyDays.current)) {
+        chrome.storage.local.remove([HISTORY_KEY, HISTORY_SAVED_KEY]).catch(() => {});
+      } else if (res[HISTORY_KEY]) {
         setMessages(
           res[HISTORY_KEY].map((m) =>
             m.run?.status === 'running'
@@ -248,14 +282,34 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
   useEffect(() => {
     if (!historyLoaded.current) return;
-    chrome.storage.local.set({ [HISTORY_KEY]: messages }).catch(() => {});
+    if (historyDays.current === 0) {
+      chrome.storage.local.remove([HISTORY_KEY, HISTORY_SAVED_KEY]).catch(() => {});
+      return;
+    }
+    chrome.storage.local.set({ [HISTORY_KEY]: messages, [HISTORY_SAVED_KEY]: Date.now() }).catch(() => {});
   }, [messages]);
+
+  // Today's AI calls and cost, from the usage log the service worker keeps (src/providers/budget.js).
+  useEffect(() => {
+    const read = () =>
+      chrome.storage.local
+        .get([USAGE_KEY, CAPS_KEY])
+        .then((res) => setUsage({ log: Array.isArray(res[USAGE_KEY]) ? res[USAGE_KEY] : [], caps: res[CAPS_KEY] || {} }))
+        .catch(() => {});
+    read();
+    const onChange = (changes, area) => {
+      if (area === 'local' && (changes[USAGE_KEY] || changes[CAPS_KEY])) read();
+    };
+    chrome.storage.onChanged.addListener(onChange);
+    return () => chrome.storage.onChanged.removeListener(onChange);
+  }, []);
 
   useEffect(() => {
     const apply = (settings) => {
       setAgentEnabled(settings.agentEnabled !== false);
       setToolSurface(settings.toolSurface === 'sidebar' ? 'sidebar' : 'window');
       setAutonomy(AUTONOMY_LEVELS.some((l) => l.id === settings.agentAutonomy) ? settings.agentAutonomy : DEFAULT_AUTONOMY);
+      guardRef.current = resolveGuardrails(settings);
     };
     getSettings().then(apply);
     const off = onSettingsChanged(apply);
@@ -296,6 +350,18 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     node.style.height = 'auto';
     node.style.height = `${Math.min(node.scrollHeight, 160)}px`;
   }, [input, visible]);
+
+  // Keyboard: the separator is focusable; Left widens the sidebar (it grows leftwards), Right narrows it.
+  function onResizerKeyDown(event) {
+    const step = event.shiftKey ? 64 : 16;
+    const delta = { ArrowLeft: step, ArrowRight: -step }[event.key];
+    const next = delta !== undefined ? width + delta : { Home: MIN_WIDTH, End: MAX_WIDTH }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    const clamped = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next));
+    setWidth(clamped);
+    chrome.storage.local.set({ [WIDTH_KEY]: clamped });
+  }
 
   function startResize(event) {
     event.preventDefault();
@@ -1025,7 +1091,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
         callModel,
         executeTool: (name, args) => requireService('agentExecute')(name, args),
         // Read fresh for every call: the guard follows the user's instance label, which can change during a run.
-        approvalMode: (name, args) => approvalMode({ tool: name, args, autonomy, isProd: isGuardedEnv(getInstanceInfo().env) }),
+        approvalMode: (name, args) => approvalMode({ tool: name, args, autonomy, isProd: isGuardedEnv(getInstanceInfo().env), guard: guardRef.current }),
+        guard: guardRef.current,
         requestApproval,
         onEvent,
         signal: controller.signal,
@@ -1080,10 +1147,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
 
     // Last line of defence before an AI-generated script touches real data.
     if (!bgDryRun && scriptRisk.hasWrites) {
-      const confirmed = window.confirm(
-        `This script contains ${scriptRisk.writes.length} write operation(s) and dry run is OFF.\n\n` +
-          'It will modify data on this instance. Continue?'
-      );
+      const confirmed = await askConfirm({ ...runWritesAsk(scriptRisk.writes.length), details: formatRiskSummary(scriptRisk) });
       if (!confirmed) return;
     }
 
@@ -1098,7 +1162,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
         .catch(() => {});
       setBgResult(
         bgDryRun
-          ? 'Dry run submitted. Writes were intercepted and logged - look for "[MySnowBuddy dry run]" entries in the system log.'
+          ? 'Dry run submitted. Writes were intercepted and logged - look for "[NowBuddy dry run]" entries in the system log.'
           : 'Script executed.'
       );
     } catch (err) {
@@ -1118,7 +1182,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   function handleExportChat() {
     if (!messages.length) return;
     const text = [
-      '# MySnowBuddy conversation',
+      '# NowBuddy conversation',
       '',
       `Exported: ${new Date().toISOString()}`,
       '',
@@ -1329,8 +1393,8 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
             </select>
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm('Clear the saved script history?')) {
+              onClick={async () => {
+                if (await askConfirm(clearHistoryAsk())) {
                   clearHistory().then(() => setBgHistory([]));
                 }
               }}
@@ -1418,9 +1482,14 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       <div
         className="msb-sidebar__resizer"
         onPointerDown={startResize}
+        onKeyDown={onResizerKeyDown}
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
-        aria-label="Resize sidebar"
+        aria-label="Resize sidebar (Left and Right arrow keys)"
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
       />
 
       <div className="msb-sidebar__header">
@@ -1429,7 +1498,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
         </span>
         <span className="msb-sidebar__titles">
           <span className="msb-sidebar__title">
-            MySnowBuddy
+            NowBuddy
             {instance && (
               <span
                 className={`msb-env msb-env--${instance.tone}`}
@@ -1446,6 +1515,14 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
                 {providerInfo.modelLabel}
               </button>
             )}
+            {(() => {
+              const chip = usageChip(usage.log, usage.caps, providerInfo?.provider || 'anthropic');
+              return chip.show ? (
+                <button type="button" className={`msb-sidebar__usage msb-sidebar__usage--${chip.status}`} title={chip.title} onClick={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' })}>
+                  {chip.text}
+                </button>
+              ) : null;
+            })()}
           </span>
         </span>
         <div className="msb-sidebar__header-actions">
@@ -1461,6 +1538,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
           )}
           <span className="msb-sidebar__menuwrap">
             <button
+              ref={themeButtonRef}
               onClick={() => setThemeMenu((open) => !open)}
               title="Theme"
               aria-label="Theme"
@@ -1470,7 +1548,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               <Icon name={theme === 'light' ? 'sun' : theme === 'dark' ? 'moon' : 'monitor'} />
             </button>
             {themeMenu && (
-              <div className="msb-sidebar__menu" role="menu">
+              <div className="msb-sidebar__menu" role="menu" aria-label="Theme" ref={themeMenuRef} onKeyDown={onThemeMenuKeyDown}>
                 {[
                   ['system', 'Match system', 'monitor'],
                   ['light', 'Light', 'sun'],
@@ -1603,7 +1681,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
                 <span className="msb-sidebar__msg-avatar" aria-hidden="true">
                   AI
                 </span>
-                MySnowBuddy
+                NowBuddy
               </div>
               <AgentRun run={m.run} instance={instance || getInstanceInfo()} onDecision={decideApproval} />
               {m.displayContent && (
@@ -1621,7 +1699,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
               <span className="msb-sidebar__msg-avatar" aria-hidden="true">
                 {m.role === 'user' ? 'You' : 'AI'}
               </span>
-              {m.role === 'user' ? 'You' : 'MySnowBuddy'}
+              {m.role === 'user' ? 'You' : 'NowBuddy'}
             </div>
             {m.help ? (
               <HelpBody text={m.displayContent ?? m.content} />
@@ -1660,7 +1738,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
                 if (isTrustedEvent(e)) handleSend(); // never on a page script's synthetic Enter
               }
             }}
-            placeholder={speech.listening ? 'Listening...' : 'Ask MySnowBuddy, or type / for commands'}
+            placeholder={speech.listening ? 'Listening...' : 'Ask NowBuddy, or type / for commands'}
             disabled={busy}
           />
           <button

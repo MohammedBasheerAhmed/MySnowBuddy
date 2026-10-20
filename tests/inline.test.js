@@ -13,6 +13,7 @@ const {
   toolbarKey,
   fieldMenuModel,
   fieldCode,
+  editorBox,
   columnMenuModel,
   dictionaryQuery,
   fieldAclQuery,
@@ -91,25 +92,25 @@ test('the form table is the one most labels belong to', () => {
 
 test('the toolbar shows record actions on a form, filter actions on a list, and nothing without a table', () => {
   const ids = (m) => m.map((i) => i.id);
-  assert.deepEqual(ids(toolbarModel({ table: 'incident', sysId: SYS_ID })), ['copySysId', 'copyLink', 'xml', 'info', 'versions']);
-  assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: SYS_ID, hasScript: true })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'edit', 'lint', 'ask']);
+  assert.deepEqual(ids(toolbarModel({ table: 'incident', sysId: SYS_ID })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'formtools', 'names']);
+  assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: SYS_ID, hasScript: true })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'edit', 'lint', 'ask', 'formtools', 'names']);
   // A new, unsaved record has no sys_id to copy yet, but its script still gets editing and lint.
-  assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: '-1', hasScript: true })), ['edit', 'lint', 'ask']);
-  assert.deepEqual(ids(toolbarModel({ table: 'incident', isList: true, hasScript: true })), ['explain', 'count', 'copyQuery', 'copyGlide', 'more']);
+  assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: '-1', hasScript: true })), ['edit', 'lint', 'ask', 'formtools', 'names']);
+  assert.deepEqual(ids(toolbarModel({ table: 'incident', isList: true, hasScript: true })), ['explain', 'count', 'copyQuery', 'copyGlide', 'copyRows', 'insight', 'names', 'more']);
   assert.deepEqual(toolbarModel({ table: '', sysId: SYS_ID }), []);
   assert.deepEqual(toolbarModel({ table: 'bad table!' }), []);
   assert.deepEqual(toolbarModel(), []);
-  assert.equal(toolbarKey(toolbarModel({ table: 'incident', isList: true })), 'explain,count,copyQuery,copyGlide,more');
+  assert.equal(toolbarKey(toolbarModel({ table: 'incident', isList: true })), 'explain,count,copyQuery,copyGlide,copyRows,insight,names,more');
 });
 
 test('field and column menus only offer what applies', () => {
   const ids = (m) => m.map((i) => i.id);
   assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id' })), ['copyName', 'copyValue', 'dictionary', 'acls', 'copyClient', 'copyServer', 'xray']);
-  assert.deepEqual(ids(fieldMenuModel({ table: 'sys_script', field: 'script', script: true })), ['copyName', 'copyValue', 'dictionary', 'acls', 'copyClient', 'copyServer', 'xray', 'edit', 'lint', 'ask']);
+  assert.deepEqual(ids(fieldMenuModel({ table: 'sys_script', field: 'script', script: true })), ['copyName', 'copyValue', 'dictionary', 'acls', 'copyClient', 'copyServer', 'xray', 'editHere', 'edit', 'lint', 'ask']);
   assert.deepEqual(ids(fieldMenuModel({ table: 'incident', field: 'caller_id.email' })), ['copyName', 'copyValue', 'copyServer', 'xray'], 'a dot-walked path has no dictionary entry or g_form call of its own');
   assert.deepEqual(fieldMenuModel({ table: 'not a table', field: 'x' }), []);
-  assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'number' })), ['copyName', 'dictionary', 'acls']);
-  assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'caller_id.name' })), ['copyName']);
+  assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'number' })), ['copyName', 'dictionary', 'acls', 'distinct', 'countBy']);
+  assert.deepEqual(ids(columnMenuModel({ table: 'incident', column: 'caller_id.name' })), ['copyName', 'distinct']);
   assert.deepEqual(columnMenuModel({ table: '', column: 'number' }), []);
 });
 
@@ -172,4 +173,19 @@ test('field code is the call a developer would type, and nothing for a name that
   assert.equal(fieldCode('client', 'caller_id.email'), '', 'g_form cannot read a dot-walk');
   assert.equal(fieldCode('server', "x');gs.print('"), '');
   assert.equal(fieldCode('other', 'caller_id'), '');
+});
+
+test('the in-place editor covers its field, at least a usable size, and stays on screen', () => {
+  const viewport = { width: 1400, height: 800 };
+  const field = { left: 300, top: 200, width: 700, height: 120 };
+  assert.deepEqual(editorBox(field, viewport), { left: 300, top: 200, width: 700, height: 340, visible: true }, 'a short field grows to the minimum height');
+  assert.deepEqual(editorBox({ left: 300, top: 200, width: 700, height: 500 }, viewport), { left: 300, top: 200, width: 700, height: 500, visible: true }, 'a tall field is covered exactly');
+  const low = editorBox({ left: 300, top: 700, width: 700, height: 80 }, viewport);
+  assert.equal(low.top + low.height <= 792, true, 'it is moved up rather than cut off by the bottom edge');
+  assert.equal(editorBox({ left: 1300, top: 100, width: 600, height: 300 }, viewport).left + 600 <= 1392, true, 'and in from the right edge');
+  const narrow = editorBox({ left: 0, top: 0, width: 200, height: 50 }, { width: 400, height: 300 });
+  assert.equal(narrow.width <= 384 && narrow.height <= 284, true, 'never larger than the window');
+  assert.equal(editorBox({ left: 300, top: -900, width: 700, height: 120 }, viewport).visible, false, 'scrolled out of sight above');
+  assert.equal(editorBox({ left: 300, top: 900, width: 700, height: 120 }, viewport).visible, false, 'scrolled out of sight below');
+  assert.equal(editorBox({ left: 0, top: 0, width: 0, height: 0 }, viewport).visible, false, 'a field with no size is not on screen');
 });

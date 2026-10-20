@@ -3,6 +3,7 @@
 // deliberately classifies it otherwise.
 import { toolTier, TIERS } from './toolSchemas.js';
 import { analyzeScriptRisk, checkReadOnlyScript } from '../scriptSafety.js';
+import { isSecurityTable, securityTableBlock, deniedTableBlock, nonAdminBlock } from './guardrails.js';
 
 export const AUTONOMY_LEVELS = [
   { id: 'readonly', label: 'Read only', hint: 'The agent can look and draft, but never run or change anything.' },
@@ -83,13 +84,19 @@ const RECORD_TOOLS = { create_record: 'create', update_record: 'update', delete_
 /**
  * What a record write would touch. `block` is a reason to refuse outright; `warnings` go on the approval card.
  * Name-based only, so it runs before anyone is asked; the executor adds dictionary-type checks (password fields).
- * @param {{op: 'create'|'update'|'delete', table: string, fields?: object}} write
+ * `guard` (resolveGuardrails of the saved settings) and `session` ({securityAdmin}) feed the user-configurable rules:
+ * the denied-tables list, and ACL/role tables, which are refused unless an admin allowed them and the user elevated.
+ * @param {{op: 'create'|'update'|'delete', table: string, fields?: object, guard?: object, session?: object}} write
  */
-export function assessWrite({ op, table, fields = {}, restoring = false } = {}) {
+export function assessWrite({ op, table, fields = {}, restoring = false, guard = {}, session = {} } = {}) {
   const t = String(table || '').toLowerCase();
   const keys = Object.keys(fields || {});
   const warnings = [];
   if (CREDENTIAL_TABLE_RE.test(t)) return { block: `${table} holds credentials or keys; the agent never reads or changes it.`, warnings };
+  const denied = deniedTableBlock(table, guard);
+  if (denied) return { block: denied, warnings };
+  const security = isSecurityTable(t) ? securityTableBlock(table, guard, session) : null;
+  if (security) return { block: security, warnings };
   const secret = keys.find((k) => SECRET_FIELD_RE.test(k));
   if (secret) return { block: `"${secret}" looks like a password or secret; the agent never writes those.`, warnings };
   if (op === 'delete' && NO_DELETE[t]) return { block: NO_DELETE[t], warnings };
@@ -105,7 +112,7 @@ export function assessWrite({ op, table, fields = {}, restoring = false } = {}) 
   if (t === 'sys_update_set' && op === 'delete') warnings.push('Deleting an update set also deletes the changes captured in it.');
   if (t === 'sys_trigger' || t === 'sysauto_script') warnings.push('Scheduled jobs run code on a schedule.');
   const code = keys.filter((k) => CODE_COLUMN_RE.test(k));
-  if (code.length) warnings.push(`Sets ${code.join(', ')}: code or conditions that run on the instance, not checked by MySnowBuddy.`);
+  if (code.length) warnings.push(`Sets ${code.join(', ')}: code or conditions that run on the instance, not checked by NowBuddy.`);
   return { block: null, warnings };
 }
 
@@ -114,20 +121,29 @@ export function assessWrite({ op, table, fields = {}, restoring = false } = {}) 
  * parents), so a parent table name (sys_metadata, task, sys_package) can never hide a blocked child class.
  * The first block wins; warnings are merged.
  */
-export function assessWriteChain({ op, tables = [], fields = {}, restoring = false } = {}) {
+export function assessWriteChain({ op, tables = [], fields = {}, restoring = false, guard = {}, session = {} } = {}) {
   const warnings = [];
   for (const table of [...new Set(tables.filter(Boolean))]) {
-    const verdict = assessWrite({ op, table, fields, restoring });
+    const verdict = assessWrite({ op, table, fields, restoring, guard, session });
     if (verdict.block) return { block: verdict.block, warnings };
     verdict.warnings.forEach((w) => !warnings.includes(w) && warnings.push(w));
   }
   return { block: null, warnings };
 }
 
-/** Why a call is refused before anyone is asked, or null. */
-export function writeBlockReason(tool, args = {}) {
+/**
+ * Why a call is refused before anyone is asked, or null. `ctx` = { guard, session } carries the user's safety settings
+ * and what is known about the session; without it the safe defaults apply (ACL and role tables are refused).
+ * This is only the early check: the executor repeats it with the session's real roles.
+ */
+export function writeBlockReason(tool, args = {}, ctx = {}) {
+  const { guard = {}, session = {} } = ctx || {};
+  const nonAdmin = nonAdminBlock(tool, guard, session);
+  if (nonAdmin) return nonAdmin;
   const op = RECORD_TOOLS[tool];
-  if (op) return assessWrite({ op, table: args?.table, fields: args?.fields }).block;
+  if (op) return assessWrite({ op, table: args?.table, fields: args?.fields, guard, session }).block;
+  // save_artifact only writes configuration tables, but the user's denied list still applies to them.
+  if (tool === 'save_artifact') return deniedTableBlock(args?.table, guard);
   return null;
 }
 
@@ -135,11 +151,11 @@ export function writeBlockReason(tool, args = {}) {
  * @returns {'auto'|'ask'|'ask-strong'|'deny'}
  *   ask-strong = a write on a production instance (shown with an extra warning and a typed confirmation)
  */
-export function approvalMode({ tool, args, autonomy = DEFAULT_AUTONOMY, isProd = false }) {
+export function approvalMode({ tool, args, autonomy = DEFAULT_AUTONOMY, isProd = false, guard = {}, session = {} }) {
   const tier = effectiveTier(tool, args);
   if (tier === 'observe' || tier === 'draft') return 'auto';
   if (autonomy === 'readonly') return 'deny';
-  if (writeBlockReason(tool, args)) return 'deny';
+  if (writeBlockReason(tool, args, { guard, session })) return 'deny';
   if (tier === 'run') {
     // Code that runs on a production (or unrecognised) instance always gets the typed confirmation.
     if (isProd) return 'ask-strong';
@@ -169,8 +185,8 @@ export function instanceGuard({ env, label = '' } = {}) {
 }
 
 /** The sentence a refused call gets back. */
-export function denyMessage(tool, args = {}) {
-  const reason = writeBlockReason(tool, args);
+export function denyMessage(tool, args = {}, ctx = {}) {
+  const reason = writeBlockReason(tool, args, ctx);
   return reason ? `Not allowed: ${reason}` : 'Not allowed: the agent is in read-only mode. Draft the change for the user instead.';
 }
 
@@ -225,7 +241,7 @@ export function describeCall(tool, args = {}) {
     case 'navigate':
       return {
         title: `Leave this page and open ${args.path || args.table || 'another page'}`,
-        risk: 'This page is a workspace or portal form. MySnowBuddy cannot see whether it has unsaved changes; leaving it would lose them.',
+        risk: 'This page is a workspace or portal form. NowBuddy cannot see whether it has unsaved changes; leaving it would lose them.',
       };
     case 'screenshot':
       return {
@@ -241,7 +257,7 @@ export function describeCall(tool, args = {}) {
     case 'click_ui_action':
       return {
         title: `Click "${args.action}" on the open form`,
-        risk: 'Runs the UI action as if you clicked it: it can save the form (with any unsaved edits), change the record, start flows or send notifications. MySnowBuddy cannot undo it.',
+        risk: 'Runs the UI action as if you clicked it: it can save the form (with any unsaved edits), change the record, start flows or send notifications. NowBuddy cannot undo it.',
       };
     case 'create_record':
       return {
@@ -264,7 +280,7 @@ export function describeCall(tool, args = {}) {
     case 'run_background_script':
       return {
         title: 'Run a server-side script for real',
-        risk: 'Runs on the instance as you, in the global scope, with full effect: writes, deletes, events and outbound calls really happen. MySnowBuddy cannot undo it.',
+        risk: 'Runs on the instance as you, in the global scope, with full effect: writes, deletes, events and outbound calls really happen. NowBuddy cannot undo it.',
         detail: args.reason || undefined,
         code: String(args.code ?? ''),
       };

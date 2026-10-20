@@ -551,7 +551,7 @@ export const MCP_ONLY_TOOLS = [
     name: 'screenshot',
     tier: 'observe',
     description:
-      'PNG image of the visible ServiceNow tab. Chrome only allows it after the user has clicked the MySnowBuddy icon ' +
+      'PNG image of the visible ServiceNow tab. Chrome only allows it after the user has clicked the NowBuddy icon ' +
       '(or pressed its shortcut) on that tab. Prefer read_page for anything you need to act on.',
     inputSchema: { type: 'object', properties: {} },
   },

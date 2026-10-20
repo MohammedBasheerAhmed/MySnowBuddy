@@ -26,7 +26,7 @@ async function build() {
   fs.copyFileSync(css, path.join(out, 'content.css'));
   fs.writeFileSync(
     path.join(out, 'preview.html'),
-    `<!doctype html><html><head><meta charset="utf-8"><title>MySnowBuddy preview</title>
+    `<!doctype html><html><head><meta charset="utf-8"><title>NowBuddy preview</title>
 <style>body{margin:0;font-family:Segoe UI,system-ui,sans-serif;background:#f3f4f6;color:#222}
 .fake{padding:28px 36px;max-width:56vw}.fake h1{font-size:20px;margin:0 0 6px}.fake .bar{height:44px;background:#293e40;margin:-0px 0 18px;margin-left:-36px;margin-right:-36px;margin-top:-28px;color:#fff;display:flex;align-items:center;padding:0 36px;font-weight:600}
 .fake .row{display:grid;grid-template-columns:170px 1fr;gap:10px;margin:8px 0;align-items:center}.fake .row label{color:#555}.fake .row .req::after{content:"*";color:#c8232c;margin-left:3px}

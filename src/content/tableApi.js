@@ -133,6 +133,21 @@ export async function countRecords(table, query = '') {
   return count;
 }
 
+/**
+ * Counts per value of one column over `query`, via the Aggregate API (nothing but the counts is transferred).
+ * Returns the raw `result` array: [{ stats: { count }, groupby_fields: [{ field, value, display_value }] }].
+ */
+export async function countByColumn(table, query, column) {
+  const params = new URLSearchParams({ sysparm_count: 'true', sysparm_group_by: column, sysparm_display_value: 'all' });
+  if (query) params.set('sysparm_query', query);
+  const response = await instanceFetch(`/api/now/stats/${encodeURIComponent(table)}?${params.toString()}`, {
+    credentials: 'same-origin',
+    headers: await sessionHeaders(),
+  });
+  const data = await readJson(response, `Breakdown of "${table}" by ${column}`);
+  return data?.result || [];
+}
+
 /** Page through a query until `max` rows (or the end). Pages run one at a time. */
 export async function queryAll(table, query, fields = [], { max = 2000, pageSize = 500, displayValue = false } = {}) {
   const rows = [];

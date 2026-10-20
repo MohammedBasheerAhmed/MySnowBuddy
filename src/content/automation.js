@@ -11,6 +11,8 @@
 
 import { shellUrl } from './quickActions.js';
 import { describeStep, isRiskyLabel, normalizeRun } from '../lib/automation.js';
+import { askConfirm } from './confirmDialog.js';
+import { automationClickAsk } from '../lib/confirmCopy.js';
 
 const HOST_ID = 'mysnowbuddy-root';
 const STEP_TIMEOUT_MS = 15000;
@@ -159,7 +161,7 @@ export function createAutomation({ toast }) {
     if (step.action === 'click') {
       const label = `${el.id || ''} ${el.getAttribute('name') || ''} ${labelOf(el)}`;
       if (isRiskyLabel(label)) {
-        const ok = window.confirm(`Automation is about to click "${labelOf(el) || el.id}", which may change data. Continue?`);
+        const ok = await askConfirm(automationClickAsk(labelOf(el) || el.id));
         if (!ok) throw new Error('Declined at the confirmation prompt.');
       }
       el.scrollIntoView({ block: 'center' });

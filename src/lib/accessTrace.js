@@ -716,7 +716,7 @@ export function buildRuntimeCheckScript({ table, sysId = '', field = '' }) {
   if (field && !isName(field)) throw new Error('Enter a valid field name.');
   const q = (s) => JSON.stringify(String(s));
   return [
-    '// MySnowBuddy access check: read-only. Reports what the platform says the current user may do.',
+    '// NowBuddy access check: read-only. Reports what the platform says the current user may do.',
     '(function () {',
     `  var table = ${q(table)}, id = ${q(sysId)}, field = ${q(field)};`,
     "  var yes = function (v) { return String(v) === 'true'; };",

@@ -1,0 +1,277 @@
+/* Test panel (/test): src/sidebar/TestKitPanel.jsx, TestKitMore.jsx */
+
+.msb-tk__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0 4px;
+}
+
+.msb-tk__tab {
+  padding: 3px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  cursor: pointer;
+}
+
+.msb-tk__tab:hover {
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+}
+
+.msb-tk__tab[aria-selected='true'] {
+  border-color: var(--msb-accent);
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-tk__subject {
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-tk__subject strong {
+  color: var(--msb-fg);
+}
+
+.msb-tk__field {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-tk__field textarea,
+.msb-tk__field input,
+.msb-tk__field select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.msb-tk__code {
+  min-height: 90px;
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  line-height: 1.45;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.msb-tk__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msb-tk__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-tk__pick {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 150px;
+  overflow: auto;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+}
+
+.msb-tk__pick li label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-tk__pick li label:hover {
+  background: var(--msb-active-bg);
+}
+
+.msb-tk__danger {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-tk__notice {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-accent);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-tk__notice--warn {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-tk__summary {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--msb-ok-line);
+  border-left: 3px solid var(--msb-ok);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-ok-soft);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-tk__summary--fail {
+  border-color: var(--msb-danger-line);
+  border-left-color: var(--msb-danger);
+  background: var(--msb-danger-soft);
+}
+
+.msb-tk__summary--dry {
+  font-weight: 600;
+}
+
+.msb-tk__section {
+  margin-top: 10px;
+}
+
+.msb-tk__section h4 {
+  margin: 0 0 4px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+  font-weight: 600;
+}
+
+.msb-tk__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-tk__item {
+  padding: 6px 8px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-tk__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.msb-tk__muted {
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+}
+
+.msb-tk__pre {
+  margin: 4px 0 0;
+  padding: 5px 8px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg-soft);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Status chips carry text as well as colour. */
+.msb-tk__chip {
+  padding: 0 7px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-subtle);
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.msb-tk__chip--pass {
+  border-color: var(--msb-ok-line);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+}
+
+.msb-tk__chip--fail {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-tk__chip--warn {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-tk__table {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-tk__table th,
+.msb-tk__table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--msb-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.msb-tk__table th {
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+.msb-tk__from {
+  color: var(--msb-fg-muted);
+  text-decoration: line-through;
+}
+
+.msb-tk__checklist {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-tk__checklist label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-tk__checklist input:checked + span {
+  color: var(--msb-fg-muted);
+  text-decoration: line-through;
+}

@@ -1,4 +1,4 @@
-// Sandboxed page: the only place MySnowBuddy evaluates script text. It is
+// Sandboxed page: the only place NowBuddy evaluates script text. It is
 // reached through the offscreen document, has no access to chrome.* APIs, to
 // the ServiceNow page, or to any cookie.
 import { runClientScript } from '../lib/mockForm.js';

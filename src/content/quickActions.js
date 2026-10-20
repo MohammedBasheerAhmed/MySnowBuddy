@@ -9,6 +9,8 @@
 import { queryTable, fetchRecord } from './tableApi.js';
 import { sessionHeaders } from './sessionToken.js';
 import { instanceGuard } from '../lib/agent/policy.js';
+import { classifyEnvironment } from '../lib/instances.js';
+import { findClassicFrame } from './controlPage.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
 
@@ -103,26 +105,8 @@ export async function copyText(text) {
 
 // --- Instance identity -----------------------------------------------------
 
-const ENVIRONMENTS = [
-  { test: /(^|[-_.])(prod|prd|live)([-_.]|$)/i, env: 'prod', label: 'PROD', tone: 'danger' },
-  { test: /(^|[-_.])(uat|preprod|stage|staging|stg)([-_.]|$)/i, env: 'stage', label: 'STAGE', tone: 'warn' },
-  { test: /(^|[-_.])(test|tst|qa|sit)([-_.]|$)/i, env: 'test', label: 'TEST', tone: 'warn' },
-  { test: /(^|[-_.])(dev|develop|sandbox|sbx|poc)([-_.]|$)/i, env: 'dev', label: 'DEV', tone: 'ok' },
-  // Looser fallbacks, tried last: "acmeprod", "acmeprd2" and the default developer-instance name "dev12345".
-  { test: /(prod|prd)\d*$/i, env: 'prod', label: 'PROD', tone: 'danger' },
-  { test: /^dev\d+$/i, env: 'dev', label: 'DEV', tone: 'ok' },
-];
-
-/**
- * Best-effort environment classification from the instance hostname, used for
- * the toolbar badge. Naming conventions vary, so an unmatched host is left
- * neutral rather than guessed at — an instance wrongly labelled "DEV" is
- * worse than one labelled nothing.
- */
-/** Environment guess ({ env, label, tone }) from an instance name or label, or null. */
-export function classifyEnvironment(name) {
-  return ENVIRONMENTS.find((e) => e.test.test(name)) || null;
-}
+// The environment rules live in lib/instances.js (shared with the options page).
+export { classifyEnvironment };
 
 // Known-instance labels (palette "add instance"), cached so getInstanceInfo stays synchronous. A label can only
 // RAISE the write guard: a host the user labelled PROD is production for every writer (agent, MCP, My Work), even
@@ -240,6 +224,21 @@ export async function getRecordInfo(table, sysId) {
 
 // --- Form helpers ----------------------------------------------------------
 
+// The Next Experience shell keeps the classic frame inside a shadow root (/now/nav/ui/classic/...), where
+// getElementById cannot see it. The deep search is cached: this runs on every context poll.
+let shellFrame = null;
+let shellFrameAt = 0;
+const SHELL_FRAME_RECHECK_MS = 1000;
+function classicFrame() {
+  const direct = document.getElementById('gsft_main');
+  if (direct) return direct;
+  if (shellFrame?.isConnected) return shellFrame;
+  if (Date.now() - shellFrameAt < SHELL_FRAME_RECHECK_MS) return null;
+  shellFrameAt = Date.now();
+  shellFrame = findClassicFrame();
+  return shellFrame;
+}
+
 /**
  * Documents that can contain a ServiceNow form. Classic UI renders the form
  * inside the same-origin `gsft_main` iframe, which the content script can
@@ -247,7 +246,7 @@ export async function getRecordInfo(table, sysId) {
  */
 export function formDocuments() {
   const docs = [document];
-  const frame = document.getElementById('gsft_main');
+  const frame = classicFrame();
   try {
     if (frame && frame.contentDocument) docs.push(frame.contentDocument);
   } catch (err) {

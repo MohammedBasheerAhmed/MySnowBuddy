@@ -1,25 +1,32 @@
-// Makes the instance obvious at a glance: tab title prefix, a coloured favicon and a thin
-// stripe at the top of the page, plus palette commands to hop to another known instance.
+// Makes the instance obvious at a glance: tab title prefix, a coloured favicon and a thin stripe at the top of the
+// page. The label and colour come from the known-instance list (Options > Instances), so renaming or recolouring an
+// instance there changes the open tabs at once. The switcher itself lives in instanceSwitch.js.
 
-import { getInstanceInfo, classifyEnvironment, safePath } from './quickActions.js';
-import { listInstances } from './stores.js';
+import { getInstanceInfo, classifyEnvironment } from './quickActions.js';
+import { listInstances, INSTANCES_KEY } from './stores.js';
+import { resolveColor, validColor, titleWithPrefix, titleWithoutPrefix } from '../lib/instances.js';
 
-const COLORS = { danger: '#d92d20', warn: '#e08a00', ok: '#1a9a5b', neutral: '#6b7385' };
 const FAVICON_ID = 'msb-favicon';
+const TONE_VAR = { ok: 'var(--msb-ok)', warn: 'var(--msb-warn)', danger: 'var(--msb-danger-solid)' };
 
-async function currentTag() {
+/** What this tab should show: label, environment tone, the colour a person chose (if any) and the colour to draw. */
+export async function currentTag() {
   const info = getInstanceInfo();
   let { label, tone } = info;
+  let saved = '';
   try {
     const known = (await listInstances()).find((i) => i.host.toLowerCase() === info.host.toLowerCase());
     if (known?.label) {
       label = known.label.toUpperCase().slice(0, 10);
-      tone = classifyEnvironment(known.label)?.tone || 'neutral';
+      // A label that names an environment decides; otherwise the host name's own guess stands (a label of
+      // "Sales" on prod12345 is still production).
+      tone = classifyEnvironment(known.label)?.tone || info.tone;
     }
+    saved = validColor(known?.color);
   } catch {
     // Storage unavailable; keep the guess from the hostname.
   }
-  return { label, tone };
+  return { label, tone, saved, color: resolveColor({ saved, tone, host: info.host }) };
 }
 
 function faviconUrl(letter, color) {
@@ -39,55 +46,87 @@ function faviconUrl(letter, color) {
   return canvas.toDataURL('image/png');
 }
 
-/** @param {ShadowRoot} shadow */
+/**
+ * @param {ShadowRoot} shadow
+ * @returns {Promise<{ refresh: () => Promise<void>, stop: () => void }>}
+ */
 export async function startInstanceTag(shadow) {
-  const { label, tone } = await currentTag();
-  const color = COLORS[tone] || COLORS.neutral;
-
-  // Every surface (palette, windows, popovers, sidebar) draws its top rule in this colour: green on a dev instance,
-  // amber on test or stage, red on production. Unknown instances keep the accent.
-  const envColor = { ok: 'var(--msb-ok)', warn: 'var(--msb-warn)', danger: 'var(--msb-danger-solid)' }[tone];
-  if (envColor && shadow.host) shadow.host.style.setProperty('--msb-env', envColor);
-
-  if (tone !== 'neutral') {
-    const bar = document.createElement('div');
-    bar.className = `msb-envbar msb-envbar--${tone}`;
-    bar.setAttribute('aria-hidden', 'true');
-    shadow.appendChild(bar);
-  }
-
-  const prefix = `[${label}] `;
+  let prefix = '';
+  let bar = null;
+  let stopped = false;
   const icon = document.createElement('link');
   icon.id = FAVICON_ID;
   icon.rel = 'icon';
-  icon.href = faviconUrl(label.charAt(0), color);
+  const removedIcons = [];
+  let observer = null;
 
   // Polaris rewrites the title and icon as you navigate, so reapply on change.
   const apply = () => {
-    if (!document.title.startsWith(prefix)) document.title = prefix + document.title;
+    if (stopped) return;
+    if (!document.title.startsWith(prefix)) document.title = titleWithPrefix(document.title, prefix);
     document.querySelectorAll('link[rel~="icon"]').forEach((node) => {
-      if (node.id !== FAVICON_ID) node.remove();
+      if (node.id === FAVICON_ID) return;
+      if (!removedIcons.includes(node)) removedIcons.push(node);
+      node.remove();
     });
     if (!icon.isConnected) document.head.appendChild(icon);
   };
-  apply();
-  new MutationObserver(apply).observe(document.head, { childList: true, subtree: true, characterData: true });
-}
 
-/** "Go to <instance>" commands for every other known instance, keeping the current page path. */
-export async function buildInstanceCommands() {
-  const here = window.location.hostname.toLowerCase();
-  const instances = (await listInstances()).filter(
-    (i) => /^[a-z0-9-]+\.service-now\.com$/i.test(i.host) && i.host.toLowerCase() !== here
-  );
-  const path = safePath(window.location.pathname + window.location.search);
+  async function refresh() {
+    const { label, tone, saved, color } = await currentTag();
+    if (stopped) return;
 
-  return instances.map((i) => ({
-    id: `instance.go.${i.host}`,
-    title: `Go to ${i.label}`,
-    hint: `${i.host} \u00b7 same page`,
-    group: 'Instance',
-    keywords: `switch instance ${i.host}`,
-    run: () => window.open(`https://${i.host}${path}`, '_blank', 'noopener,noreferrer'),
-  }));
+    // Every surface (palette, windows, popovers, sidebar) draws its top rule in this colour: green on a dev instance,
+    // amber on test or stage, red on production, the chosen colour when one is set (never on production).
+    const envColor = saved && tone !== 'danger' ? color : TONE_VAR[tone];
+    if (shadow.host) {
+      if (envColor) shadow.host.style.setProperty('--msb-env', envColor);
+      else shadow.host.style.removeProperty('--msb-env');
+    }
+
+    const wantBar = tone !== 'neutral' || Boolean(saved);
+    if (wantBar && !bar) {
+      bar = document.createElement('div');
+      bar.setAttribute('aria-hidden', 'true');
+      shadow.appendChild(bar);
+    }
+    if (bar) {
+      bar.hidden = !wantBar;
+      bar.className = `msb-envbar${saved && tone !== 'danger' ? '' : ` msb-envbar--${tone}`}`;
+      bar.style.background = saved && tone !== 'danger' ? color : '';
+    }
+
+    const next = `[${label}] `;
+    // The old prefix comes off before the new one goes on, so a rename does not stack "[A] [B] Title".
+    if (prefix && prefix !== next) document.title = titleWithPrefix(document.title, next, prefix);
+    prefix = next;
+    icon.href = faviconUrl(label.charAt(0), color);
+    apply();
+  }
+
+  function stop() {
+    if (stopped) return;
+    stopped = true;
+    observer?.disconnect();
+    chrome.storage?.onChanged?.removeListener?.(onChanged);
+    document.title = titleWithoutPrefix(document.title, prefix);
+    icon.remove();
+    removedIcons.forEach((node) => document.head.appendChild(node));
+    bar?.remove();
+    shadow.host?.style.removeProperty('--msb-env');
+  }
+
+  function onChanged(changes, area) {
+    if (area === 'local' && changes[INSTANCES_KEY]) refresh().catch(() => {});
+  }
+
+  await refresh();
+  observer = new MutationObserver(apply);
+  observer.observe(document.head, { childList: true, subtree: true, characterData: true });
+  try {
+    chrome.storage?.onChanged?.addListener(onChanged);
+  } catch {
+    // No extension storage (preview): the tag is set once.
+  }
+  return { refresh, stop };
 }

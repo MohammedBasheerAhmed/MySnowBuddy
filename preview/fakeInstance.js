@@ -15,6 +15,8 @@
 //   log                       [{ method, url, status }]
 //   unknownColumns            Set of "table.column" used in conditions that do not exist
 
+import { hotspotsFixture } from './hotspotsFixture.js';
+
 /* ---------------------------------------------------------------- ids and dates */
 
 function fnv(text, seed) {
@@ -51,6 +53,16 @@ const SCHEMA = {
   sys_scope: { label: 'Application', parent: 'sys_metadata', cols: { name: 'string', scope: 'string', version: 'string', active: 'boolean', vendor: 'string' } },
   sys_app: { label: 'Custom Application', parent: 'sys_scope', cols: { short_description: 'string' } },
   sys_number: { label: 'Number', cols: { prefix: 'string', category: 'string' } },
+  // Tables behind the What went wrong? panel (src/lib/failures.js).
+  sys_email: { label: 'Email', cols: { type: 'string', state: 'string', recipients: 'string', subject: 'string', error_string: 'string', target_table: 'string' } },
+  sys_flow_context: { label: 'Flow Context', cols: { name: 'string', flow: 'string', state: 'string', error_message: 'string', source_table: 'string', source_record: 'string' } },
+  sys_trigger: { label: 'Schedule Item', cols: { name: 'string', state: 'string', next_action: 'glide_date_time', trigger_type: 'string' } },
+  ecc_queue: { label: 'ECC Queue', cols: { topic: 'string', name: 'string', queue: 'string', agent: 'string', state: 'string', error_string: 'string' } },
+  sys_outbound_http_log: { label: 'Outbound HTTP Log', cols: { url: 'string', http_method: 'string', response_code: 'integer', error_message: 'string' } },
+  syslog_transaction: { label: 'Transaction Log', cols: { url: 'string', http_method: 'string', response_status: 'integer', response_time: 'integer' } },
+  sys_import_set_row: { label: 'Import Set Row', cols: { sys_import_set: 'string', sys_import_state: 'string', sys_row_error: 'string', sys_target_table: 'string' } },
+  sys_import_set_run: { label: 'Import Set Run', cols: { sys_import_set: 'string', state: 'string', error_message: 'string', transform_map: 'string' } },
+  sysevent: { label: 'Event', cols: { name: 'string', state: 'string', table: 'string', queue: 'string' } },
   sys_db_object: {
     label: 'Table',
     parent: 'sys_metadata',
@@ -105,7 +117,7 @@ const SCHEMA = {
     parent: 'sys_metadata',
     cols: {
       name: 'string', collection: 'table_name', when: 'string', order: 'integer', active: 'boolean', advanced: 'boolean', condition: 'string', filter_condition: 'conditions', script: 'script',
-      action_insert: 'boolean', action_update: 'boolean', action_delete: 'boolean', action_query: 'boolean', description: 'string',
+      action_insert: 'boolean', action_update: 'boolean', action_delete: 'boolean', action_query: 'boolean', description: 'string', role_conditions: 'string',
     },
   },
   sys_script_include: { label: 'Script Include', parent: 'sys_metadata', cols: { name: 'string', api_name: 'string', client_callable: 'boolean', active: 'boolean', access: 'string', script: 'script', description: 'string' } },
@@ -149,6 +161,10 @@ const SCHEMA = {
   sys_update_xml: {
     label: 'Customer Update',
     cols: { name: 'string', type: 'string', target_name: 'string', action: 'string', application: 'ref:sys_scope', update_set: 'ref:sys_update_set', payload: 'xml', category: 'string' },
+  },
+  sys_update_version: {
+    label: 'Update Version',
+    cols: { name: 'string', sys_recorded_at: 'glide_date_time', source: 'string', state: 'string', action: 'string', payload: 'xml' },
   },
   sys_upgrade_history: { label: 'Upgrade History', cols: { from_version: 'string', to_version: 'string' } },
   sys_upgrade_history_log: {
@@ -214,7 +230,51 @@ const refTarget = (spec) => (typeof spec === 'string' && spec.startsWith('ref:')
 
 /* ---------------------------------------------------------------- data */
 
+// Save trace (/savetrace): the tables a save leaves rows in. sys_audit_delete and wf_context are left out on purpose, so
+// the panel shows "not available on this instance" for them. Rows come from window.__fake.addSaveTraceRows().
+// A table another fixture already declares keeps its columns; these are only added to it.
+const TRACE_TABLES = {
+  sys_audit: { label: 'Audit', cols: { tablename: 'string', documentkey: 'string', fieldname: 'string', oldvalue: 'string', newvalue: 'string', user: 'string', reason: 'string' } },
+  syslog: { label: 'System Log', cols: { level: 'string', source: 'string', message: 'string' } },
+  syslog_transaction: { label: 'Transaction Log', cols: { url: 'string', http_method: 'string', response_time: 'integer', sql_time: 'integer', sql_count: 'integer', business_rule_time: 'integer', business_rule_count: 'integer', status: 'string' } },
+  sysevent: { label: 'Event', cols: { name: 'string', parm1: 'string', parm2: 'string', state: 'string', table: 'string', instance: 'string' } },
+  sys_email: { label: 'Email', cols: { type: 'string', state: 'string', subject: 'string', recipients: 'string', error_string: 'string', instance: 'string' } },
+  sys_flow_context: { label: 'Flow Context', cols: { name: 'string', state: 'string', source_table: 'string', source_record: 'string', started: 'glide_date_time', ended: 'glide_date_time', error_message: 'string' } },
+  sys_journal_field: { label: 'Journal Entry', cols: { element: 'string', value: 'string', element_id: 'string', name: 'string' } },
+  task_sla: { label: 'Task SLA', cols: { sla: 'string', stage: 'string', has_breached: 'boolean', task: 'string' } },
+  sysapproval_approver: { label: 'Approval', cols: { approver: 'string', state: 'string', comments: 'string', sysapproval: 'string' } },
+  sys_attachment: { label: 'Attachment', cols: { file_name: 'string', size_bytes: 'integer', content_type: 'string', table_sys_id: 'string' } },
+};
+Object.entries(TRACE_TABLES).forEach(([table, def]) => {
+  if (SCHEMA[table]) Object.assign(SCHEMA[table].cols, def.cols);
+  else SCHEMA[table] = def;
+});
+
 const DB = Object.fromEntries(Object.keys(SCHEMA).map((t) => [t, []]));
+
+/** Rows as a save of the fake incident would leave them, timestamped just now (so they fall inside an armed window). */
+function seedSaveTrace() {
+  const ms = (ago) => fmt(Date.now() - ago);
+  const row = (table, ago, fields) => add(table, `trace:${table}:${Math.random()}`, { sys_created_on: ms(ago), sys_created_by: ME.userName, ...fields });
+  row('sys_audit', 1500, { tablename: 'incident', documentkey: INCIDENT_ID, fieldname: 'state', oldvalue: '1', newvalue: '2', user: ME.userName });
+  row('sys_audit', 1500, { tablename: 'incident', documentkey: INCIDENT_ID, fieldname: 'priority', oldvalue: '4', newvalue: '3', user: ME.userName });
+  row('syslog', 1200, { level: '0', source: 'Business Rule: Set priority from impact', message: 'priority recalculated: impact 2, urgency 2' });
+  row('syslog', 1100, { level: '2', source: 'Script Include: IncidentUtils', message: "TypeError: Cannot read properties of undefined (reading 'sys_id')" });
+  row('syslog', 1000, { level: '1', source: 'Business Rule: Notify group', message: 'assignment group has no email address' });
+  row('syslog', 900, { level: '2', source: 'Flow Designer', message: `Flow action failed for incident ${INCIDENT_ID}: group not active`, sys_created_by: 'system' });
+  row('syslog', 900, { level: '2', source: 'Flow Designer', message: 'Unrelated failure elsewhere', sys_created_by: 'system' });
+  row('syslog_transaction', 600, { url: '/incident.do?sys_id=x', http_method: 'POST', response_time: '4180', sql_time: '1620', sql_count: '88', business_rule_time: '2410', business_rule_count: '14', status: '200' });
+  row('sys_update_xml', 700, { name: 'sys_script_ab12', type: 'Business Rule', target_name: 'Set priority from impact', action: 'INSERT_OR_UPDATE', update_set: id('sys_update_set', 'STRY0012') });
+  row('sysevent', 800, { name: 'incident.assigned', state: 'processed', table: 'incident', instance: INCIDENT_ID });
+  row('sysevent', 750, { name: 'incident.commented', state: 'error', table: 'incident', instance: INCIDENT_ID, parm1: 'maria.dev' });
+  row('sys_email', 500, { type: 'send-ready', state: 'send-ready', subject: 'Incident assigned to your group', recipients: 'service.desk@example.com', instance: INCIDENT_ID });
+  row('sys_email', 450, { type: 'send-ready', state: 'send-failed', subject: 'Caller update', recipients: 'abel.tuter@example.com', error_string: 'SMTP 550: mailbox unavailable', instance: INCIDENT_ID });
+  row('sys_flow_context', 400, { name: 'Notify assignment group', state: 'COMPLETE', source_table: 'incident', source_record: INCIDENT_ID, started: ms(400), ended: ms(150) });
+  row('sys_journal_field', 300, { element: 'work_notes', value: 'Reassigned to Network team after impact change', element_id: INCIDENT_ID, name: 'incident' });
+  row('task_sla', 280, { sla: 'P1 resolution', stage: 'In progress', has_breached: 'false', task: INCIDENT_ID });
+  row('sysapproval_approver', 260, { approver: 'Abel Tuter', state: 'requested', comments: 'Change of priority needs approval', sysapproval: INCIDENT_ID });
+  row('sys_attachment', 240, { file_name: 'screenshot.png', size_bytes: '20480', content_type: 'image/png', table_sys_id: INCIDENT_ID });
+}
 
 const ME = { key: 'maria.dev', id: sid('sys_user:maria.dev'), userName: 'maria.dev', name: 'Maria Gomez', first: 'Maria', last: 'Gomez' };
 const IS_METADATA = (t) => chain(t).includes('sys_metadata');
@@ -452,6 +512,10 @@ add('sys_script', 'sync group', { ...brBase, name: 'Incident - sync assignment g
 add('sys_script', 'notify P1', { ...brBase, name: 'Notify caller on P1', collection: 'incident', when: 'async', order: '200', action_insert: 'true', filter_condition: 'priority=1^EQ', script: BR_NOTIFY, ...custom(ME.userName, 3) });
 add('sys_script', 'debug logging', { ...brBase, name: 'Incident - debug logging', collection: 'incident', when: 'before', order: '100', action_update: 'true', script: "gs.log('incident updated: ' + current.number);", ...custom(ME.userName, 1) });
 add('sys_script', 'default category', { ...brBase, name: 'Incident - default category', collection: 'incident', when: 'before', order: '100', action_insert: 'true', script: "if (!current.category) current.category = 'inquiry';", ...custom('beth.anglin', 12) });
+// Rules for "Why didn't my rule run?": one switched off, one needing a role, one that only runs on insert.
+add('sys_script', 'legacy escalation', { ...brBase, name: 'Incident - legacy escalation', collection: 'incident', when: 'before', order: '150', action_update: 'true', active: 'false', filter_condition: 'priority=1^EQ', script: "current.escalation = 2;" });
+add('sys_script', 'security review', { ...brBase, name: 'Incident - security review', collection: 'incident', when: 'after', order: '300', action_update: 'true', role_conditions: role('security_admin'), filter_condition: 'category=security^EQ', script: "gs.info('review');" });
+add('sys_script', 'insert only', { ...brBase, name: 'Incident - first response SLA', collection: 'incident', when: 'before', order: '120', action_insert: 'true', filter_condition: 'priority<=2^EQ', script: "current.u_first_response = true;" });
 add('sys_script', 'priority calc', { ...brBase, name: 'Set priority from impact/urgency', collection: 'task', when: 'before', order: '50', action_insert: 'true', action_update: 'true', script: 'current.priority = new PriorityLookup().lookup(current.impact, current.urgency);' });
 
 // --- script includes
@@ -473,6 +537,17 @@ LegacyHelper.prototype = {
 	type: 'LegacyHelper'
 };`;
 add('sys_script_include', 'IncidentUtils', { name: 'IncidentUtils', api_name: 'global.IncidentUtils', client_callable: 'true', active: 'true', access: 'package_private', script: SI_UTILS, description: 'Incident helpers for client scripts', ...custom(ME.userName, 0, 4) });
+const BR_COUNT = `(function executeRule(current, previous /*null when async*/) {
+  var open = new IncidentUtils().getOpenCount();
+  gs.info('open incidents: ' + open);
+})(current, previous);`;
+const CS_COUNT = `function onLoad() {
+  var ga = new GlideAjax('IncidentUtils');
+  ga.addParam('sysparm_name', 'getOpenCount');
+  ga.getXMLAnswer(function (answer) { g_form.addInfoMessage(answer); });
+}`;
+add('sys_script', 'count open', { ...brBase, name: 'Log open incident count', collection: 'task', when: 'after', order: '300', action_insert: 'true', script: BR_COUNT });
+add('sys_script_client', 'count open', { ...csBase, name: 'Show open incident count', table: 'incident', type: 'onLoad', active: 'true', script: CS_COUNT });
 add('sys_script_include', 'LegacyHelper', { name: 'LegacyHelper', api_name: 'global.LegacyHelper', client_callable: 'false', active: 'true', access: 'public', script: SI_LEGACY, ...custom(ME.userName, 4) });
 add('sys_script_include', 'PriorityLookup', { name: 'PriorityLookup', api_name: 'global.PriorityLookup', client_callable: 'false', active: 'true', access: 'public', script: 'var PriorityLookup = Class.create();' });
 
@@ -621,6 +696,35 @@ capture('HR', 'sys_script', 'default category', { by: 'beth.anglin', days: 12, a
 capture('R2609', 'sys_ui_script', 'acme helpers', { by: 'beth.anglin', days: 40 });
 capture('R2609', 'sys_script', 'notify P1', { days: 25, action: 'INSERT_OR_UPDATE' });
 
+// --- recent changes by other people, and the versions behind them (What changed lately? / Release notes)
+capture('HR', 'sys_ui_script', 'acme helpers', { by: 'beth.anglin', days: 0, hours: 1, application: id('sys_app', 'x_acme_hr') });
+capture('STRY0015', 'sys_script', 'sync group', { by: 'fred.luddy', days: 0, hours: 0.4 });
+capture('STRY0015', 'sys_security_acl', 'incident priority write', { by: 'fred.luddy', days: 0, hours: 0.2 });
+capture('STRY0015', 'sys_script', 'default category', { by: 'beth.anglin', days: 2, hours: 3, action: 'DELETE', application: 'global' });
+function version(setKey, table, key, stamps) {
+  const row = DB[table].find((r) => r.sys_id === id(table, key));
+  const name = `${table}_${row.sys_id}`;
+  stamps.forEach(({ by, days, hours = 0, patch }, i) =>
+    add('sys_update_version', `${name}:${i}`, {
+      name,
+      sys_recorded_at: ago(days, hours),
+      sys_created_by: by,
+      source: `sys_update_set:${id('sys_update_set', setKey)}`,
+      state: 'current',
+      action: 'INSERT_OR_UPDATE',
+      payload: payloadFor(table, { ...row, ...patch }),
+    })
+  );
+}
+version('STRY0015', 'sys_script', 'sync group', [
+  { by: ME.userName, days: 0, hours: 2, patch: { script: "(function executeRule(current, previous) {\n\tgs.info('sync group');\n})(current, previous);" } },
+  { by: 'fred.luddy', days: 0, hours: 0.4 },
+]);
+version('HR', 'sys_ui_script', 'acme helpers', [
+  { by: 'beth.anglin', days: 40, patch: { script: 'var AcmeHelpers = { tag: function () { return "old"; } };' } },
+  { by: 'beth.anglin', days: 0, hours: 1 },
+]);
+
 /* ---------------------------------------------------------------- encoded queries */
 
 const OPS = [
@@ -652,7 +756,10 @@ function jsValue(text) {
   if (/^gs\.getUserID\(\)$/.test(js)) return ME.id;
   if (/^gs\.getUserName\(\)$/.test(js)) return ME.userName;
   if ((m = /^gs\.(?:daysAgoStart|daysAgo|daysAgoEnd)\((-?\d+)\)$/.exec(js))) return fmt(NOW - Number(m[1]) * 864e5).slice(0, 10) + (/End/.test(js) ? ' 23:59:59' : ' 00:00:00');
+  if ((m = /^gs\.(minutes|hours)AgoStart\((\d+)\)$/.exec(js))) return fmt(NOW - Number(m[2]) * (m[1] === 'hours' ? 36e5 : 6e4));
+  if ((m = /^gs\.(minutes|hours)Ago\((\d+)\)$/.exec(js))) return fmt(NOW - Number(m[2]) * (m[1] === 'hours' ? 36e5 : 6e4));
   if (/^gs\.beginningOfToday\(\)$/.test(js)) return `${fmt(NOW).slice(0, 10)} 00:00:00`;
+  if ((m = /^gs\.secondsAgo\((\d+)\)$/.exec(js))) return fmt(Date.now() - Number(m[1]) * 1000);
   if (/^gs\.nowDateTime\(\)$/.test(js)) return fmt(NOW);
   warn('javascript value not understood, condition treated as true:', text);
   return null;
@@ -862,12 +969,16 @@ function statsEndpoint(table, params) {
   };
   if (!groupBy) return json(200, { result: { stats: stats(rows) } });
   const groups = new Map();
+  const shown = new Map();
   rows.forEach((r) => {
-    const key = resolvePath(table, r, groupBy).value;
+    const resolved = resolvePath(table, r, groupBy);
+    const key = resolved.value;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
+    if (!shown.has(key)) shown.set(key, resolved.display);
   });
-  return json(200, { result: [...groups.entries()].map(([value, list]) => ({ stats: stats(list), groupby_fields: [{ field: groupBy, value }] })) });
+  // sysparm_display_value=all adds the display value next to each group's value (Break this list down uses it).
+  return json(200, { result: [...groups.entries()].map(([value, list]) => ({ stats: stats(list), groupby_fields: [{ field: groupBy, value, ...(params.get('sysparm_display_value') === 'all' ? { display_value: shown.get(value) ?? value } : {}) }] })) });
 }
 
 function pickerEndpoint(method, kind, body) {
@@ -887,7 +998,7 @@ function pickerEndpoint(method, kind, body) {
 function scriptsEndpoint(body) {
   const script = new URLSearchParams(body || '').get('script') || '';
   const lines = [];
-  if (script.includes('MySnowBuddy access check')) {
+  if (script.includes('NowBuddy access check')) {
     const m = /var table = ("[^"]*"), id = ("[^"]*"), field = ("[^"]*")/.exec(script);
     const [table, recordId, field] = m ? [JSON.parse(m[1]), JSON.parse(m[2]), JSON.parse(m[3])] : ['', '', ''];
     const out = { user: ME.userName, userId: ME.id, table, id: recordId, field, canCreate: true, found: Boolean(recordId) || undefined, canRead: true, canWrite: true, canDelete: false };
@@ -904,6 +1015,9 @@ function route(method, url, body) {
   const u = new URL(url, location.href);
   const p = u.pathname;
   let m;
+  // Save trace windows (gs.secondsAgo) are answered by the rows addSaveTraceRows() adds, not by the Hot spots fixture.
+  const hot = /gs\.secondsAgo\(/.test(decodeURIComponent(u.search)) ? null : hotspotsFixture(method, u); // Hot spots tables (preview/hotspotsFixture.js); null for anything else
+  if (hot) return hot;
   if ((m = /^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?$/.exec(p))) return tableEndpoint(method, decodeURIComponent(m[1]), m[2] ? decodeURIComponent(m[2]) : '', u.searchParams, body ? JSON.parse(body) : null);
   if ((m = /^\/api\/now\/stats\/([^/]+)$/.exec(p))) return statsEndpoint(decodeURIComponent(m[1]), u.searchParams);
   if ((m = /^\/api\/now\/ui\/concoursepicker\/(updateset|application)$/.exec(p))) return pickerEndpoint(method, m[1], body ? JSON.parse(body) : null);
@@ -914,6 +1028,42 @@ function route(method, url, body) {
 
 function abortError() {
   return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+// Failures for the What went wrong? panel: a few of each kind, some repeating, some that must be filtered out again.
+{
+  const mins = (n) => fmt(NOW - n * 60000);
+  [
+    ['a1', 12, 'abel.tuter@example.com', 'Incident INC0010001 resolved', '535 Authentication credentials invalid'],
+    ['a2', 34, 'beth.anglin@example.com', 'Incident INC0010002 resolved', '535 Authentication credentials invalid'],
+    ['a3', 55, 'carol.coughlin@example.com', 'Incident INC0010003 resolved', '535 Authentication credentials invalid'],
+  ].forEach(([key, m, to, subject, error]) => add('sys_email', key, { type: 'send-failed', state: 'send-failed', recipients: to, subject, error_string: error, target_table: 'incident', sys_created_on: mins(m) }));
+  add('sys_email', 'ignored', { type: 'send-ignored', state: 'ignored', recipients: 'dave@example.com', subject: 'Welcome to the team', sys_created_on: mins(70) });
+  add('sys_email', 'nobody', { type: 'send-failed', recipients: '', subject: 'Approval request', error_string: '', sys_created_on: mins(90) });
+  add('sys_email', 'fine', { type: 'sent', state: 'sent', recipients: 'ok@example.com', subject: 'Sent fine', sys_created_on: mins(20) });
+  add('sys_flow_context', 'f1', { name: 'Onboard new hire', flow: 'Onboard new hire', state: 'ERROR', error_message: 'Value for data pill Trigger.Record.manager is null', source_table: 'sn_hr_core_case', sys_created_on: mins(25) });
+  add('sys_flow_context', 'f2', { name: 'Onboard new hire', flow: 'Onboard new hire', state: 'ERROR', error_message: 'Value for data pill Trigger.Record.manager is null', source_table: 'sn_hr_core_case', sys_created_on: mins(300) });
+  add('sys_flow_context', 'f3', { name: 'Close stale incidents', flow: 'Close stale incidents', state: 'CANCELLED', error_message: '', sys_created_on: mins(180) });
+  add('sys_flow_context', 'f4', { name: 'Fine flow', flow: 'Fine flow', state: 'COMPLETE', sys_created_on: mins(10) });
+  add('sys_trigger', 't1', { name: 'Nightly CMDB reconcile', state: '0', next_action: mins(95), trigger_type: '0' });
+  add('sys_trigger', 't2', { name: 'Hourly cleanup (on time)', state: '0', next_action: fmt(NOW + 20 * 60000), trigger_type: '0' });
+  add('ecc_queue', 'e1', { topic: 'Discovery', name: 'Windows - Classify', queue: 'output', agent: 'mid-eu-01', state: 'error', error_string: 'Unknown host cmdb-scan01.corp.example', sys_created_on: mins(40) });
+  add('ecc_queue', 'e2', { topic: 'Discovery', name: 'Windows - Classify', queue: 'output', agent: 'mid-eu-01', state: 'error', error_string: 'Unknown host cmdb-scan02.corp.example', sys_created_on: mins(42) });
+  add('ecc_queue', 'e3', { topic: 'Discovery', state: 'processed', sys_created_on: mins(30) });
+  [
+    ['o1', 15, '401'],
+    ['o2', 45, '401'],
+    ['o3', 100, '401'],
+    ['o4', 50, '500'],
+    ['o5', 5, '200'],
+  ].forEach(([key, m, code]) => add('sys_outbound_http_log', key, { url: 'https://api.partner.example/v2/orders?apikey=TOPSECRET', http_method: 'POST', response_code: code, sys_created_on: mins(m) }));
+  add('syslog_transaction', 'i1', { url: '/api/x_acme/orders/create', http_method: 'POST', response_status: '500', response_time: '812', sys_created_by: 'svc.integration', sys_created_on: mins(33) });
+  add('syslog_transaction', 'i2', { url: '/api/x_acme/orders/create', http_method: 'POST', response_status: '500', response_time: '790', sys_created_by: 'svc.integration', sys_created_on: mins(61) });
+  add('syslog_transaction', 'i3', { url: '/api/now/table/incident', http_method: 'GET', response_status: '200', response_time: '90', sys_created_on: mins(8) });
+  [10, 20, 30, 40].forEach((m, i) => add('sys_import_set_row', `r${i}`, { sys_import_set: 'ISET0010022', sys_import_state: 'error', sys_row_error: `Mandatory field caller_id is empty (row ${i + 1})`, sys_target_table: 'incident', sys_created_on: mins(m) }));
+  add('sys_import_set_row', 'r9', { sys_import_set: 'ISET0010022', sys_import_state: 'inserted', sys_created_on: mins(11) });
+  add('sys_import_set_run', 'run1', { sys_import_set: 'ISET0010022', state: 'error', error_message: 'Script exception in onBefore', transform_map: 'Users to sys_user', sys_created_on: mins(50) });
+  [8, 18, 28, 38, 48].forEach((m, i) => add('sysevent', `ev${i}`, { name: 'incident.assigned', state: 'error', table: 'incident', queue: 'default', sys_created_on: mins(m) }));
 }
 
 export function installFakeInstance() {
@@ -967,6 +1117,9 @@ export function installFakeInstance() {
     },
     fail(pattern, status = 500, message = '', detail = '') {
       state.failures.push({ pattern, status, message, detail });
+    },
+    addSaveTraceRows() {
+      seedSaveTrace();
     },
     clearFail() {
       state.failures = [];
@@ -1033,16 +1186,32 @@ function installBridge() {
   const actions = {
     getCsrfToken: () => SESSION_TOKEN,
     getUserInfo: () => ({ userName: ME.userName, firstName: ME.first, lastName: ME.last, userId: ME.id, roles: ['admin', 'itil', 'snc_internal'] }),
-    getFormMeta: () => (page === 'form' ? { table: 'incident', sysId: INCIDENT_ID, isNewRecord: false } : null),
+    getFormMeta: () => (page === 'si' ? { table: 'sys_script_include', sysId: sid('sys_script_include:IncidentUtils'), isNewRecord: false } : page === 'script' ? { table: 'sys_script', sysId: INCIDENT_ID, isNewRecord: false } : page === 'form' ? { table: 'incident', sysId: INCIDENT_ID, isNewRecord: false } : null),
     getFormModel: () => (page === 'form' ? formModel() : null),
-    getFormValues: () => (page === 'form' ? { values: Object.fromEntries(formModel().fields.map((f) => [f.name, f.value])), labels: {} } : null),
+    getFormValues: () => (page === 'si' ? { values: { name: document.getElementById('sys_script_include.name').value, script: document.getElementById('sys_script_include.script').value }, labels: {} } : page === 'form' ? { values: Object.fromEntries(formModel().fields.map((f) => [f.name, f.value])), labels: {} } : null),
     getFieldState: (name) => {
+      if (page === 'script' || page === 'si') {
+        const el = document.getElementById(`${page === 'si' ? 'sys_script_include' : 'sys_script'}.${name}`);
+        return el ? { name, value: el.value, label: name, mandatory: false, readOnly: false, visible: true } : null;
+      }
       const f = page === 'form' ? formModel().fields.find((x) => x.name === name) : null;
       return f ? { name, value: f.value, label: f.label, mandatory: f.mandatory, readOnly: f.readOnly, visible: f.visible } : null;
     },
-    getScriptFields: () => [],
+    getScriptFields: () => (page === 'script' || page === 'si' ? [{ name: 'script', label: 'Script', length: document.getElementById(`${page === 'si' ? 'sys_script_include' : 'sys_script'}.script`)?.value.length || 0 }] : []),
+    saveForm: () => {
+      document.body.dataset.saved = String(Number(document.body.dataset.saved || 0) + 1);
+      return true;
+    },
+    // ?page=script: the in-place editor writes into the fake textarea, exactly like g_form.setValue would.
+    setFieldValue: (name, value) => {
+      const el = document.getElementById(`${page === 'si' ? 'sys_script_include' : 'sys_script'}.${name}`);
+      if (!el) throw new Error(`Field "${name}" is not on this form.`);
+      const previous = el.value;
+      el.value = value;
+      return { previous };
+    },
     getListInfo: () => (page === 'list' ? { table: 'incident', query: 'active=true^priority<=2^ORDERBYDESCsys_updated_on' } : null),
-    getSessionInfo: () => ({ userName: ME.userName }),
+    getSessionInfo: () => ({ userName: ME.userName, userId: ME.id }),
     getFormStatus: () => (page === 'form' ? { dirty: false, changed: [], sections: ['Details', 'Resolution'] } : null),
   };
   document.addEventListener('msb-page-request', (event) => {
@@ -1070,6 +1239,30 @@ const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 export function renderFakePage(root) {
   const page = new URLSearchParams(location.search).get('page') || 'form';
   const tokenInput = `<input type="hidden" name="sysparm_ck" value="${SESSION_TOKEN}">`;
+  if (page === 'script') {
+    root.innerHTML = `${tokenInput}<div class="bar">ServiceNow &nbsp;·&nbsp; Business Rule</div><h1>Set priority from impact</h1>
+<div class="row" id="element.sys_script.name"><label id="label.sys_script.name" for="sys_script.name"><span class="label-text">Name</span></label><input id="sys_script.name" value="Set priority from impact"></div>
+<div class="row" id="element.sys_script.script"><label id="label.sys_script.script" for="sys_script.script"><span class="label-text">Script</span></label><textarea id="sys_script.script" rows="7" style="font:12px monospace;padding:6px;border:1px solid #cfd3d8;border-radius:4px"></textarea></div>
+<div class="row" id="element.sys_script.description"><label id="label.sys_script.description" for="sys_script.description"><span class="label-text">Description</span></label><input id="sys_script.description" value="Below the script field"></div>`;
+    document.getElementById('sys_script.script').value = `(function executeRule(current, previous /*null when async*/) {
+  var gr = new GlideRecord('incident');
+  gr.addQuery('active', true);
+  gr.query();
+  while (gr.next()) {
+    gs.info(gr.number);
+  }
+})(current, previous);
+`;
+    return;
+  }
+  if (page === 'si') {
+    root.innerHTML = `${tokenInput}<div class="bar">ServiceNow &nbsp;·&nbsp; Script Include</div><h1>IncidentUtils</h1>
+<div class="row" id="element.sys_script_include.name"><label id="label.sys_script_include.name" for="sys_script_include.name"><span class="label-text">Name</span></label><input id="sys_script_include.name" value="IncidentUtils"></div>
+<div class="row" id="element.sys_script_include.script"><label id="label.sys_script_include.script" for="sys_script_include.script"><span class="label-text">Script</span></label><textarea id="sys_script_include.script" rows="10" style="font:12px monospace;padding:6px"></textarea></div>
+<button type="button" id="sysverb_update" onclick="document.body.dataset.saved=String(Number(document.body.dataset.saved||0)+1)">Update</button>`;
+    document.getElementById('sys_script_include.script').value = SI_UTILS;
+    return;
+  }
   if (page === 'blank') {
     root.innerHTML = `${tokenInput}<div class="bar">ServiceNow &nbsp;·&nbsp; Home</div><h1>Welcome</h1><p>A page with no form or list.</p>`;
     return;
@@ -1079,8 +1272,8 @@ export function renderFakePage(root) {
     const cols = [['number', 'Number'], ['short_description', 'Short description'], ['caller_id', 'Caller'], ['priority', 'Priority'], ['state', 'State'], ['assignment_group', 'Assignment group'], ['assigned_to.name', 'Assigned to']];
     root.innerHTML = `${tokenInput}<div class="bar">ServiceNow &nbsp;·&nbsp; Incidents</div><h1>Incidents</h1>
 <input type="hidden" name="sysparm_query" value="active=true^priority&lt;=2^ORDERBYDESCsys_updated_on">
-<table class="list_table" glide_table="incident"><thead><tr>${cols.map(([n, l]) => `<th class="list_header_cell" name="${n}" glide_type="string">${l}</th>`).join('')}</tr></thead>
-<tbody>${rows.map((r) => `<tr id="row_incident_${r.sys_id}" sys_id="${r.sys_id}">${cols.map(([n]) => `<td>${esc(resolvePath('incident', r, n).display)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+<table class="list_table" glide_table="incident"><thead><tr class="list_header"><th class="list_decoration_cell"></th>${cols.map(([n, l]) => `<th class="list_header_cell" name="${n}" glide_type="string">${l}</th>`).join('')}</tr></thead>
+<tbody>${rows.map((r) => `<tr class="list_row" id="row_incident_${r.sys_id}" sys_id="${r.sys_id}"><td class="list_decoration_cell"><input type="checkbox" class="list_checkbox" id="check_${r.sys_id}" aria-label="Select ${esc(r.number || 'row')}"></td>${cols.map(([n]) => `<td>${esc(resolvePath('incident', r, n).display)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     return;
   }
   const model = formModel();

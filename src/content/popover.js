@@ -32,7 +32,7 @@ function el(tag, className, text) {
 }
 
 /** Rect of an anchor in top-window coordinates. */
-function anchorRect(anchor, doc) {
+export function anchorRect(anchor, doc) {
   let rect = typeof anchor?.getBoundingClientRect === 'function' ? anchor.getBoundingClientRect() : normalizeRect(anchor);
   let win = doc?.defaultView || anchor?.ownerDocument?.defaultView || window;
   for (let depth = 0; depth < MAX_FRAME_DEPTH && win && win !== window; depth += 1) {
@@ -64,6 +64,7 @@ export function createPopover({ shadow, toast } = {}) {
   const rowsEl = el('dl', 'msb-pop__rows');
   const bodyEl = el('pre', 'msb-pop__body');
   const busyEl = el('div', 'msb-pop__busy');
+  busyEl.setAttribute('role', 'status');
   busyEl.append(el('span', 'msb-spinner'), el('span', null, 'Loading…'));
   const actionsEl = el('div', 'msb-pop__actions');
   root.append(aurora, head, rowsEl, bodyEl, busyEl, actionsEl);
@@ -96,6 +97,7 @@ export function createPopover({ shadow, toast } = {}) {
       if (row.copy) {
         const btn = el('button', 'msb-pop__copy', 'Copy');
         btn.type = 'button';
+        btn.setAttribute('aria-label', `Copy ${row.label}`);
         btn.addEventListener('click', trustedDom(() => copy(row.value)));
         wrap.appendChild(btn);
       }
@@ -136,10 +138,26 @@ export function createPopover({ shadow, toast } = {}) {
     root.dataset.placement = placement;
   }
 
+  // Arrow keys, Home and End move between the popover's buttons, so a long action list is not a Tab-per-row walk.
+  function moveFocus(event) {
+    const buttons = [...root.querySelectorAll('button')].filter((b) => !b.hidden && !b.closest('[hidden]'));
+    const at = buttons.indexOf(shadow.activeElement);
+    if (at === -1 || !buttons.length) return false;
+    const last = buttons.length - 1;
+    const target = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: last }[event.key];
+    if (target === undefined) return false;
+    buttons[(target + buttons.length) % buttons.length].focus({ preventScroll: true });
+    return true;
+  }
+
   function onKeyDown(event) {
-    if (event.key === 'Escape' && event.isTrusted) {
+    if (!event.isTrusted) return;
+    if (event.key === 'Escape') {
       event.stopPropagation();
       hide();
+    } else if (!event.altKey && !event.ctrlKey && !event.metaKey && moveFocus(event)) {
+      event.preventDefault();
+      event.stopPropagation();
     }
   }
 
@@ -191,8 +209,15 @@ export function createPopover({ shadow, toast } = {}) {
   function update(patch) {
     if (root.hidden || !spec) return;
     spec = { ...spec, ...patch };
+    // render() rebuilds the rows and actions; a keyboard user on one of their buttons must not be dropped onto the page.
+    const region = [actionsEl, rowsEl].find((box) => box.contains(shadow.activeElement));
+    const had = region ? [...region.querySelectorAll('button')].indexOf(shadow.activeElement) : -1;
     render();
     place();
+    if (region && had !== -1) {
+      const after = [...region.querySelectorAll('button')];
+      (after[had] || after[after.length - 1] || closeBtn).focus({ preventScroll: true });
+    }
   }
 
   function hide() {

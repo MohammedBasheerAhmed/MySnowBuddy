@@ -218,6 +218,14 @@
   color: var(--msb-cat-tools);
 }
 
+/* An instance in the switcher: its own colour (set inline) with the first letter, white on a colour that keeps 4.5:1. */
+.msb-palette__item[data-icon] .msb-palette__itemIcon--swatch {
+  border-color: transparent;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .msb-palette__item[data-icon='tools'] .msb-palette__itemIcon {
   background: var(--msb-cat-tools-bg);
   border-color: transparent;

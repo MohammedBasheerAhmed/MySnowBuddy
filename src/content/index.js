@@ -21,6 +21,8 @@ import { compareWithInstance } from './remoteRecord.js';
 import { listInstances, recordRecent } from './stores.js';
 import { createPageWatcher } from './pageWatcher.js';
 import { createGuards } from './guards.js';
+import { createBreakingCheck, checkBeforeSave } from './breakingCheck.js';
+import { findReferences } from './references.js';
 import { watchFormControls } from './a11y.js';
 import {
   fetchCurrentRecord,
@@ -42,9 +44,12 @@ import { mountSidebar } from '../sidebar/mount.js';
 import { getSettings, saveSettings, onSettingsChanged } from './storage.js';
 import { startInstanceTag } from './instanceTag.js';
 import { installFieldTools } from './fieldTools.js';
+import { installNavSlash } from './navSlash.js';
 import { installXray, forwardXrayHotkey } from './xray.js';
-import { installInline, toggleInline, inlineStatus } from './inline.js';
+import { resumeSaveTraceNotice } from './saveTrace.js';
+import { installInline, toggleInline, toggleFieldNames, editScriptInPlace, inlineStatus } from './inline.js';
 import { createPopover } from './popover.js';
+import { explainText, describeKinds } from './smartSelect.js';
 import { openScriptEditor } from './scriptEditor.js';
 import { findDefinitionUrl } from './storedCommands.js';
 import { extractScriptOutput } from '../lib/logTail.js';
@@ -197,6 +202,7 @@ async function init() {
     getCurrentUpdateSet,
     recordUrl,
     audit,
+    getSettings, // the agent's safety settings are read fresh at every write
     // `approval` is created further down; the hook is only called later, when navigate needs a person to decide.
     control: createControlDeps({ confirm: (request) => approval.request(request) }),
   });
@@ -376,25 +382,26 @@ async function init() {
   shadow.appendChild(approval.element);
   installAgentBridge({ tools: agentTools, approval, getInstanceInfo, audit });
 
-  automation.resume().catch((err) => console.error('[MySnowBuddy] automation resume failed', err));
+  automation.resume().catch((err) => console.error('[NowBuddy] automation resume failed', err));
 
   try {
     installSelectionTracking();
     startScriptWatcher();
-    installFieldTools({ toast });
+    installFieldTools({ toast, isEnabled: () => inlineStatus().on });
   } catch (err) {
-    console.error('[MySnowBuddy] selection tracking failed', err);
+    console.error('[NowBuddy] selection tracking failed', err);
   }
 
   // Page X-ray: Alt+Shift+X and the palette toggle; chips open the sidebar 'xray' panel.
   try {
     installXray({ sidebar: sidebarApi, toast });
+    resumeSaveTraceNotice({ toast, sidebar: sidebarApi });
   } catch (err) {
-    console.error('[MySnowBuddy] page X-ray failed', err);
+    console.error('[NowBuddy] page X-ray failed', err);
   }
 
   if (settings.instanceTagEnabled !== false) {
-    startInstanceTag(shadow).catch((err) => console.error('[MySnowBuddy] instance tag failed', err));
+    startInstanceTag(shadow).catch((err) => console.error('[NowBuddy] instance tag failed', err));
   }
 
   async function impersonateUserName(userName) {
@@ -453,9 +460,17 @@ async function init() {
     openCompare: () => sidebarApi.openRemotePanel(),
     getUpdateSet: () => getCurrentUpdateSet(),
     findDefinition: (name) => findDefinitionUrl(name),
+    findReferences: (target, opts) => findReferences(target, opts),
+    beforeSave: () => checkBeforeSave({ toast }),
     isProd: () => getInstanceInfo().env === 'prod',
   };
-  const openEditor = () => openScriptEditor({ shadow, toast, tools: editorTools });
+  // `field` and `place` are optional: the on-page Edit button opens the editor over the field itself.
+  // With no `place` the script opens right over the field when one is on screen (that is the easy way); `fullScreen` or a
+  // page without a visible script field gets the full-screen editor.
+  const openEditor = (opts) => {
+    if (!opts?.place && !opts?.fullScreen && editScriptInPlace()) return undefined;
+    return openScriptEditor({ shadow, toast, tools: editorTools, field: opts?.field, place: opts?.place });
+  };
 
   // Classic forms live in a sub-frame; tell the tab's frames (through the service worker, not
   // window.postMessage, which page scripts can forge) when the palette is open so they relay keys.
@@ -469,6 +484,7 @@ async function init() {
 
   let welcome = null;
   let guide = null;
+  const popover = createPopover({ shadow, toast });
   const palette = createCommandPalette({
     showWelcome: () => welcome?.show(),
     showGuide: () => guide?.show(),
@@ -484,6 +500,10 @@ async function init() {
     setToolSurface: (toolSurface) => saveSettings({ toolSurface }),
     setInline: (inlineEnabled) => saveSettings({ inlineEnabled }),
     inlineOn: () => inlineStatus().on,
+    toggleFieldNames: () => toggleFieldNames(),
+    fieldNamesOn: () => inlineStatus().names,
+    decodeSelection: (text) => explainText(text, { popover, toast, anchor: { x: Math.round(window.innerWidth / 2) - 150, y: 140 } }),
+    selectionKind: (text) => describeKinds(text),
     toggleTheme,
     onOpenChange: broadcastPaletteState,
     impersonate: () => impersonate(),
@@ -505,21 +525,21 @@ async function init() {
       shadow,
       toast,
       sidebar: sidebarApi,
-      popover: createPopover({ shadow, toast }),
+      popover,
       openEditor,
       tools: { lintScript },
       enabled: settings.inlineEnabled !== false,
     });
     onSettingsChanged((next) => toggleInline(next.inlineEnabled !== false));
   } catch (err) {
-    console.error('[MySnowBuddy] on-page tools failed', err);
+    console.error('[NowBuddy] on-page tools failed', err);
   }
 
   // Notice navigation (classic and Next Experience change pages without a reload).
   try {
     startPageFeatures();
   } catch (err) {
-    console.error('[MySnowBuddy] page features failed', err);
+    console.error('[NowBuddy] page features failed', err);
   }
 
   function startPageFeatures() {
@@ -538,6 +558,7 @@ async function init() {
       },
     });
     watcher.subscribe((ctx) => guards.onPageChange(ctx));
+    createBreakingCheck({ toast, getSettings, getContext: detectPageContext });
 
     watcher.subscribe((ctx) => {
       if (ctx.isList || !ctx.table || !ctx.sysId) return;
@@ -564,6 +585,7 @@ async function init() {
 
   if (settings.paletteEnabled) {
     installHotkeys(palette, sidebarApi, openEditor);
+    installNavSlash({ palette });
   }
 
   // Only the extension (the service worker) can send these; page scripts cannot.
@@ -646,7 +668,7 @@ async function notifyIfFirstRun(toast) {
   if (stored[FIRST_RUN_KEY]) return;
   await chrome.storage.local.set({ [FIRST_RUN_KEY]: true });
   toast.info(
-    `MySnowBuddy: ${PALETTE_HINT} opens the command palette (type / for shortcuts), Alt+Shift+E the script editor, Alt+Shift+C chat.`,
+    `NowBuddy: ${PALETTE_HINT} opens the command palette (type / for shortcuts), Alt+Shift+E the script editor, Alt+Shift+C chat.`,
     { timeout: 9000 }
   );
 }
@@ -658,7 +680,7 @@ function start() {
     forwardXrayHotkey();
     return;
   }
-  init().catch((err) => console.error('[MySnowBuddy] failed to start', err));
+  init().catch((err) => console.error('[NowBuddy] failed to start', err));
 }
 
 if (document.readyState === 'loading') {

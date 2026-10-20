@@ -5,6 +5,9 @@
 // with no innerHTML. Every edit goes through execCommand('insertText') so native undo works.
 
 import { callPage } from './pageBridge.js';
+import { editorBox } from '../lib/inline.js';
+import { askConfirm } from './confirmDialog.js';
+import { syntaxAsk, prodApplySaveAsk, runScriptAsk, discardAsk } from '../lib/confirmCopy.js';
 import { trustedDom } from '../sidebar/trusted.js';
 import { verifyScript, formatVerification, KIND_INFO } from '../lib/verify.js';
 import { checkSyntax } from '../lib/syntax.js';
@@ -39,6 +42,7 @@ import {
   reindent,
   diffRange,
 } from '../lib/editorText.js';
+import { referenceTarget } from '../lib/scriptApi.js';
 import { getCompletions, applyCompletion, getHoverInfo, getSignatureHelp, getDefinitionTarget, collectNeeds, guessSide } from '../lib/completion.js';
 import { diagnose, countProblems, quickFixEdit, editorKind, sideOfKind } from '../lib/editorDiagnostics.js';
 import {
@@ -70,6 +74,7 @@ const MAX_SUGGESTIONS = 60;
 const QUICK_CHECK_CHARS = 40000;
 const SLOW_CHECK_MS = 350;
 const HOVER_DELAY = 400;
+const SYNC_DELAY = 350;
 const DATA_DELAY = 150;
 const AI_ACTIONS = [
   ['explain', 'Explain this script'],
@@ -89,6 +94,7 @@ const SHORTCUTS = [
   ['Enter or Tab', 'Accept a suggestion (Esc closes the list)'],
   ['Ctrl+Shift+Space', 'Parameter hints'],
   ['F12 or Ctrl+click', 'Go to definition: Script Include, table, field, local function'],
+  ['Shift+F12', 'Find all references: every script on the instance that uses the Script Include, method or name at the caret'],
   ['Ctrl+.', 'Quick fix for the problem on this line'],
   ['F8 / Shift+F8', 'Next / previous problem'],
   ['Ctrl+Shift+M', 'Show or hide the problems list'],
@@ -155,13 +161,18 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
  *   getUpdateSet?: () => Promise<{name: string} | null>,
  *   findDefinition?: (name: string) => Promise<string | null>,
  *   isProd?: () => boolean,
- * }}} deps
+ *   field?: string,
+ *   place?: { rect: () => (object | null) },
+ * }} deps
+ * `field` opens that field instead of the best guess. `place` edits IN PLACE: the editor sits over the form's own
+ * field (`rect()` is its box in top-window coordinates, null when it is gone) and every change flows to the form as
+ * you type, so the platform's own Save button saves it. Without `place` the editor is full screen.
  */
-export async function openScriptEditor({ shadow, toast, tools = {} }) {
+export async function openScriptEditor({ shadow, toast, tools = {}, field: wantField = '', place: placeArg = null }) {
   const existing = shadow.querySelector('.msb-ed');
   if (existing) {
     existing.hidden = false;
-    existing.dispatchEvent(new CustomEvent('msb-show'));
+    existing.dispatchEvent(new CustomEvent('msb-show', { detail: { field: wantField, place: placeArg } }));
     return;
   }
 
@@ -174,7 +185,12 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   const table = meta?.table || '';
   const recordPromise = readScriptRecord(table).catch(() => null);
 
-  let field = bestScriptField(fields);
+  let field = fields.find((f) => f.name === wantField) || bestScriptField(fields);
+  let place = placeArg;
+  let lastPlace = placeArg;
+  let syncTimer = 0;
+  let followFrame = 0;
+  let boxKey = '';
   let baseline = '';
   let unit = INDENT;
   let rec = { target: '', uiActionClient: null, when: '', clientType: '', scoped: null, catItem: '', variableSet: '' };
@@ -280,12 +296,18 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   const lintBox = h('pre', 'msb-ed__lint');
   lintBox.hidden = true;
 
+  const refList = h('div', 'msb-ed__plist');
+  refList.hidden = true;
+  refList.setAttribute('aria-label', 'References');
+
   const footer = h('div', 'msb-ed__footer');
   const position = h('span', null, 'Ln 1, Col 1');
   const problemsButton = button('', 'msb-ed__problems', () => toggleProblems());
   problemsButton.title = 'Show problems (Ctrl+Shift+M)';
+  const refsButton = button('References', 'msb-ed__problems msb-ed__problems--ok', () => findAllReferences());
+  refsButton.title = 'Find every script that uses the name at the caret (Shift+F12)';
   const hints = h('span', 'msb-ed__hints', 'Ctrl+Space suggestions · F12 definition · Ctrl+S apply · F1 all shortcuts · Esc close');
-  footer.append(position, problemsButton, hints);
+  footer.append(position, problemsButton, refsButton, hints);
 
   // --- Shortcut help ---
   const help = h('div', 'msb-ed__help');
@@ -469,7 +491,7 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
       squiggleLayer.replaceChildren();
     }
     updatePosition();
-    status.textContent = isDirty() ? 'Modified' : 'No changes';
+    status.textContent = place ? (isDirty() ? 'Syncing…' : 'In sync with the form') : isDirty() ? 'Modified' : 'No changes';
     status.classList.toggle('msb-ed__status--dirty', isDirty());
     paintBrackets();
     scheduleDiagnostics();
@@ -1119,6 +1141,60 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     }
   }
 
+  // --- Find all references ---
+  function renderRefs(rows, summary) {
+    refList.replaceChildren();
+    const head = h('div', 'msb-ed__pempty', summary);
+    head.appendChild(button('Close', 'msb-ed__pfix', () => { refList.hidden = true; }));
+    refList.appendChild(head);
+    rows.forEach((hit) => {
+      const row = h('div', 'msb-ed__prow');
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      const dot = h('span', `msb-ed__pdot msb-ed__pdot--${hit.certainty === 'call' ? 'info' : 'warning'}`);
+      dot.title = hit.certainty === 'call' ? 'Confirmed use' : 'Possible use: the name appears but the receiver could not be confirmed';
+      const first = hit.lines[0];
+      const msg = h('span', 'msb-ed__pmsg', `${hit.label}: ${hit.name}${first ? ` — ${first.text}` : ''}`);
+      const where = h('span', 'msb-ed__pline', first ? `${hit.field} Ln ${first.line}` : hit.field);
+      row.append(dot, msg, where);
+      const open = () => window.open(hit.url, '_blank', 'noopener,noreferrer');
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          open();
+        }
+      });
+      refList.appendChild(row);
+    });
+  }
+
+  async function findAllReferences() {
+    if (!tools.findReferences) {
+      toast.error('Finding references is not available here.');
+      return;
+    }
+    let ownName = '';
+    if (table === 'sys_script_include') {
+      const values = await callPage('getFormValues').catch(() => null);
+      ownName = String(values?.values?.name || '').trim();
+    }
+    const target = referenceTarget(ta.value, ta.selectionStart, { table, ownName });
+    if (!target) {
+      toast.error('Put the caret on a name of three or more characters first.');
+      return;
+    }
+    refList.hidden = false;
+    refList.replaceChildren(h('div', 'msb-ed__pempty', `Searching the instance for ${target.kind === 'method' ? `${target.className}.` : ''}${target.name}…`));
+    try {
+      const result = await tools.findReferences(target, { excludeSysId: meta?.sysId || '' });
+      renderRefs(result.hits, result.summary);
+    } catch (err) {
+      refList.hidden = true;
+      toast.error(err.message || String(err));
+    }
+  }
+
   // --- Find and replace ---
   function searchRegex() {
     const { re, error } = buildSearchRegex(findInput.value, { regex: pressed(regexToggle), matchCase: pressed(caseToggle), wholeWord: pressed(wordToggle) });
@@ -1246,13 +1322,25 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   }
 
   // --- Actions ---
+  // One question at a time: a second Esc or Ctrl+S while a dialog is open is a "no", never a second dialog.
+  let asking = false;
+  async function ask(options) {
+    if (asking) return false;
+    asking = true;
+    try {
+      return await askConfirm(options);
+    } finally {
+      asking = false;
+    }
+  }
+
   async function apply({ save = false } = {}) {
     const syntax = checkSyntax(ta.value);
-    if (syntax && !window.confirm(`Syntax problem on line ${syntax.line}: ${syntax.message}\n\nApply anyway?`)) {
+    if (syntax && !(await ask(syntaxAsk('apply', syntax)))) {
       goToLine(syntax.line);
       return false;
     }
-    if (save && tools.isProd?.() && !window.confirm('This is a PRODUCTION instance. Apply this change and save the record?')) {
+    if (save && tools.isProd?.() && !(await ask(prodApplySaveAsk()))) {
       return false;
     }
     try {
@@ -1260,6 +1348,11 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
       baseline = ta.value;
       refresh();
       if (save) {
+        // A Script Include that would break its callers asks first; going back leaves the script applied but not saved.
+        if (tools.beforeSave && !(await tools.beforeSave())) {
+          toast.info('Applied to the form. Not saved.');
+          return false;
+        }
         await callPage('saveForm');
         toast.success('Applied and saved.');
       } else {
@@ -1300,13 +1393,11 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     const script = part || ta.value;
     if (!script.trim()) return;
     const syntax = checkSyntax(script);
-    if (syntax && !window.confirm(`Syntax problem on line ${syntax.line}: ${syntax.message}\n\nRun anyway?`)) return;
+    if (syntax && !(await ask(syntaxAsk('run', syntax)))) return;
     if (!dryRun) {
-      let message = `Run ${part ? 'the selected code' : 'this script'} on ${window.location.hostname}?`;
       const risk = analyzeScriptRisk(script);
-      if (risk.hasWrites) message += `\n\n${formatRiskSummary(risk)}`;
-      if (tools.isProd?.()) message = `PRODUCTION instance.\n\n${message}`;
-      if (!window.confirm(message)) return;
+      const wanted = runScriptAsk({ part: Boolean(part), hostname: window.location.hostname, riskSummary: risk.hasWrites ? formatRiskSummary(risk) : '', prod: Boolean(tools.isProd?.()) });
+      if (!(await ask(wanted))) return;
     }
     showPanel(dryRun ? 'Dry run in progress...' : 'Running...');
     try {
@@ -1364,13 +1455,93 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     kindChip.title = 'Completion, hints and checks use this context';
   }
 
-  function close() {
-    if (isDirty() && !window.confirm('Discard changes that have not been applied to the form?')) return;
+  // --- In place: the editor sits over the form's own field and keeps it in sync ---
+  /** Write the editor's text into the form field (no save, no prompts). False when the form refused it. */
+  async function pushToForm() {
+    clearTimeout(syncTimer);
+    if (!place || ta.readOnly || !isDirty()) return true;
+    const value = ta.value;
+    try {
+      await callPage('setFieldValue', [field.name, value]);
+      baseline = value;
+      refresh();
+      return true;
+    } catch (err) {
+      toast.error(`Could not update the form field: ${err.message || err}`);
+      return false;
+    }
+  }
+
+  function scheduleSync() {
+    if (!place) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(pushToForm, SYNC_DELAY);
+  }
+
+  function layoutInPlace() {
+    if (!place || overlay.hidden) return;
+    const rect = place.rect();
+    const box = rect && editorBox(rect, { width: window.innerWidth, height: window.innerHeight });
+    dialog.style.visibility = box?.visible ? '' : 'hidden';
+    if (!box) return;
+    const key = `${box.left},${box.top},${box.width},${box.height}`;
+    if (key === boxKey) return;
+    boxKey = key;
+    Object.assign(dialog.style, { left: `${box.left}px`, top: `${box.top}px`, width: `${box.width}px`, height: `${box.height}px` });
+  }
+
+  function follow() {
+    layoutInPlace();
+    followFrame = requestAnimationFrame(follow);
+  }
+
+  const placeButton = button('Full screen', 'msb-ed__btn', () => setPlace(place ? null : lastPlace));
+  const applyButton = button('Apply to form', 'msb-ed__btn msb-ed__btn--primary', trustedDom(() => apply()));
+  const saveButton = button('Apply & save', 'msb-ed__btn', trustedDom(() => apply({ save: true })));
+
+  /** Switch between in place (a `place` object) and full screen (null). */
+  function setPlace(next) {
+    place = next || null;
+    if (place) lastPlace = place;
+    cancelAnimationFrame(followFrame);
+    boxKey = '';
+    dialog.removeAttribute('style');
+    overlay.classList.toggle('msb-ed--inplace', Boolean(place));
+    overlay.setAttribute('aria-modal', place ? 'false' : 'true');
+    overlay.setAttribute('aria-label', place ? 'Script editor, in place' : 'Script editor');
+    fieldSelect.hidden = Boolean(place);
+    applyButton.hidden = Boolean(place);
+    saveButton.textContent = place ? 'Save record' : 'Apply & save';
+    saveButton.title = place ? 'Save the record (Ctrl+S)' : '';
+    placeButton.hidden = !lastPlace;
+    placeButton.textContent = place ? 'Full screen' : 'Back to field';
+    placeButton.title = place ? 'Open the editor full screen' : 'Put the editor back over the field';
+    hints.textContent = place
+      ? 'Synced to the form as you type · Ctrl+S saves the record · F1 shortcuts · Esc close'
+      : 'Ctrl+Space suggestions · F12 definition · Ctrl+S apply · F1 all shortcuts · Esc close';
+    if (place) {
+      layoutInPlace();
+      follow();
+      pushToForm();
+    }
+    requestAnimationFrame(() => {
+      measureChar();
+      paint(true);
+      refresh();
+    });
+  }
+
+  async function close() {
+    if (place) {
+      if (!(await pushToForm())) return; // never lose edits the form did not take
+    } else if (isDirty() && !(await ask(discardAsk('close')))) return;
     clearTimeout(diagTimer);
     clearTimeout(findTimer);
     clearTimeout(hoverTimer);
     clearTimeout(dataTimer);
+    clearTimeout(syncTimer);
     cancelAnimationFrame(frame);
+    cancelAnimationFrame(followFrame);
     overlay.remove();
   }
 
@@ -1456,12 +1627,7 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   const helpButton = button('?', 'msb-ed__btn', () => toggleHelp());
   helpButton.title = 'Keyboard shortcuts (F1)';
   helpButton.setAttribute('aria-label', 'Keyboard shortcuts');
-  actions.append(
-    button('Apply to form', 'msb-ed__btn msb-ed__btn--primary', trustedDom(() => apply())),
-    button('Apply & save', 'msb-ed__btn', trustedDom(() => apply({ save: true }))),
-    helpButton,
-    button('Close', 'msb-ed__btn', close)
-  );
+  actions.append(placeButton, applyButton, saveButton, helpButton, button('Close', 'msb-ed__btn', close));
   findBar.append(
     findInput,
     replaceInput,
@@ -1478,7 +1644,7 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   gotoBar.append(h('span', null, 'Go to line'), gotoInput, button('Go', 'msb-ed__btn', submitGoto), gotoHint);
 
   fieldSelect.addEventListener('change', async () => {
-    if (isDirty() && !window.confirm('Switch field and discard changes that have not been applied?')) {
+    if (isDirty() && !(await ask(discardAsk('switch')))) {
       fieldSelect.value = field.name;
       return;
     }
@@ -1496,6 +1662,7 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
   ta.addEventListener('input', (event) => {
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(refresh);
+    scheduleSync();
     hideHover();
     if (composing || event.isComposing || programmatic) return;
     const data = event.data || '';
@@ -1560,7 +1727,7 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
 
     if (mod && (key === ' ' || code === 'Space')) return handled(() => (event.shiftKey ? updateSignature(true) : runCompletion(true)));
     if (key === 'F1') return handled(() => toggleHelp(true));
-    if (key === 'F12') return handled(() => goToDefinition());
+    if (key === 'F12') return handled(() => (event.shiftKey ? findAllReferences() : goToDefinition()));
     if (key === 'F8') return handled(() => nextProblem(event.shiftKey ? -1 : 1));
     if (key === 'F3') return handled(() => findNext(event.shiftKey));
     if (mod && key === '.') return handled(quickFixAtCaret);
@@ -1569,7 +1736,8 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     if (mod && !event.shiftKey && (lower === 'f' || code === 'KeyF')) return handled(() => showFind(true));
     if (mod && !event.shiftKey && (lower === 'h' || code === 'KeyH')) return handled(() => showFind(true, true));
     // Apply / save only on a real keystroke, never on a page script's synthetic keydown.
-    if (mod && (lower === 's' || code === 'KeyS')) return handled(() => event.isTrusted && apply({ save: event.shiftKey }));
+    // In place the editor IS the field, so Ctrl+S saves the record like it would from the field itself.
+    if (mod && (lower === 's' || code === 'KeyS')) return handled(() => event.isTrusted && apply({ save: place ? true : event.shiftKey }));
     if (mod && key === 'Enter') {
       return handled(
         () =>
@@ -1648,8 +1816,16 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     else close();
   });
 
-  overlay.addEventListener('msb-show', () => {
+  overlay.addEventListener('msb-show', (event) => {
+    const want = event.detail || {};
+    const other = want.field && want.field !== field.name ? fields.find((f) => f.name === want.field) : null;
+    if (other && !isDirty()) {
+      fieldSelect.value = other.name;
+      field = other;
+    }
     if (!isDirty()) loadField(field.name).catch(() => {});
+    else if (other) toast.info(`Apply or discard your changes to ${field.label || field.name} before editing ${other.label || other.name}.`);
+    setPlace(want.place || null);
     updateChip();
     requestAnimationFrame(() => {
       measureChar();
@@ -1659,13 +1835,15 @@ export async function openScriptEditor({ shadow, toast, tools = {} }) {
     });
   });
 
-  dialog.append(header, findBar, gotoBar, body, problemList, lintBox, footer, help);
+  dialog.append(header, findBar, gotoBar, body, problemList, refList, lintBox, footer, help);
   overlay.appendChild(dialog);
   shadow.appendChild(overlay);
   measureChar();
   updateKindChip();
 
   await loadField(field.name);
+  setPlace(place);
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (place) { measureChar(); paint(true); } }).observe(surface);
   loadContext();
   updateChip();
   requestAnimationFrame(() => {

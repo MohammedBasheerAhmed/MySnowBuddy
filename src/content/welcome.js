@@ -24,12 +24,12 @@ export function tourSteps() {
     {
       key: 'The bar at the bottom',
       title: 'This page’s quick actions',
-      text: 'Copy the sys_id, see who changed the record, check versions, lint or edit the script. On a list: explain the filter, count, copy the query or the GlideRecord code.',
+      text: 'Copy the sys_id, see who changed it, check versions, lint the script or edit it right over its field. On a list: explain the filter, count, copy the query. Names shows every field name.',
     },
     {
-      key: '⋯ on a label or column',
+      key: 'Hover a label, then ⋯',
       title: 'Know any field',
-      text: 'Copy its name, open its dictionary entry, see the ACLs on it, or X-ray what controls it. Select a sys_id anywhere to peek at that record.',
+      text: 'Copy its name, open its dictionary entry or ACLs, X-ray what controls it. Double-click a label to copy its name. Select a sys_id anywhere to peek at that record.',
     },
     {
       key: 'Tools open as windows',
@@ -58,12 +58,12 @@ export function createWelcome({ shadow, openPalette, openGuide }) {
   function build() {
     const root = el('section', 'msb-welcome');
     root.setAttribute('role', 'dialog');
-    root.setAttribute('aria-label', 'Getting started with MySnowBuddy');
+    root.setAttribute('aria-label', 'Getting started with NowBuddy');
 
     root.appendChild(el('div', 'msb-welcome__line'));
     const head = el('div', 'msb-welcome__head');
     const titles = el('div', 'msb-welcome__titles');
-    titles.append(el('div', 'msb-welcome__title', 'MySnowBuddy is on this page'), el('div', 'msb-welcome__sub', 'Four things worth knowing'));
+    titles.append(el('div', 'msb-welcome__title', 'NowBuddy is on this page'), el('div', 'msb-welcome__sub', 'Four things worth knowing'));
     const close = el('button', 'msb-welcome__close', '×');
     close.type = 'button';
     close.setAttribute('aria-label', 'Close');

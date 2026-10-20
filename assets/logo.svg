@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="NowBuddy">
+  <circle cx="64" cy="64" r="62" fill="#1b6b4f"/>
+  <g transform="translate(24 24) scale(3.333)" fill="none" stroke="#ffffff" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M14.7 6.3a4 4 0 0 0 5.1 5.1L21 12l-9 9-3-3 9-9z"/>
+    <path d="M6.5 13.5L3 17a2.1 2.1 0 0 0 3 3l3.5-3.5"/>
+  </g>
+</svg>

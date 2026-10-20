@@ -59,6 +59,26 @@ export function placePopover(anchor, size, viewport, { gap = 8, margin = 8 } = {
   };
 }
 
+/**
+ * Where the in-place script editor sits: over the form's own script field, at least `minWidth` x `minHeight`,
+ * kept inside the viewport. `visible` is false once the field has scrolled out of sight completely.
+ * @returns {{ left: number, top: number, width: number, height: number, visible: boolean }}
+ */
+export function editorBox(fieldRect, viewport, { minWidth = 520, minHeight = 340, margin = 8 } = {}) {
+  const rect = normalizeRect(fieldRect);
+  const room = { width: Math.max(0, viewport.width - margin * 2), height: Math.max(0, viewport.height - margin * 2) };
+  const width = Math.min(Math.max(rect.width, minWidth), room.width);
+  const height = Math.min(Math.max(rect.height, minHeight), room.height);
+  const clamp = (value, max) => Math.round(Math.min(Math.max(value, margin), Math.max(margin, max)));
+  return {
+    left: clamp(rect.left, viewport.width - width - margin),
+    top: clamp(rect.top, viewport.height - height - margin),
+    width: Math.round(width),
+    height: Math.round(height),
+    visible: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < viewport.height && rect.right > 0 && rect.left < viewport.width,
+  };
+}
+
 // --- Selections -------------------------------------------------------------------------------
 
 /** The sys_id a selection consists of (lower-cased), or null. Surrounding whitespace and quotes are ignored. */
@@ -117,30 +137,36 @@ export function toolbarModel({ table = '', sysId = '', isList = false, hasScript
   if (!table || !isName(table)) return [];
   if (isList) {
     return [
-      { id: 'explain', label: 'Explain filter', short: 'Explain' },
-      { id: 'count', label: 'Count matching records', short: 'Count' },
-      { id: 'copyQuery', label: 'Copy encoded query', short: 'Query' },
-      { id: 'copyGlide', label: 'Copy GlideRecord code', short: 'GlideRecord' },
-      { id: 'more', label: 'More list tools', short: 'More' },
+      { id: 'explain', label: 'Explain filter', short: 'Explain', group: 'filter' },
+      { id: 'count', label: 'Count matching records', short: 'Count', group: 'filter' },
+      { id: 'copyQuery', label: 'Copy encoded query', short: 'Query', group: 'filter' },
+      { id: 'copyGlide', label: 'Copy GlideRecord code', short: 'GlideRecord', group: 'filter' },
+      { id: 'copyRows', label: 'Copy rows: the rows on screen, their sys_ids or a link to this list', short: 'Copy rows', group: 'rows' },
+      { id: 'insight', label: 'Break this list down: counts per column or per day', short: 'Break down', group: 'rows' },
+      { id: 'names', label: 'Names: show the database name of every column', short: 'Names', group: 'view', toggle: true },
+      { id: 'more', label: 'More list tools', short: 'More', group: 'view' },
     ];
   }
   const items = [];
   if (isSysId(sysId)) {
     items.push(
-      { id: 'copySysId', label: 'Copy sys_id', short: 'sys_id' },
-      { id: 'copyLink', label: 'Copy link to this record', short: 'Link' },
-      { id: 'xml', label: 'Open the record XML in a new tab', short: 'XML' },
-      { id: 'info', label: 'Who created and changed this record', short: 'Info' },
-      { id: 'versions', label: 'Recent versions of this record', short: 'Versions' }
+      { id: 'copySysId', label: 'Copy sys_id', short: 'sys_id', group: 'copy' },
+      { id: 'copyLink', label: 'Copy link to this record', short: 'Link', group: 'copy' },
+      { id: 'xml', label: 'Open the record XML in a new tab', short: 'XML', group: 'copy' },
+      { id: 'info', label: 'Record info: who created and changed this record', short: 'Info', group: 'record' },
+      { id: 'versions', label: 'Recent versions of this record', short: 'Versions', group: 'record' },
+      { id: 'refs', label: 'What points at this record, and what a delete would do', short: 'Used by', group: 'record' }
     );
   }
   if (hasScript) {
     items.push(
-      { id: 'edit', label: 'Edit the script in the full-screen editor', short: 'Edit' },
-      { id: 'lint', label: 'Lint the script (no AI tokens)', short: 'Lint' },
-      { id: 'ask', label: 'Ask the AI about this script', short: 'Ask AI' }
+      { id: 'edit', label: 'Edit the script right over the field', short: 'Edit', group: 'script' },
+      { id: 'lint', label: 'Lint the script (no AI tokens)', short: 'Lint', group: 'script' },
+      { id: 'ask', label: 'Ask AI about this script', short: 'Ask AI', group: 'script' }
     );
   }
+  items.push({ id: 'formtools', label: 'Form tools: show hidden fields, highlight, copy values, duplicate, open as', short: 'Form', group: 'form' });
+  items.push({ id: 'names', label: 'Names: show the database name of every field', short: 'Names', toggle: true });
   return items;
 }
 
@@ -157,7 +183,7 @@ export function fieldMenuModel({ table, field, script = false }) {
   if (!String(field).includes('.')) items.push({ id: 'copyClient', label: 'Copy g_form call' });
   items.push({ id: 'copyServer', label: 'Copy GlideRecord call' });
   items.push({ id: 'xray', label: 'X-ray this field' });
-  if (script) items.push({ id: 'edit', label: 'Full-screen editor' }, { id: 'lint', label: 'Lint' }, { id: 'ask', label: 'Ask AI' });
+  if (script) items.push({ id: 'editHere', label: 'Edit in place' }, { id: 'edit', label: 'Full-screen editor' }, { id: 'lint', label: 'Lint' }, { id: 'ask', label: 'Ask AI' });
   return items;
 }
 
@@ -175,6 +201,9 @@ export function columnMenuModel({ table, column }) {
   if (!isName(table) || !column) return [];
   const items = [{ id: 'copyName', label: 'Copy column name' }];
   if (!column.includes('.')) items.push({ id: 'dictionary', label: 'Dictionary entry' }, { id: 'acls', label: 'Field ACLs' });
+  items.push({ id: 'distinct', label: 'Distinct values (visible rows)' });
+  // A count per value comes from the Aggregate API, which cannot group by a dot-walked path.
+  if (!column.includes('.')) items.push({ id: 'countBy', label: 'Count by this column (whole list)' });
   return items;
 }
 

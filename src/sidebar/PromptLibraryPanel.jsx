@@ -26,6 +26,8 @@ import {
 } from '../lib/promptLibrary.js';
 import { downloadText, suggestFilename } from '../lib/report.js';
 import Icon from './Icon.jsx';
+import { askConfirm } from '../content/confirmDialog.js';
+import { deletePromptAsk } from '../lib/confirmCopy.js';
 
 const EMPTY_DRAFT = { id: '', title: '', category: 'Custom', description: '', template: '' };
 
@@ -143,7 +145,7 @@ export default function PromptLibraryPanel({ onClose, getContext, onRun, onInser
   }
 
   async function handleDelete(prompt) {
-    if (!window.confirm(`Delete "${prompt.title}"?`)) return;
+    if (!(await askConfirm(deletePromptAsk(prompt.title)))) return;
     await persist(removePrompt(library, prompt.id));
   }
 

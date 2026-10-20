@@ -1,0 +1,130 @@
+/* Test data panel (/testdata): src/sidebar/TestDataPanel.jsx */
+
+.msb-td__banner {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-warn);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg);
+}
+
+.msb-td__tabs {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0;
+  border-bottom: 1px solid var(--msb-border);
+}
+
+.msb-td__tabs button {
+  padding: 6px 12px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--msb-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.msb-td__tabs button.is-active {
+  border-bottom-color: var(--msb-accent);
+  color: var(--msb-fg);
+  font-weight: 600;
+}
+
+.msb-td__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msb-td__progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-subtle);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-td__report {
+  white-space: pre-line;
+}
+
+.msb-td__fields {
+  margin: 8px 0;
+}
+
+.msb-td__fields summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.msb-td__table td {
+  vertical-align: top;
+}
+
+.msb-td__table code {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-td__off td {
+  opacity: 0.7;
+}
+
+.msb-td__gen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.msb-td__gen select,
+.msb-td__gen input {
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font: inherit;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-td__mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-td__hint {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-td__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-td__batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--msb-border);
+}

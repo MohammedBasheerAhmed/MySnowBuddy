@@ -75,7 +75,7 @@ export async function stopImpersonating() {
   const all = await readAll();
   const origin = all[host]?.origin;
   if (!SYS_ID_RE.test(origin || '')) {
-    throw new Error('MySnowBuddy did not start this impersonation, so it does not know who you were. Use your avatar menu and choose "End impersonation".');
+    throw new Error('NowBuddy did not start this impersonation, so it does not know who you were. Use your avatar menu and choose "End impersonation".');
   }
   await post(origin);
   const { [host]: _done, ...rest } = all;

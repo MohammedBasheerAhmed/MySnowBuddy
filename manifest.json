@@ -1,7 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "MySnowBuddy",
+  "name": "NowBuddy",
   "version": "0.8.0",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "description": "Control ServiceNow from your browser: an AI agent with approvals, a smart script editor, access debugger, page X-ray, health scan.",
   "permissions": [
     "storage",
@@ -16,11 +22,19 @@
     "https://api.anthropic.com/*",
     "https://api.openai.com/*"
   ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*"
+  ],
   "background": {
     "service_worker": "background.bundle.js"
   },
   "action": {
-    "default_title": "MySnowBuddy - toggle sidebar"
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
+    "default_title": "NowBuddy - toggle sidebar"
   },
   "commands": {
     "open-palette": {
@@ -28,14 +42,14 @@
         "default": "Ctrl+Shift+Space",
         "mac": "MacCtrl+Shift+Space"
       },
-      "description": "Open the MySnowBuddy command palette"
+      "description": "Open the NowBuddy command palette"
     },
     "toggle-sidebar": {
       "suggested_key": {
         "default": "Alt+Shift+C",
         "mac": "Alt+Shift+C"
       },
-      "description": "Toggle the MySnowBuddy AI chat sidebar"
+      "description": "Toggle the NowBuddy AI chat sidebar"
     }
   },
   "options_page": "options.html",

@@ -240,7 +240,7 @@ export function checkReadOnlyScript(script) {
  * reach the wrapper's saved originals by name and restore real writes. After it runs, every patched method is
  * checked; if the script replaced one, the run is reported as TAMPERED (writes after that point may be real).
  */
-export const DRY_RUN_TAMPER_MARK = '[MySnowBuddy dry run] TAMPERED';
+export const DRY_RUN_TAMPER_MARK = '[NowBuddy dry run] TAMPERED';
 
 function randomSuffix() {
   try {
@@ -254,7 +254,7 @@ function randomSuffix() {
 
 export function wrapAsDryRun(script) {
   const userFn = `msbDryRunUser_${randomSuffix()}`;
-  return `// ==== MySnowBuddy DRY RUN ====
+  return `// ==== NowBuddy DRY RUN ====
 // GlideRecord write methods are intercepted below. Writes are logged, not applied.
 // NOT intercepted: GlideMultipleUpdate, direct SQL, outbound REST, gs.setProperty,
 // gs.eventQueue side effects, flows/workflows already triggered.
@@ -267,7 +267,7 @@ ${indent(script, 2)}
     && typeof GlideRecord.prototype.update === 'function';
 
   if (!__canPatch) {
-    gs.error('[MySnowBuddy] Dry run is NOT available in this scope - the GlideRecord prototype could not be intercepted. The script was NOT executed.');
+    gs.error('[NowBuddy] Dry run is NOT available in this scope - the GlideRecord prototype could not be intercepted. The script was NOT executed.');
     return;
   }
 
@@ -327,7 +327,7 @@ ${indent(script, 2)}
 
   if (__patchFailed) {
     __restore();
-    gs.error('[MySnowBuddy] Dry run is NOT available in this scope - a GlideRecord method could not be intercepted. The script was NOT executed.');
+    gs.error('[NowBuddy] Dry run is NOT available in this scope - a GlideRecord method could not be intercepted. The script was NOT executed.');
     return;
   }
 
@@ -335,7 +335,7 @@ ${indent(script, 2)}
   try {
     userScript();
   } catch (__err) {
-    gs.error('[MySnowBuddy dry run] Script threw: ' + __err);
+    gs.error('[NowBuddy dry run] Script threw: ' + __err);
   } finally {
     __saved.forEach(function (entry) {
       if (entry.proto[entry.method] !== entry.stub) __tampered.push(entry.method);
@@ -346,12 +346,12 @@ ${indent(script, 2)}
     gs.error('${DRY_RUN_TAMPER_MARK}: the script replaced ' + __tampered.join(', ') + ' while it ran. Writes after that point may have been REAL. Check the records it touches.');
   }
 
-  gs.info('[MySnowBuddy dry run] Completed. ' + __writes.length + ' write operation(s) were SUPPRESSED.');
+  gs.info('[NowBuddy dry run] Completed. ' + __writes.length + ' write operation(s) were SUPPRESSED.');
   for (var __i = 0; __i < __writes.length && __i < 200; __i++) {
-    gs.info('[MySnowBuddy dry run] ' + (__i + 1) + '. ' + __writes[__i]);
+    gs.info('[NowBuddy dry run] ' + (__i + 1) + '. ' + __writes[__i]);
   }
   if (__writes.length > 200) {
-    gs.info('[MySnowBuddy dry run] ... ' + (__writes.length - 200) + ' more suppressed write(s) not listed.');
+    gs.info('[NowBuddy dry run] ... ' + (__writes.length - 200) + ' more suppressed write(s) not listed.');
   }
 })(${userFn});
 ${userFn} = null;`;
@@ -362,16 +362,16 @@ ${userFn} = null;`;
  * exception produces a readable log entry instead of a raw stack dump.
  */
 export function wrapWithGuards(script) {
-  return `// ==== MySnowBuddy run ====
+  return `// ==== NowBuddy run ====
 (function () {
   var __start = new Date().getTime();
   try {
 ${indent(script, 4)}
   } catch (__err) {
-    gs.error('[MySnowBuddy] Script failed: ' + __err);
+    gs.error('[NowBuddy] Script failed: ' + __err);
     throw __err;
   } finally {
-    gs.info('[MySnowBuddy] Finished in ' + (new Date().getTime() - __start) + 'ms.');
+    gs.info('[NowBuddy] Finished in ' + (new Date().getTime() - __start) + 'ms.');
   }
 })();`;
 }

@@ -119,8 +119,12 @@ test('sensitive-table policy blocks or warns before anyone is asked', () => {
   assert.match(block('delete', 'sys_dictionary', {}), /drops the column/);
   assert.match(block('update', 'sys_script', { script: 'x' }), /save_artifact/);
   assert.equal(block('update', 'sys_script', { active: 'false' }), null, 'deactivating a business rule is fine');
-  assert.ok(policy.assessWrite({ op: 'create', table: 'sys_user_has_role', fields: { role: 'x' } }).warnings.some((w) => /privilege/.test(w)));
-  assert.ok(policy.assessWrite({ op: 'update', table: 'sys_security_acl', fields: { active: 'false' } }).warnings.some((w) => /access control/.test(w)));
+  // ACL and role tables are refused by default (tests/guardrails.test.js covers the rules); when an admin has allowed
+  // them and the user is elevated, the card still carries the warning.
+  const allowed = { guard: { allowSecurityTableWrites: true }, session: { securityAdmin: true } };
+  assert.match(block('create', 'sys_user_has_role', { role: 'x' }), /ACL and role tables are protected/);
+  assert.ok(policy.assessWrite({ op: 'create', table: 'sys_user_has_role', fields: { role: 'x' }, ...allowed }).warnings.some((w) => /privilege/.test(w)));
+  assert.ok(policy.assessWrite({ op: 'update', table: 'sys_security_acl', fields: { active: 'false' }, ...allowed }).warnings.some((w) => /access control/.test(w)));
   assert.ok(policy.assessWrite({ op: 'update', table: 'sys_properties', fields: { value: '1' } }).warnings.some((w) => /instance/.test(w)));
   assert.ok(policy.assessWrite({ op: 'update', table: 'sys_ui_action', fields: { script: 'x' } }).warnings.some((w) => /not checked/.test(w)));
 
@@ -573,7 +577,7 @@ test('run_background_script refuses a syntax error, runs with guards, and knows 
   assert.deepEqual(after.warnings, [], 'the same script (whitespace aside) was dry-run');
   const r = await h.tools.execute('run_background_script', { code, reason: 'r' });
   assert.equal(r.dryRunFirst, true);
-  assert.match(h.calls.scripts.at(-1), /==== MySnowBuddy run ====/);
+  assert.match(h.calls.scripts.at(-1), /==== NowBuddy run ====/);
 });
 
 test('run_atf starts a suite and waits; progressId only polls; a single test is explained', async () => {

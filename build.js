@@ -59,6 +59,8 @@ const builds = [
 
 function copyStatic() {
   fs.copyFileSync(path.join(rootDir, 'manifest.json'), path.join(outdir, 'manifest.json'));
+  fs.mkdirSync(path.join(outdir, 'icons'), { recursive: true });
+  fs.readdirSync(path.join(rootDir, 'assets/icons')).forEach((file) => fs.copyFileSync(path.join(rootDir, 'assets/icons', file), path.join(outdir, 'icons', file)));
   fs.copyFileSync(path.join(rootDir, 'src/options/options.html'), path.join(outdir, 'options.html'));
   fs.copyFileSync(path.join(rootDir, 'src/options/options.css'), path.join(outdir, 'options.css'));
   fs.copyFileSync(path.join(rootDir, 'src/sandbox/sandbox.html'), path.join(outdir, 'sandbox.html'));
@@ -72,6 +74,7 @@ function copyStatic() {
     fs.readFileSync(path.join(rootDir, 'src/content/welcome.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/guide.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/editor.css'), 'utf8'),
+    fs.readFileSync(path.join(rootDir, 'src/content/confirm.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/sidebar.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/agent.css'), 'utf8'),
     // Feature panels (src/sidebar/panelRegistry.js) keep their styles in their own file next to the panel.

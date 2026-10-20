@@ -230,7 +230,7 @@ const base64Of = (dataUrl) => String(dataUrl || '').slice(String(dataUrl || '').
 
 /**
  * The visible area of a ServiceNow tab. Chrome requires activeTab (granted when the user clicks the toolbar icon or
- * presses the extension's shortcut on that tab) or <all_urls>; MySnowBuddy deliberately does not ask for <all_urls>.
+ * presses the extension's shortcut on that tab) or <all_urls>; NowBuddy deliberately does not ask for <all_urls>.
  */
 async function captureTab(tab, callId) {
   if (!tab.active) {
@@ -243,7 +243,7 @@ async function captureTab(tab, callId) {
   } catch {
     consent = null;
   }
-  if (!consent || !consent.ok) throw new Error('The screenshot could not be confirmed in the browser (MySnowBuddy is not running in that tab). Nothing was captured.');
+  if (!consent || !consent.ok) throw new Error('The screenshot could not be confirmed in the browser (NowBuddy is not running in that tab). Nothing was captured.');
   if (!consent.approved) throw new Error('The user did not allow this screenshot. Do not retry it; use read_page instead.');
   if (cancelledCalls.has(callId)) throw new Error('This call was cancelled; nothing was captured.');
   // Let the closed approval card leave the screen before the capture.
@@ -254,7 +254,7 @@ async function captureTab(tab, callId) {
   } catch (err) {
     const msg = String((err && err.message) || err);
     if (/activeTab|all_urls|permission/i.test(msg)) {
-      throw new Error('Chrome lets MySnowBuddy capture a tab only after the user clicks the MySnowBuddy toolbar icon (or presses Alt+Shift+C) on that tab. Ask them to do that once, then try again. read_page works without it.');
+      throw new Error('Chrome lets NowBuddy capture a tab only after the user clicks the NowBuddy toolbar icon (or presses Alt+Shift+C) on that tab. Ask them to do that once, then try again. read_page works without it.');
     }
     throw new Error(`Screenshot failed: ${msg}`);
   }
@@ -309,7 +309,7 @@ async function readPageAfterReload(tab) {
       // Not listening yet; try again.
     }
   }
-  return { note: 'The page loaded but MySnowBuddy is not answering yet; call read_page.' };
+  return { note: 'The page loaded but NowBuddy is not answering yet; call read_page.' };
 }
 
 const stripRouting = (args) => {
@@ -380,7 +380,7 @@ async function runCall(call) {
   try {
     await bridgeFetch('/v1/result', { method: 'POST', body: JSON.stringify(outcome) });
   } catch (err) {
-    console.warn('[MySnowBuddy] could not deliver MCP result', err);
+    console.warn('[NowBuddy] could not deliver MCP result', err);
   }
 }
 

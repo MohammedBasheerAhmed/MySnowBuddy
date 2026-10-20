@@ -519,3 +519,309 @@ body {
     animation-duration: 0.01ms !important;
   }
 }
+
+/* --- Instances (switcher list) ------------------------------------------------ */
+
+.msb-inst__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.msb-inst__add input {
+  flex: 1 1 170px;
+  width: auto;
+}
+
+.msb-inst__add button[type='submit'] {
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.msb-inst__add button[type='submit']:hover {
+  background: var(--msb-accent-hover);
+}
+
+.msb-inst__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-inst__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 12px;
+}
+
+.msb-inst__row + .msb-inst__row {
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-inst__dot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.msb-inst__main {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.msb-inst__label {
+  flex: 0 1 170px;
+  width: auto;
+  min-width: 90px;
+  font-weight: 600;
+}
+
+.msb-inst__host {
+  font-family: var(--msb-mono);
+  font-size: 12px;
+  color: var(--msb-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.msb-inst__prod {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--msb-danger);
+}
+
+.msb-inst__colors {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.msb-inst__swatch {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* 24px target without enlarging the dot. */
+.msb-inst__swatch::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+}
+
+.msb-inst__swatch[aria-checked='true'] {
+  border-color: var(--msb-bg);
+  box-shadow: 0 0 0 2px var(--msb-fg);
+}
+
+.msb-inst__auto {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--msb-border-strong);
+  border-radius: 12px;
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.msb-inst__auto[aria-checked='true'] {
+  border-color: var(--msb-fg);
+  box-shadow: 0 0 0 1px var(--msb-fg);
+  font-weight: 600;
+}
+
+.msb-inst__swatch:focus-visible,
+.msb-inst__auto:focus-visible,
+.msb-inst__ops button:focus-visible {
+  outline: 2px solid var(--msb-accent);
+  outline-offset: 2px;
+}
+
+.msb-inst__ops {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.msb-inst__ops button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg-soft);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.msb-inst__ops button:hover:not(:disabled) {
+  background: var(--msb-bg-subtle);
+  border-color: var(--msb-border-strong);
+}
+
+.msb-inst__ops button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Under the name, in line with it (past the 30px tile and the gap). */
+.msb-inst__colors--row {
+  flex: 1 0 100%;
+  padding-left: 44px;
+}
+
+/* AI usage and limits (src/options/UsageSettings.jsx) */
+.msb-usage__cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.msb-usage__card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+  padding: 10px 14px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius);
+  background: var(--msb-bg-subtle);
+  color: var(--msb-fg);
+  font-size: 13px;
+}
+
+.msb-usage__label {
+  color: var(--msb-fg-muted);
+  font-size: 12px;
+}
+
+.msb-usage__table {
+  width: 100%;
+  margin: 8px 0 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--msb-fg);
+}
+
+.msb-usage__table caption {
+  padding-bottom: 4px;
+  color: var(--msb-fg-muted);
+  text-align: left;
+}
+
+.msb-usage__table th,
+.msb-usage__table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--msb-border);
+  text-align: left;
+  font-weight: 400;
+}
+
+.msb-usage__table thead th {
+  color: var(--msb-fg-muted);
+  font-weight: 600;
+}
+
+.msb-usage__table input {
+  width: 90px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--msb-border-strong);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font: inherit;
+}
+
+.msb-usage__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 16px;
+}
+
+.msb-usage__meter {
+  margin: 6px 0;
+  color: var(--msb-fg);
+  font-size: 13px;
+}
+
+.msb-usage__meter label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  text-align: left;
+}
+
+.msb-usage__meter progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--msb-accent);
+}
+
+.msb-usage__meter--warn progress {
+  accent-color: var(--msb-warn, #a35a00);
+}
+
+.msb-usage__meter--blocked progress {
+  accent-color: var(--msb-danger, #b3261e);
+}
+
+/* Agent safety (AgentSettings.jsx): the write guardrails, grouped so they read as one set of rules. */
+.msb-options__safety {
+  margin: 16px 0 0;
+  padding: 12px 14px 4px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm, 6px);
+  background: var(--msb-bg-subtle);
+}
+
+.msb-options__safety legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-options__safety > label:not(.msb-options__field) {
+  display: block;
+  margin-top: 8px;
+}
+
+.msb-options__safety > .msb-options__hint {
+  display: block;
+}

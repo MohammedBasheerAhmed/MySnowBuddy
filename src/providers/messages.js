@@ -51,6 +51,13 @@ export function toOpenAITools(tools) {
   }));
 }
 
+// prompt_tokens includes the tokens served from the cache, so the neutral `input` is the part that was NOT cached.
+function openAIUsage(usage) {
+  const prompt = usage?.prompt_tokens || 0;
+  const cached = Math.min(prompt, usage?.prompt_tokens_details?.cached_tokens || usage?.cached_tokens || 0);
+  return { input: prompt - cached, output: usage?.completion_tokens || 0, cacheRead: cached, cacheWrite: 0 };
+}
+
 export function fromOpenAIResponse(data) {
   const choice = data?.choices?.[0];
   const message = choice?.message;
@@ -65,7 +72,7 @@ export function fromOpenAIResponse(data) {
     content: message.content || '',
     toolCalls,
     stopReason: choice.finish_reason === 'length' ? 'max_tokens' : toolCalls.length ? 'tool_use' : 'end_turn',
-    usage: { input: data.usage?.prompt_tokens || 0, output: data.usage?.completion_tokens || 0 },
+    usage: openAIUsage(data.usage),
   };
 }
 
@@ -134,6 +141,47 @@ export function fromAnthropicResponse(data) {
     toolCalls,
     raw: { provider: 'anthropic', blocks },
     stopReason: data.stop_reason === 'max_tokens' ? 'max_tokens' : toolCalls.length ? 'tool_use' : 'end_turn',
-    usage: { input: data.usage?.input_tokens || 0, output: data.usage?.output_tokens || 0 },
+    // Anthropic reports cache reads and writes separately from input_tokens (which excludes both).
+    usage: {
+      input: data.usage?.input_tokens || 0,
+      output: data.usage?.output_tokens || 0,
+      cacheRead: data.usage?.cache_read_input_tokens || 0,
+      cacheWrite: data.usage?.cache_creation_input_tokens || 0,
+    },
   };
+}
+
+const EPHEMERAL = { type: 'ephemeral' };
+const CACHEABLE_BLOCKS = new Set(['text', 'tool_result', 'tool_use', 'image', 'document']);
+
+/**
+ * Prompt caching: mark the end of the stable prefix so the next call in a conversation (or an agent's tool loop) is
+ * billed at the cheap cache-read rate for everything before it. Three breakpoints, in prefix order: the last tool
+ * definition, the system prompt, and the last block of the last message (the whole conversation so far). Pure: returns a
+ * new request body and leaves the argument alone. Thinking blocks cannot carry cache_control, so a trailing assistant
+ * turn is left unmarked.
+ */
+export function applyCacheControl(body) {
+  const out = { ...body };
+  if (Array.isArray(out.tools) && out.tools.length) {
+    out.tools = out.tools.map((tool, i) => (i === out.tools.length - 1 ? { ...tool, cache_control: EPHEMERAL } : tool));
+  }
+  if (typeof out.system === 'string' && out.system) {
+    out.system = [{ type: 'text', text: out.system, cache_control: EPHEMERAL }];
+  }
+  if (Array.isArray(out.messages) && out.messages.length) {
+    const messages = out.messages.slice();
+    const last = messages[messages.length - 1];
+    if (typeof last.content === 'string' && last.content) {
+      messages[messages.length - 1] = { ...last, content: [{ type: 'text', text: last.content, cache_control: EPHEMERAL }] };
+    } else if (Array.isArray(last.content) && last.content.length) {
+      const index = last.content.length - 1;
+      const block = last.content[index];
+      if (block && CACHEABLE_BLOCKS.has(block.type)) {
+        messages[messages.length - 1] = { ...last, content: last.content.map((b, i) => (i === index ? { ...b, cache_control: EPHEMERAL } : b)) };
+      }
+    }
+    out.messages = messages;
+  }
+  return out;
 }

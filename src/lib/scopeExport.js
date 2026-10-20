@@ -89,7 +89,7 @@ export function buildScopeFiles(scope, sets) {
     .join('\n');
   files.push({
     path: `${root}/README.txt`,
-    content: `Scope export of ${scope}\nGenerated ${new Date().toISOString()} by MySnowBuddy\n\n${summary}\n\nScripts use LF line endings. Each record has a .meta.json with its non-script fields.\n`,
+    content: `Scope export of ${scope}\nGenerated ${new Date().toISOString()} by NowBuddy\n\n${summary}\n\nScripts use LF line endings. Each record has a .meta.json with its non-script fields.\n`,
   });
   return files;
 }

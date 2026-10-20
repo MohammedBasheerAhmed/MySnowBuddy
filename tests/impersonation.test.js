@@ -63,7 +63,7 @@ test('a stale remembered user (impersonation ended elsewhere) is replaced, not t
   assert.equal(state.user, OTHER, 'goes back to the user who really started it');
 });
 
-test('ending an impersonation MySnowBuddy did not start says how to end it by hand', async () => {
+test('ending an impersonation NowBuddy did not start says how to end it by hand', async () => {
   setup();
   const { stopImpersonating } = require('../src/content/impersonation.js');
   await assert.rejects(stopImpersonating(), /avatar menu/);

@@ -90,3 +90,17 @@
   background: var(--msb-active-bg);
   color: var(--msb-active-fg);
 }
+
+.msb-bar__btn[aria-pressed='true'] {
+  background: var(--msb-accent);
+  border-color: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-bar__sep {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  margin: 0 4px;
+  background: var(--msb-border-strong, var(--msb-border));
+}

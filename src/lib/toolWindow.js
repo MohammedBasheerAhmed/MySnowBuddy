@@ -39,3 +39,43 @@ export function upsertWindow(windows, entry, z) {
   if (at === -1) return [...windows, { ...entry, z }];
   return windows.map((w, i) => (i === at ? { ...entry, wid: w.wid, z } : w));
 }
+
+// --- Keyboard operation -------------------------------------------------------------------------
+// With the title bar focused: arrows move the window, Alt+arrows resize it (right and down grow it),
+// Shift makes the step four times larger, Enter or Space maximises, Escape closes.
+
+export const KEY_STEP = 16;
+export const KEY_STEP_BIG = 64;
+const ARROWS = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+/** How far one arrow press moves or resizes, or null when the key is not an arrow. */
+export function keyDelta(key, shift = false) {
+  const dir = ARROWS[key];
+  if (!dir) return null;
+  const step = shift ? KEY_STEP_BIG : KEY_STEP;
+  return { dx: dir[0] * step, dy: dir[1] * step };
+}
+
+/** The window one arrow press further, still inside the viewport. */
+export function moveByKey(rect, key, shift, view) {
+  const d = keyDelta(key, shift);
+  return d ? clampRect({ ...rect, x: rect.x + d.dx, y: rect.y + d.dy }, view) : rect;
+}
+
+/** The window one arrow press larger or smaller (its top-left corner stays put). */
+export function resizeByKey(rect, key, shift, view) {
+  const d = keyDelta(key, shift);
+  return d ? resizeRect(rect, 'se', d.dx, d.dy, view) : rect;
+}
+
+/** What a key press on the title bar asks for: { type: 'move' | 'resize' | 'maximize' | 'close', ... } or null. */
+export function windowKeyAction({ key, shiftKey = false, altKey = false, ctrlKey = false, metaKey = false }) {
+  if (ctrlKey || metaKey) return null;
+  if (key === 'Escape') return { type: 'close' };
+  if (key === 'Enter' || key === ' ') return { type: 'maximize' };
+  if (!ARROWS[key]) return null;
+  return { type: altKey ? 'resize' : 'move', key, shift: shiftKey };
+}
+
+/** Text read out with the title bar so the keys can be discovered without a manual. */
+export const WINDOW_KEY_HINT = 'Arrow keys move the window, Shift makes the step larger, Alt with arrow keys resizes it, Enter maximizes or restores, Escape closes.';

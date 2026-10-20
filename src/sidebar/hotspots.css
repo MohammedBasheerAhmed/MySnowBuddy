@@ -1,0 +1,116 @@
+/* Hot spots panel: src/sidebar/HotspotsPanel.jsx */
+
+.msb-hot__windows {
+  display: inline-flex;
+  gap: 2px;
+  margin: 10px 0 6px;
+  padding: 2px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-subtle);
+}
+
+.msb-hot__window-btn {
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: var(--msb-radius-pill);
+  background: transparent;
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.msb-hot__window-btn:hover {
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+}
+
+.msb-hot__window-btn[aria-checked='true'] {
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-hot__group {
+  margin-top: 16px;
+}
+
+.msb-hot__group-title {
+  margin: 0 0 6px;
+  font-size: var(--msb-text-md);
+  font-weight: 700;
+  color: var(--msb-fg);
+}
+
+.msb-hot__group-title span {
+  margin-left: 6px;
+  font-size: var(--msb-text-xs);
+  font-weight: 400;
+  color: var(--msb-fg-muted);
+}
+
+.msb-hot__section {
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-hot__section:last-child {
+  border-bottom: 1px solid var(--msb-border);
+}
+
+.msb-hot__title {
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-hot__hint {
+  flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  overflow: hidden;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msb-hot__body {
+  padding: 4px 2px 12px;
+}
+
+.msb-hot__busy {
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-hot__headline {
+  margin: 4px 0 8px;
+  font-size: var(--msb-text-sm);
+  line-height: 1.45;
+  color: var(--msb-fg);
+}
+
+.msb-hot__window {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+/* The first cell of a row carries a thin bar: how much of the biggest row this one is. */
+.msb-hot__table td.msb-hot__first {
+  position: relative;
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+.msb-hot__table td.msb-hot__first::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: var(--msb-hot-weight, 0%);
+  background: var(--msb-accent);
+  opacity: 0.55;
+}

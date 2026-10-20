@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 'use strict';
-// MySnowBuddy local MCP bridge.
+// NowBuddy local MCP bridge.
 //
 // One process, two faces:
 //   1. An MCP server (newline-delimited JSON-RPC 2.0 over stdio) that an MCP
 //      client such as Claude Code launches.
-//   2. A loopback-only HTTP server (127.0.0.1) that the MySnowBuddy browser
+//   2. A loopback-only HTTP server (127.0.0.1) that the NowBuddy browser
 //      extension registers its tools with and long-polls for tool calls.
 //
 // stdout carries JSON-RPC and nothing else. All logging goes to stderr.
@@ -29,7 +29,7 @@ const DEFAULT_PROTOCOL = '2025-03-26';
 const ORIGIN_RE = /^(chrome-extension|moz-extension):\/\//;
 
 const INSTRUCTIONS =
-  'These tools act on the user\'s live, logged-in ServiceNow session through the MySnowBuddy browser extension. ' +
+  'These tools act on the user\'s live, logged-in ServiceNow session through the NowBuddy browser extension. ' +
   'Work in loops: read_page (or get_instance_info) to see where you are, navigate to open a list or record, act, then ' +
   'read_page again to verify. Prefer Table API tools (query_table, create_record, update_record) over clicking. ' +
   'Run and write tools prompt the user for approval in the browser, so a call may take a while; if one is declined, ' +
@@ -39,7 +39,7 @@ const INSTRUCTIONS =
 const STATUS_TOOL = {
   name: 'snowbuddy_status',
   description:
-    'Report whether the MySnowBuddy browser extension is connected to this bridge, the connected ServiceNow instance and how many tools are registered.',
+    'Report whether the NowBuddy browser extension is connected to this bridge, the connected ServiceNow instance and how many tools are registered.',
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   annotations: { readOnlyHint: true },
 };
@@ -257,7 +257,7 @@ function createBridge(options = {}) {
     if (!isConnected()) {
       return {
         result: textResult(
-          'The MySnowBuddy extension is not connected to this bridge. Open a ServiceNow tab in a browser with MySnowBuddy installed, ' +
+          'The NowBuddy extension is not connected to this bridge. Open a ServiceNow tab in a browser with NowBuddy installed, ' +
             'enable Agent > Local MCP bridge in its options, and check that the pairing token matches ' +
             `the one in ${tokenPath}.`,
           true
@@ -573,7 +573,7 @@ function createBridge(options = {}) {
         }
         for (const [id, entry] of pending) {
           clearTimeout(entry.timer);
-          entry.resolve(textResult('The MySnowBuddy bridge is shutting down.', true));
+          entry.resolve(textResult('The NowBuddy bridge is shutting down.', true));
           pending.delete(id);
         }
         if (!server) return resolve();
@@ -601,7 +601,7 @@ async function main() {
   }
   process.stderr.write(
     `[mysnowbuddy-mcp] pairing token file: ${tokenPath}\n` +
-      '[mysnowbuddy-mcp] paste the token in MySnowBuddy options > Agent > Local MCP bridge\n'
+      '[mysnowbuddy-mcp] paste the token in NowBuddy options > Agent > Local MCP bridge\n'
   );
   process.on('SIGINT', () => bridge.stop().then(() => process.exit(0)));
   process.on('SIGTERM', () => bridge.stop().then(() => process.exit(0)));

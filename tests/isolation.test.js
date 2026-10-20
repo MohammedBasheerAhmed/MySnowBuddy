@@ -233,7 +233,7 @@ test('trusted(): every confirm / approve / write / run handler is wrapped', () =
     'src/sidebar/AtfPanel.jsx': [/onClick=\{trusted\(\(\) => handleRun\(s\)\)\}/],
     'src/sidebar/AutomationPanel.jsx': [/onClick=\{trusted\(handleRun\)\}/],
     'src/sidebar/MyWorkPanel.jsx': [/trusted\(\(\) => doSwitch\('set'/, /trusted\(\(\) => doSwitch\(switcher/],
-    'src/content/scriptEditor.js': [/button\('Apply & save', 'msb-ed__btn', trustedDom\(/, /button\('Run', 'msb-ed__btn', trustedDom\(/, /event\.isTrusted && apply\(\{ save: event\.shiftKey \}\)/],
+    'src/content/scriptEditor.js': [/button\('Apply & save', 'msb-ed__btn', trustedDom\(/, /button\('Run', 'msb-ed__btn', trustedDom\(/, /event\.isTrusted && apply\(\{ save: place \? true : event\.shiftKey \}\)/],
     'src/content/commandPalette.js': [/!event\.isTrusted\) return;/, /item\.addEventListener\('click', trustedDom\(/],
   };
   for (const [file, patterns] of Object.entries(expect)) {

@@ -8,6 +8,7 @@ import { approvalMode, isGuardedEnv, effectiveTier, resolveMcpCeiling, ceilingAl
 import { redactDeep } from '../lib/agent/agentLoop.js';
 import { getToolSchema, isMcpOnlyTool } from '../lib/agent/toolSchemas.js';
 import { getSettings } from './storage.js';
+import { resolveGuardrails } from '../lib/agent/guardrails.js';
 
 const STARTED_TIMEOUT_MS = 1500;
 
@@ -86,9 +87,10 @@ export function installAgentBridge({ tools, approval, getInstanceInfo, audit }) 
       const refused = mcpGate({ tool, args, settings });
       if (refused) throw new Error(refused);
       const instance = getInstanceInfo();
-      const mode = approvalMode({ tool, args, autonomy: mcpAutonomy(settings), isProd: isGuardedEnv(instance.env) });
+      const guard = resolveGuardrails(settings);
+      const mode = approvalMode({ tool, args, autonomy: mcpAutonomy(settings), isProd: isGuardedEnv(instance.env), guard });
 
-      if (mode === 'deny') throw new Error(denyMessage(tool, args));
+      if (mode === 'deny') throw new Error(denyMessage(tool, args, { guard }));
       if (mode === 'ask' || mode === 'ask-strong') {
         const preview = await tools.preview(tool, args);
         // The executor would refuse it (unknown column, record gone, button not on the page): say why instead of

@@ -331,3 +331,39 @@ test('tool windows: clamping keeps a window reachable, resizing stays in the vie
   assert.deepEqual(next[0], { wid: 1, name: 'search', query: 'b', z: 12 });
   assert.equal(upsertWindow(list, { wid: 4, name: 'api' }, 13).length, 3);
 });
+
+test('tool windows: keyboard moves and resizes stay inside the viewport', () => {
+  const { keyDelta, moveByKey, resizeByKey, windowKeyAction, KEY_STEP, KEY_STEP_BIG, MIN_WINDOW } = require('../src/lib/toolWindow.js');
+  const view = { w: 1200, h: 800 };
+  const r = { x: 100, y: 100, w: 480, h: 580 };
+  assert.deepEqual(keyDelta('ArrowRight'), { dx: KEY_STEP, dy: 0 });
+  assert.deepEqual(keyDelta('ArrowUp', true), { dx: 0, dy: -KEY_STEP_BIG });
+  assert.equal(keyDelta('a'), null);
+
+  assert.deepEqual(moveByKey(r, 'ArrowLeft', false, view), { ...r, x: 100 - KEY_STEP });
+  assert.deepEqual(moveByKey(r, 'ArrowDown', true, view), { ...r, y: 100 + KEY_STEP_BIG });
+  assert.deepEqual(moveByKey(r, 'x', false, view), r, 'a non-arrow key changes nothing');
+  // Held against an edge: the window stays reachable, and never leaves through the top.
+  let held = { ...r, y: 0 };
+  for (let i = 0; i < 5; i += 1) held = moveByKey(held, 'ArrowUp', true, view);
+  assert.equal(held.y, 0);
+  held = r;
+  for (let i = 0; i < 100; i += 1) held = moveByKey(held, 'ArrowRight', true, view);
+  assert.ok(held.x < view.w, 'a grab strip stays on screen');
+
+  assert.deepEqual(resizeByKey(r, 'ArrowRight', false, view), { ...r, w: 480 + KEY_STEP });
+  assert.deepEqual(resizeByKey(r, 'ArrowDown', true, view), { ...r, h: 580 + KEY_STEP_BIG });
+  let small = r;
+  for (let i = 0; i < 100; i += 1) small = resizeByKey(small, 'ArrowLeft', true, view);
+  assert.equal(small.w, MIN_WINDOW.w, 'shrinking stops at the minimum');
+  let big = r;
+  for (let i = 0; i < 100; i += 1) big = resizeByKey(big, 'ArrowDown', true, view);
+  assert.ok(big.y + big.h <= view.h, 'growing stops at the viewport');
+
+  assert.deepEqual(windowKeyAction({ key: 'ArrowLeft' }), { type: 'move', key: 'ArrowLeft', shift: false });
+  assert.deepEqual(windowKeyAction({ key: 'ArrowDown', altKey: true, shiftKey: true }), { type: 'resize', key: 'ArrowDown', shift: true });
+  assert.deepEqual(windowKeyAction({ key: 'Enter' }), { type: 'maximize' });
+  assert.deepEqual(windowKeyAction({ key: 'Escape' }), { type: 'close' });
+  assert.equal(windowKeyAction({ key: 'ArrowLeft', ctrlKey: true }), null, 'browser chords are left alone');
+  assert.equal(windowKeyAction({ key: 'Tab' }), null);
+});

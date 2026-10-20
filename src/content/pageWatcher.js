@@ -18,7 +18,7 @@ export function createPageWatcher(getContext) {
       try {
         fn(ctx);
       } catch (err) {
-        console.error('[MySnowBuddy] page watcher listener failed', err);
+        console.error('[NowBuddy] page watcher listener failed', err);
       }
     });
   }

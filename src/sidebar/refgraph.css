@@ -1,0 +1,133 @@
+/* What points at this record? (/refs): src/sidebar/RefGraphPanel.jsx */
+
+.msb-refs__busy {
+  margin-top: 12px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-refs__subject {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.msb-refs__muted {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-refs__summary {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-ok);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg);
+}
+
+.msb-refs__summary--blocked {
+  border-left-color: var(--msb-danger);
+}
+
+.msb-refs__summary--cascade,
+.msb-refs__summary--clear {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-refs__summary--unknown {
+  border-left-color: var(--msb-fg-muted);
+}
+
+/* The level is written out, so the stripe colour is never the only signal. */
+.msb-refs__level {
+  font-weight: 600;
+}
+
+.msb-refs__title {
+  display: flex;
+  align-items: center;
+  margin: 14px 0 6px;
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-refs__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-refs__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg-soft);
+}
+
+.msb-refs__count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-refs__tag {
+  padding: 0 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: 999px;
+  background: var(--msb-bg-subtle);
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-soft);
+}
+
+.msb-refs__tag--restrict {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-refs__tag--delete {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-refs__more {
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-refs__more summary {
+  cursor: pointer;
+}
+
+.msb-refs__list--quiet {
+  margin-top: 6px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-refs__hidden {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}

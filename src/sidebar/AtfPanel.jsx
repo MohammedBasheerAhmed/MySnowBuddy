@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { flattenValue } from '../lib/export.js';
 import { redactSecrets } from '../providers/redact.js';
 import { trusted } from './trusted.js';
+import { askConfirm } from '../content/confirmDialog.js';
+import { atfRunAsk } from '../lib/confirmCopy.js';
 
 const POLL_MS = 3000;
 const MAX_POLLS = 200;
@@ -67,14 +69,7 @@ export default function AtfPanel({ services, onClose, onAskAi }) {
   }
 
   async function handleRun(suite) {
-    if (
-      !window.confirm(
-        `Run the ATF suite "${suite.name}" on ${window.location.hostname}?\n\n` +
-          'Tests can create, change and delete records, and take effect immediately.'
-      )
-    ) {
-      return;
-    }
+    if (!(await askConfirm(atfRunAsk(suite.name, window.location.hostname)))) return;
     setError(null);
     setProgress({ name: suite.name, percent: 0, status: 'Starting' });
     try {

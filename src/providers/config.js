@@ -1,5 +1,6 @@
 // Single source of truth for providers and models. Do not hardcode a model name
 // anywhere else in the codebase.
+import { validateBaseUrl } from '../lib/aiUsage.js';
 
 export const OPENAI_MODEL = 'gpt-5-mini';
 export const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
@@ -37,11 +38,21 @@ export const STORAGE_KEYS = {
   anthropicKey: 'mysnowbuddy_anthropic_key',
   provider: 'mysnowbuddy_provider',
   models: 'mysnowbuddy_models',
+  // Custom endpoints: an OpenAI-compatible server (xAI, OpenRouter, Azure gateway, Ollama...) or an Anthropic proxy.
+  openaiBaseUrl: 'mysnowbuddy_openai_base_url',
+  anthropicBaseUrl: 'mysnowbuddy_anthropic_base_url',
 };
 
 export const keyStorageFor = (provider) => (provider === 'openai' ? STORAGE_KEYS.openaiKey : STORAGE_KEYS.anthropicKey);
+export const baseUrlStorageFor = (provider) => (provider === 'openai' ? STORAGE_KEYS.openaiBaseUrl : STORAGE_KEYS.anthropicBaseUrl);
 
-/** Resolve the active { provider, model, apiKey } from a chrome.storage.local snapshot. */
+// Shared settings object (src/content/storage.js): prompt caching is on unless switched off.
+const SETTINGS_KEY = 'mysnowbuddy_settings';
+
+/**
+ * Resolve the active { provider, model, apiKey, baseUrl, keyOptional, promptCache } from a chrome.storage.local snapshot.
+ * With a custom base URL the model id is free text (whatever that server calls its model); without one it must be a listed model.
+ */
 export function resolveProviderConfig(stored = {}) {
   const provider = PROVIDERS[stored[STORAGE_KEYS.provider]] ? stored[STORAGE_KEYS.provider] : null;
   // Existing installs only have an OpenAI key; keep them working without a settings visit.
@@ -49,10 +60,17 @@ export function resolveProviderConfig(stored = {}) {
     provider ||
     (stored[STORAGE_KEYS.anthropicKey] ? 'anthropic' : stored[STORAGE_KEYS.openaiKey] ? 'openai' : DEFAULT_PROVIDER);
   const models = stored[STORAGE_KEYS.models] || {};
+  const base = validateBaseUrl(stored[baseUrlStorageFor(inferred)]);
+  const baseUrl = base.ok ? base.url : '';
   const known = PROVIDERS[inferred].models.some((m) => m.id === models[inferred]);
+  const custom = baseUrl && typeof models[inferred] === 'string' && models[inferred].trim() ? models[inferred].trim() : '';
   return {
     provider: inferred,
-    model: known ? models[inferred] : PROVIDERS[inferred].defaultModel,
+    model: custom || (known ? models[inferred] : PROVIDERS[inferred].defaultModel),
     apiKey: stored[keyStorageFor(inferred)] || '',
+    baseUrl,
+    // A server on this machine (Ollama, LM Studio) usually needs no key.
+    keyOptional: Boolean(baseUrl && base.local && inferred === 'openai'),
+    promptCache: stored[SETTINGS_KEY]?.promptCache !== false,
   };
 }

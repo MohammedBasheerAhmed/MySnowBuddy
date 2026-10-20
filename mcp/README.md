@@ -1,9 +1,9 @@
-# MySnowBuddy local MCP bridge
+# NowBuddy local MCP bridge
 
-Lets an external AI agent (Claude Code or any MCP client) call MySnowBuddy's ServiceNow tools through your own logged-in browser tab.
+Lets an external AI agent (Claude Code or any MCP client) call NowBuddy's ServiceNow tools through your own logged-in browser tab.
 
 ```
-MCP client  <--stdio-->  snowbuddy-mcp.js  <--http 127.0.0.1-->  MySnowBuddy extension  -->  your ServiceNow tab
+MCP client  <--stdio-->  snowbuddy-mcp.js  <--http 127.0.0.1-->  NowBuddy extension  -->  your ServiceNow tab
 ```
 
 `snowbuddy-mcp.js` is a single dependency-free Node (>= 18) script. The MCP client launches it as a stdio server; it also listens on `127.0.0.1:17345` (override with `MYSNOWBUDDY_PORT`) for the extension.
@@ -36,7 +36,7 @@ MCP client  <--stdio-->  snowbuddy-mcp.js  <--http 127.0.0.1-->  MySnowBuddy ext
    ```
 
 2. Read the token from `~/.mysnowbuddy/mcp-token` (`%USERPROFILE%\.mysnowbuddy\mcp-token` on Windows). The server also prints the file path on stderr at start.
-3. In the browser: MySnowBuddy options > Agent > Local MCP bridge. Enable it and paste the token (and the port if you changed it).
+3. In the browser: NowBuddy options > Agent > Local MCP bridge. Enable it and paste the token (and the port if you changed it).
 4. Keep a `*.service-now.com` tab open and logged in. Ask your agent to call `snowbuddy_status` to confirm the link.
 
 Tool calls go to the active ServiceNow tab of your focused window, otherwise the most recently used ServiceNow tab. Every tool also accepts `instance` (for example `dev12345.service-now.com`) or `tab_id` (from `list_tabs`) to pick a specific tab.
@@ -62,7 +62,7 @@ Example prompts:
 
 ## Tools by tier
 
-Tiers decide what needs your approval. A permission ceiling (MySnowBuddy options > Agent > Local MCP bridge > "What an external agent may do") hides tools above the chosen tier from the MCP client and refuses them if called anyway; it is checked in the service worker and again in the page. The default is "Everything, with approval", the behaviour before the ceiling existed.
+Tiers decide what needs your approval. A permission ceiling (NowBuddy options > Agent > Local MCP bridge > "What an external agent may do") hides tools above the chosen tier from the MCP client and refuses them if called anyway; it is checked in the service worker and again in the page. The default is "Everything, with approval", the behaviour before the ceiling existed.
 
 | Tier | Approval | Tools |
 | --- | --- | --- |
@@ -74,12 +74,12 @@ Tiers decide what needs your approval. A permission ceiling (MySnowBuddy options
 Notes:
 
 - Dry runs: on a production or unrecognised instance every dry run needs the typed instance name, and "Auto dry runs" (sidebar only) only skips the card for scripts that a strict allow-list proves read-only. The script runs outside the interception code, which reports loudly if the script replaced an intercepted method. Every dry run is in the audit log.
-- `navigate` is in the observe tier because opening a view changes no data: it only opens list and form views of real tables (checked against the dictionary), Next Experience routes and portal pages, never processors (`logout.do`, `cache.do`, `impersonate.do`...) or URLs with action parameters, and it refuses to leave a classic form with unsaved changes. Leaving a workspace or portal form, whose unsaved edits MySnowBuddy cannot see, asks you in the tab first. It does change what your tab shows, so MCP clients see it as not read-only.
+- `navigate` is in the observe tier because opening a view changes no data: it only opens list and form views of real tables (checked against the dictionary), Next Experience routes and portal pages, never processors (`logout.do`, `cache.do`, `impersonate.do`...) or URLs with action parameters, and it refuses to leave a classic form with unsaved changes. Leaving a workspace or portal form, whose unsaved edits NowBuddy cannot see, asks you in the tab first. It does change what your tab shows, so MCP clients see it as not read-only.
 - Record writes check every column against the dictionary first. Credential tables and password fields are always refused, deleting users, tables or columns is refused, and role, ACL, property and code changes carry a warning on the card. Script fields of business rules, client scripts, script includes and UI policies go through `save_artifact`, which verifies the code.
 - `run_background_script` runs for real in the global scope; its card shows the static risk analysis and whether the exact script was dry-run first. It cannot be undone.
 - `switch_update_set` / `switch_application_scope` read the session back afterwards and say plainly when the switch did not take.
 - When a page reloads (a submit, a top-level navigation, impersonation), the bridge waits for it and appends a short `read_page` of the new page to the result.
-- `screenshot` returns a PNG (a JPEG when the PNG would be very large). Chrome only allows it after you have clicked the MySnowBuddy toolbar icon, or pressed Alt+Shift+C, on that tab (the `activeTab` rule); MySnowBuddy deliberately does not request access to all sites to avoid this. Only the visible tab of a window can be captured. Screenshots cannot be redacted, so every one is allowed by you in the tab first (an Allow/Deny card), whatever the permission ceiling. `list_tabs` returns only the tab id, host, a redacted title and whether it is active, never paths.
+- `screenshot` returns a PNG (a JPEG when the PNG would be very large). Chrome only allows it after you have clicked the NowBuddy toolbar icon, or pressed Alt+Shift+C, on that tab (the `activeTab` rule); NowBuddy deliberately does not request access to all sites to avoid this. Only the visible tab of a window can be captured. Screenshots cannot be redacted, so every one is allowed by you in the tab first (an Allow/Deny card), whatever the permission ceiling. `list_tabs` returns only the tab id, host, a redacted title and whether it is active, never paths.
 
 ## Security model
 
@@ -97,12 +97,12 @@ Notes:
 
 ## Troubleshooting
 
-- `snowbuddy_status` says `bridgeConnected: false`, or calls fail with "extension is not connected": open a ServiceNow tab in a browser with MySnowBuddy installed, check the bridge is enabled in options, and that the pasted token matches the file. The options page shows the connection state (`connecting`, `connected`, `error`).
+- `snowbuddy_status` says `bridgeConnected: false`, or calls fail with "extension is not connected": open a ServiceNow tab in a browser with NowBuddy installed, check the bridge is enabled in options, and that the pasted token matches the file. The options page shows the connection state (`connecting`, `connected`, `error`).
 - "The bridge rejected the pairing token": re-paste the token, no spaces or quotes.
 - "Could not start HTTP server" / EADDRINUSE: another bridge (often a second MCP client) already holds the port. Use a different `MYSNOWBUDDY_PORT` on both sides.
 - "No ServiceNow tab is open": open one, or reload tabs that were open before the extension was installed.
 - Calls time out after 3 minutes: an approval prompt may be waiting in the browser tab.
 - "Blocked by the external-agent permission ceiling": raise the level in options > Agent > Local MCP bridge, if you want the agent to do that.
-- `screenshot` says Chrome does not allow it: click the MySnowBuddy toolbar icon on that tab once (or press Alt+Shift+C), then ask again. The tab must be the visible one in its window.
+- `screenshot` says Chrome does not allow it: click the NowBuddy toolbar icon on that tab once (or press Alt+Shift+C), then ask again. The tab must be the visible one in its window.
 - After idling the browser may put the extension's service worker to sleep; it reconnects within about 30 seconds (keepalive alarm).
 - Logs: the bridge writes to stderr (your MCP client usually shows it, for example `claude mcp list` / `/mcp`). The extension's side is in the service worker console at `chrome://extensions`.

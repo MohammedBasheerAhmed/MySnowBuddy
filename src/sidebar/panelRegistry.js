@@ -24,7 +24,17 @@ import AccessDebuggerPanel from './AccessDebuggerPanel.jsx';
 import { MY_WORK_PANELS } from './MyWorkPanel.jsx';
 import HealthScanPanel from './HealthScanPanel.jsx';
 import ImpactPanel from './ImpactPanel.jsx';
+import SaveTracePanel from './SaveTracePanel.jsx';
+import HotspotsPanel from './HotspotsPanel.jsx';
+import FailuresPanel from './FailuresPanel.jsx';
+import TestKitPanel from './TestKitPanel.jsx';
 import XrayPanel from './XrayPanel.jsx';
+import WhyRulePanel from './WhyRulePanel.jsx';
+import RecentChangesPanel from './RecentChangesPanel.jsx';
+import ReleaseNotesPanel from './ReleaseNotesPanel.jsx';
+import TestDataPanel from './TestDataPanel.jsx';
+import InsightPanel from './InsightPanel.jsx';
+import RefGraphPanel from './RefGraphPanel.jsx';
 
 export const PANELS = [
   {
@@ -92,6 +102,177 @@ PANELS.push({
   withContext: true,
   launcher: true,
   component: ImpactPanel,
+});
+
+// What went wrong recently? (/failed): failed email, flows, overdue jobs, integration errors, import rows, events:
+// src/sidebar/FailuresPanel.jsx, src/content/failures.js, src/lib/failures.js.
+PANELS.push({
+  name: 'failures',
+  title: 'What went wrong?',
+  hint: 'Failed email, flows, overdue jobs, integration errors, import rows and events: what the system log does not show',
+  launcherHint: 'Failures beyond the log',
+  icon: 'alert',
+  slash: ['/failed', '/wrong'],
+  help: 'failed email, flows, jobs, integrations, imports and events in the last hour, day or week',
+  keywords: 'what went wrong failures failed error errors email not sent flow failed integration error rest outbound mid server ecc queue import failed import set row job did not run scheduled job stuck overdue events stuck triage',
+  group: 'analyze',
+  withContext: false,
+  launcher: true,
+  component: FailuresPanel,
+});
+
+// What is slow or noisy? (/hotspots): slowest requests, jobs, log and event noise, record churn:
+// src/sidebar/HotspotsPanel.jsx, src/content/hotspots.js, src/lib/hotspots.js.
+PANELS.push({
+  name: 'hotspots',
+  title: 'Hot spots',
+  hint: 'What is slow and what is noisy: slow pages and queries, jobs, repeating log messages, busy events, records changed again and again',
+  launcherHint: 'What is slow or noisy',
+  icon: 'bolt',
+  slash: ['/hotspots', '/slow'],
+  help: 'slow requests, jobs and queries, noisy logs, events and records for the last 15 minutes to 7 days',
+  keywords: 'hot spots slow noisy performance slow page slow query slow transaction response time sql too many logs log spam noisy job event queue outbound churn audit most changed busiest users slowest',
+  group: 'analyze',
+  withContext: false,
+  launcher: true,
+  component: HotspotsPanel,
+});
+
+// What changed lately? (/recent): configuration changes by anyone, grouped, with the version diff one click away:
+// src/sidebar/RecentChangesPanel.jsx, src/content/recentChanges.js, src/lib/recentChanges.js.
+PANELS.push({
+  name: 'recent',
+  title: 'What changed lately?',
+  hint: 'Configuration changes by anyone in the last hour, today or this week: who, what, which update set, and a diff',
+  launcherHint: 'Who changed what, lately',
+  icon: 'refresh',
+  slash: ['/recent', '/lately'],
+  help: 'configuration changes by anyone, newest first, with new-since-you-looked and a diff (also /recent)',
+  keywords: 'recent changes what changed lately who broke it what did others change since yesterday update sets versions diff team colleagues somebody changed',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: RecentChangesPanel,
+});
+
+// Release notes (/release): an update set as notes for a ticket, with risks, testing and backout:
+// src/sidebar/ReleaseNotesPanel.jsx, src/content/releaseNotes.js, src/lib/releaseNotes.js.
+PANELS.push({
+  name: 'releasenotes',
+  title: 'Release notes',
+  hint: 'An update set as release notes: what changed, what is risky, what to test, how to back out. Copy into the ticket',
+  launcherHint: 'Update set to ticket text',
+  icon: 'book',
+  slash: ['/release', '/notes'],
+  help: 'release notes for an update set (also /release <update set sys_id>)',
+  keywords: 'release notes change summary update set what is in this update set changelog ticket change request pull request testing notes backout deployment checklist',
+  group: 'analyze',
+  launcher: true,
+  component: ReleaseNotesPanel,
+});
+
+// What happened when I saved? (/savetrace): arm, save, collect one timeline of what the save caused:
+// src/sidebar/SaveTracePanel.jsx, src/content/saveTrace.js, src/lib/saveTrace.js.
+PANELS.push({
+  name: 'savetrace',
+  title: 'Save trace',
+  hint: 'What happened when I saved: field changes, logs, update set, events, emails, flows, SLAs in one timeline',
+  launcherHint: 'What a save did, in order',
+  icon: 'clock',
+  slash: ['/savetrace', '/trace'],
+  help: 'arm, save the record, collect what the save caused (also /savetrace arm)',
+  keywords: 'save trace what happened when i saved debug on save timeline business rules ran log transaction audit update set events emails flow sla approval sys_audit syslog why did my save fail what did the save do',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: SaveTracePanel,
+});
+
+// Test data (/testdata): realistic sample records, previewed first, created one by one behind a confirmation on
+// dev/test/stage only, and cleaned up from a journal: src/sidebar/TestDataPanel.jsx, src/content/testData.js,
+// src/lib/testData.js.
+PANELS.push({
+  name: 'testdata',
+  title: 'Test data',
+  hint: 'Create sample incidents, users, groups or CIs (preview first, dev/test only), then clean them up again',
+  launcherHint: 'Sample records, then clean up',
+  icon: 'database',
+  slash: ['/testdata'],
+  help: 'make sample records, then remove them (also /testdata incident 10, /testdata cleanup)',
+  keywords: 'test data sample data dummy records fake users generate create many incidents seed data populate dev instance cleanup remove test records bulk',
+  group: 'tools',
+  withContext: false,
+  launcher: true,
+  component: TestDataPanel,
+});
+
+// Why did (or didn't) my rule run? (/rules): every business rule, client script, UI policy, data policy and ACL that
+// could apply to the record on screen, with the first thing that stops each one:
+// src/sidebar/WhyRulePanel.jsx, src/content/ruleExplain.js, src/lib/ruleExplain.js.
+PANELS.push({
+  name: 'whyrule',
+  title: "Why didn't my rule run?",
+  hint: 'For the record on screen: which business rules, client scripts, UI policies, data policies and ACLs would run, and what stops the rest',
+  launcherHint: 'Why a rule did or did not fire',
+  icon: 'search',
+  slash: ['/rules', '/whyrule'],
+  help: 'why each rule did or did not run for this record (also /rules <rule name>)',
+  keywords: 'why did my rule not run fire trigger business rule client script ui policy data policy acl condition inactive wrong table wrong operation order role filter condition debug',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: WhyRulePanel,
+});
+
+// Break this list down (/breakdown): counts per value or per day / week / month, click a bar to filter the list:
+// src/sidebar/InsightPanel.jsx, src/content/insight.js, src/lib/insight.js.
+PANELS.push({
+  name: 'insight',
+  title: 'Break this list down',
+  hint: 'Counts per value of any column, or over time; click a bar to filter the list to it',
+  launcherHint: 'Counts per column or per day',
+  icon: 'table',
+  slash: ['/breakdown', '/insight'],
+  help: 'count the list on screen by a column or over time (also /breakdown <column>)',
+  keywords: 'break down breakdown group by count per column distribution how many by state priority group chart over time per day week month trend histogram pivot aggregate statistics',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: InsightPanel,
+});
+
+// What points at this record? (/refs): references to the record, what a delete would do, what it points at:
+// src/sidebar/RefGraphPanel.jsx, src/content/insight.js, src/lib/refGraph.js.
+PANELS.push({
+  name: 'refs',
+  title: 'What points at this record?',
+  hint: 'Every record and field that references this one, what deleting it would do, and what it points at',
+  launcherHint: 'Who uses this record',
+  icon: 'layers',
+  slash: ['/refs', '/references'],
+  help: 'what references the record on screen and what a delete would do to them',
+  keywords: 'references referenced by used by who uses this record can i delete this safe to delete dependencies reference graph relationships cmdb parents children cascade orphan user group',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: RefGraphPanel,
+});
+
+// Testing kit (/test): run the script on screen against a record, unit tests for a Script Include, ATF finder, snapshots,
+// access matrix, checklist: src/sidebar/TestKitPanel.jsx, TestKitMore.jsx, src/content/testKit.js, src/lib/testKit.js.
+PANELS.push({
+  name: 'testkit',
+  title: 'Test',
+  hint: 'Run a script against a record, write unit tests, find ATF coverage, snapshot and compare, who can access it',
+  launcherHint: 'Run, unit test, snapshot, ATF',
+  icon: 'flask',
+  slash: ['/test', '/tests'],
+  help: 'testing tools (also /test run | unit | atf | snapshot | access | checklist)',
+  keywords: 'test testing run script against record dry run unit test script include assert atf coverage snapshot compare before after diff acl matrix who can access checklist qa verify regression pretend changed',
+  group: 'tools',
+  withContext: true,
+  launcher: true,
+  component: TestKitPanel,
 });
 
 export function panelByName(name) {

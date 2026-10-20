@@ -8,6 +8,8 @@
 
 import { isConfigTable, isDefaultUpdateSet } from '../lib/guards.js';
 import { formDocuments } from './quickActions.js';
+import { askConfirm } from './confirmDialog.js';
+import { prodGuardAsk } from '../lib/confirmCopy.js';
 
 const SAVE_BUTTON_RE = /^sysverb_(update|insert|delete)/;
 const UPDATE_SET_CACHE_MS = 20000;
@@ -55,20 +57,39 @@ export function createGuards({ toast, getSettings, getContext, getInstanceInfo, 
   // The click handler must decide synchronously, so the setting is cached here.
   let guardsOn = true;
 
+  // The click is held (the page must not see it yet), the in-app dialog asks, and a yes replays the click once.
+  let replaying = null; // the button whose confirmed click is being replayed
+  let asking = null; // the button a dialog is open for
+
   function confirmSync(event) {
     const button = event.target?.closest?.('button, input[type="button"], input[type="submit"]');
     if (!button || !SAVE_BUTTON_RE.test(button.id || '')) return;
+    if (replaying === button) {
+      replaying = null; // the replay of a click the person already confirmed
+      return;
+    }
     if (!guardsOn || getInstanceInfo().env !== 'prod') return;
 
     const ctx = getContext();
     if (!isConfigTable(ctx.table)) return;
 
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (asking) return; // one dialog at a time: a second click while it is open does nothing
+    asking = button;
     const verb = /delete/.test(button.id) ? 'delete' : 'save';
-    const ok = window.confirm(`You are about to ${verb} ${ctx.table} configuration on PRODUCTION. Continue?`);
-    if (!ok) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
+    askConfirm(prodGuardAsk(verb, ctx.table))
+      .then((ok) => {
+        if (!ok || !button.isConnected) return; // declined, or the form was replaced while the dialog was open
+        replaying = button;
+        button.click();
+        setTimeout(() => {
+          if (replaying === button) replaying = null; // the click never reached the guard
+        }, 0);
+      })
+      .finally(() => {
+        asking = null;
+      });
   }
 
   const refreshSetting = () =>

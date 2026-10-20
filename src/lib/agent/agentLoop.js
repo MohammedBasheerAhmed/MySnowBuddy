@@ -58,6 +58,7 @@ export function toModelText(value, limit = MAX_RESULT_CHARS) {
  * @param {(event:object)=>void} [p.onEvent]
  * @param {number} [p.maxSteps]
  * @param {AbortSignal} [p.signal]
+ * @param {object} [p.guard] the resolved safety settings (resolveGuardrails), so a refusal names its real reason
  */
 export async function runAgent({
   messages,
@@ -69,6 +70,7 @@ export async function runAgent({
   onEvent = () => {},
   maxSteps = 16,
   signal,
+  guard = {},
 }) {
   const convo = [...messages];
   const seenCalls = new Map();
@@ -155,7 +157,7 @@ export async function runAgent({
     onEvent({ type: 'tool_start', id: call.id, tool: call.name, args, mode });
 
     if (mode === 'deny') {
-      const text = denyMessage(call.name, args);
+      const text = denyMessage(call.name, args, { guard });
       onEvent({ type: 'tool_result', id: call.id, tool: call.name, ok: false, denied: true, text });
       return { text, isError: true };
     }

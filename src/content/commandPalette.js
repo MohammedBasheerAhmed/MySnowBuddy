@@ -18,7 +18,9 @@ import { buildCommands, buildProviders, slashCommand, GROUPS } from './commands.
 import { SPECIAL_VERBS, findCommand } from '../lib/slashCommands.js';
 import { buildStoredCommands, goToDefinitionCommand, openByNameProvider, STORED_GROUPS } from './storedCommands.js';
 import { slashNavProvider } from './slashBar.js';
-import { buildInstanceCommands } from './instanceTag.js';
+import { encodedQueryProvider } from './queryTools.js';
+import { scaffoldProvider } from './scaffoldCommands.js';
+import { buildInstanceCommands, instanceSwitchProvider } from './instanceSwitch.js';
 import { navigate, absoluteUrl, copyText, isSysId } from './quickActions.js';
 import { recordCommandUse, getUiState, saveUiState } from './storage.js';
 import { frecency, rankRecent, matchPositions, highlightRuns, looksLikeCode } from '../lib/paletteRank.js';
@@ -26,6 +28,7 @@ import { intentText, queryWords, wordsScore } from '../lib/paletteIntents.js';
 import { pageKind, pageSuggestions, suggestFor, SUGGESTED_TITLES } from '../lib/paletteContext.js';
 import { createIcon } from './icons.js';
 import { trustedDom } from '../sidebar/trusted.js';
+import { UI_HOST_ID } from './uiRoot.js';
 
 const GROUP_ICONS = {
   Pinned: 'pin',
@@ -65,7 +68,7 @@ export function createCommandPalette(deps) {
   overlay.className = 'msb-palette';
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'MySnowBuddy command palette');
+  overlay.setAttribute('aria-label', 'NowBuddy command palette');
   overlay.hidden = true;
 
   // Built node-by-node rather than with innerHTML: ServiceNow pages can carry
@@ -214,13 +217,13 @@ export function createCommandPalette(deps) {
   // Alt+Enter: put a navigation's address on the clipboard instead of following it.
   async function copyLink(command) {
     if (!command) return;
-    if (!command.url) {
+    if (!command.url && !command.copyUrl) {
       toast.info('This action has no link to copy.');
       return;
     }
     close();
     try {
-      await copyText(absoluteUrl(command.url));
+      await copyText(command.copyUrl || absoluteUrl(command.url));
       toast.success('Copied link');
     } catch (err) {
       toast.error(err.message || String(err));
@@ -261,7 +264,7 @@ export function createCommandPalette(deps) {
         input.setAttribute('aria-activedescendant', el.id);
       }
     });
-    urlHints.hidden = !results[activeIndex]?.url;
+    urlHints.hidden = !(results[activeIndex]?.url || results[activeIndex]?.copyUrl);
   }
 
   async function execute(command, newTab) {
@@ -274,7 +277,8 @@ export function createCommandPalette(deps) {
         navigate(command.url, { newTab: newTab || command.newTab, raw: command.raw });
         return;
       }
-      await command.run();
+      // Shift/Ctrl/Cmd+Enter asks for a new tab; actions that do not care ignore the argument.
+      await command.run({ newTab: Boolean(newTab) });
     } catch (err) {
       toast.error(err.message || String(err));
     }
@@ -429,7 +433,14 @@ export function createCommandPalette(deps) {
       const iconWrap = el('span', 'msb-palette__itemIcon');
       const iconName = cmd.icon || GROUP_ICONS[cmd.group] || 'record';
       item.dataset.icon = iconName; // the icon name picks the category colour
-      iconWrap.appendChild(createIcon(iconName, 15));
+      if (cmd.swatch) {
+        // An instance: its colour with its first letter, the same tile as the tab icon.
+        iconWrap.classList.add('msb-palette__itemIcon--swatch');
+        iconWrap.style.background = cmd.swatch;
+        iconWrap.textContent = String(cmd.title || '?').replace(/^Go to /, '').charAt(0).toUpperCase();
+      } else {
+        iconWrap.appendChild(createIcon(iconName, 15));
+      }
       item.appendChild(iconWrap);
 
       const title = document.createElement('span');
@@ -459,6 +470,7 @@ export function createCommandPalette(deps) {
         item.appendChild(tag);
       }
 
+      if (cmd.badge) item.appendChild(el('span', 'msb-palette__badge', cmd.badge));
       if (!grouped && pinned.includes(cmd.id)) item.appendChild(el('span', 'msb-palette__badge', 'pinned'));
       if (cmd.url) {
         const badge = document.createElement('span');
@@ -479,7 +491,7 @@ export function createCommandPalette(deps) {
       item.addEventListener('click', trustedDom((event) => execute(cmd, event.shiftKey || event.ctrlKey || event.metaKey)));
       resultsEl.appendChild(item);
     });
-    urlHints.hidden = !results[activeIndex]?.url;
+    urlHints.hidden = !(results[activeIndex]?.url || results[activeIndex]?.copyUrl);
   }
 
   // ServiceNow (and the classic gsft_main iframe) can hold focus, so retry until the input has it.
@@ -501,21 +513,43 @@ export function createCommandPalette(deps) {
     true
   );
 
+  // The element that had focus before the palette opened, so closing it hands the focus back (a classic form lives
+  // in a same-origin iframe: look inside it).
+  let returnFocus = null;
+  function activeElementDeep() {
+    let doc = document;
+    let node = doc.activeElement;
+    for (let depth = 0; depth < 4 && node && node.tagName === 'IFRAME'; depth += 1) {
+      try {
+        doc = node.contentDocument;
+        node = doc?.activeElement;
+      } catch {
+        break; // cross-origin frame
+      }
+    }
+    return node;
+  }
+
   async function open(prefill = '') {
+    if (overlay.hidden) returnFocus = activeElementDeep();
     const ctx = safeContext(getContext);
     const stored = await buildStoredCommands({ ...deps, ctx }).catch(() => []);
     const instances = await buildInstanceCommands().catch(() => []);
     const definition = goToDefinitionCommand({ ctx, toast });
-    commands = [...buildCommands({ ...deps, ctx }), ...(definition ? [definition] : []), ...stored, ...instances];
+    commands = [...buildCommands({ ...deps, ctx, openPalette: (text) => open(text) }), ...(definition ? [definition] : []), ...stored, ...instances];
     providers = [
       ...buildProviders({ ...deps, ctx }),
       openByNameProvider(),
+      encodedQueryProvider({ ctx, toast }),
+      scaffoldProvider({ ctx, toast, reopen: (text) => open(text) }),
+      instanceSwitchProvider({ toast }),
       slashNavProvider({
         ctx,
         sidebar,
         reopen: (text) => open(text),
         openScriptEditor: deps.openScriptEditor,
         startFileSync: deps.startFileSync,
+        toggleFieldNames: deps.toggleFieldNames,
         toast,
         getCsrfToken: deps.getCsrfToken,
       }),
@@ -541,7 +575,16 @@ export function createCommandPalette(deps) {
   }
 
   function close() {
+    const wasOpen = !overlay.hidden;
     overlay.hidden = true;
+    if (wasOpen && returnFocus && returnFocus !== document.body && returnFocus.isConnected && returnFocus.id !== UI_HOST_ID) {
+      try {
+        returnFocus.focus({ preventScroll: true });
+      } catch {
+        // The element left the page.
+      }
+    }
+    returnFocus = null;
     deps.onOpenChange?.(false);
     input.value = '';
     results = [];

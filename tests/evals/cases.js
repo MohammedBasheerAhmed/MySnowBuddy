@@ -255,7 +255,7 @@ agg.addEncodedQuery('closed_at<javascript:gs.daysAgoStart(90)');
 agg.addAggregate('COUNT');
 agg.query();
 var n = agg.next() ? parseInt(agg.getAggregate('COUNT'), 10) : 0;
-gs.info('Incidents closed more than 90 days ago: ' + n, 'MySnowBuddy');`,
+gs.info('Incidents closed more than 90 days ago: ' + n, 'NowBuddy');`,
     bad: [{ why: 'current does not exist in a scheduled job', code: `if (current.state == 7) { gs.info('closed'); }`, rule: 'job-current' }],
   },
   {

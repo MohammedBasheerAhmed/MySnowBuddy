@@ -1,0 +1,86 @@
+/* In-app confirmation dialog (src/content/confirmDialog.js) */
+
+.msb-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--msb-z) + 40);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--msb-bg-overlay);
+  backdrop-filter: blur(3px);
+  font-family: var(--msb-font);
+  color: var(--msb-fg);
+}
+
+.msb-confirm[hidden] {
+  display: none;
+}
+
+.msb-confirm__card {
+  width: min(460px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px 22px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-lg);
+  background: var(--msb-bg);
+  box-shadow: var(--msb-shadow-lg);
+  animation: msb-msg-in 0.18s ease-out;
+}
+
+.msb-confirm__card--danger {
+  border-color: var(--msb-danger-line);
+  border-top: 4px solid var(--msb-danger-solid);
+}
+
+.msb-confirm__title {
+  margin: 0 0 8px;
+  font-size: var(--msb-text-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.msb-confirm__text {
+  margin: 0 0 14px;
+  font-size: var(--msb-text-md);
+  line-height: 1.55;
+  white-space: pre-line;
+}
+
+.msb-confirm__details {
+  max-height: 200px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.msb-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.msb-confirm__ok--danger,
+.msb-confirm__ok--danger:hover:not(:disabled) {
+  background: var(--msb-danger-solid);
+  color: var(--msb-on-danger);
+}
+
+.msb-confirm__ok--danger:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msb-confirm__card {
+    animation: none;
+  }
+}

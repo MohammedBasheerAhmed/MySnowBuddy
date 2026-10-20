@@ -1,4 +1,4 @@
-# MySnowBuddy: a five-minute demo
+# NowBuddy: a five-minute demo
 
 A ServiceNow developer's toolkit that lives on the instance page. You describe the problem, it finds the tool, and
 the checks that do not need an AI run locally for free.

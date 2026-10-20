@@ -1,0 +1,160 @@
+/* What changed lately? (src/sidebar/RecentChangesPanel.jsx) and Release notes (src/sidebar/ReleaseNotesPanel.jsx) */
+
+.msb-recent__controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 12px;
+}
+
+.msb-recent__controls label {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.msb-recent__controls select,
+.msb-recent__controls input[type='number'] {
+  width: 100%;
+}
+
+.msb-recent__summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-accent);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-recent__since {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  margin-top: 6px;
+  color: var(--msb-fg-soft);
+}
+
+.msb-recent__group {
+  margin-top: 10px;
+}
+
+.msb-recent__group-title {
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-recent__mine {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-warn-line);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-warn-soft);
+}
+
+.msb-recent__list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-recent__row {
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-recent__headline {
+  color: var(--msb-fg);
+  font-size: var(--msb-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.msb-recent__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 3px;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+}
+
+.msb-recent__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.msb-recent__diff {
+  margin-top: 8px;
+}
+
+.msb-recent__badge {
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--msb-radius-pill);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+}
+
+.msb-recent__badge--new {
+  background: var(--msb-accent-soft);
+  border-color: var(--msb-accent-line);
+  color: var(--msb-accent-hover);
+}
+
+.msb-recent__badge--hit {
+  background: var(--msb-warn-soft);
+  border-color: var(--msb-warn-line);
+  color: var(--msb-warn);
+}
+
+.msb-recent__badge--near {
+  background: var(--msb-bg-subtle);
+  border-color: var(--msb-border-strong);
+  color: var(--msb-fg-soft);
+}
+
+.msb-recent__badge--del {
+  background: var(--msb-danger-soft);
+  border-color: var(--msb-danger-line);
+  color: var(--msb-danger);
+}
+
+/* Release notes */
+
+.msb-notes__preview {
+  max-height: 420px;
+  margin-top: 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msb-notes__tabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.msb-notes__tabs button[aria-pressed='true'] {
+  background: var(--msb-accent);
+  border-color: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-notes__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}

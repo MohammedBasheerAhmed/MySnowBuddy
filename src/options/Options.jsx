@@ -1,8 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import {
-  listInstances,
-  addInstance,
-  removeInstance,
   listPresets,
   addPreset,
   removePreset,
@@ -11,7 +8,9 @@ import {
   removeCustomCommand,
 } from '../content/stores.js';
 import { getSyncEnabled, setSyncEnabled } from '../lib/promptLibrary.js';
+import InstanceManager from './InstanceManager.jsx';
 import { ProviderSection, AgentSection, McpSection } from './AgentSettings.jsx';
+import { UsageSection, DataSection } from './UsageSettings.jsx';
 
 const SETTINGS_STORAGE = 'mysnowbuddy_settings';
 
@@ -73,12 +72,16 @@ export default function Options() {
           </svg>
         </span>
         <div>
-          <h1>MySnowBuddy</h1>
+          <h1>NowBuddy</h1>
           <p className="msb-options__tagline">ServiceNow developer toolkit settings</p>
         </div>
       </header>
 
       <ProviderSection />
+
+      <UsageSection />
+
+      <DataSection settings={settings} update={updateSettings} />
 
       <AgentSection settings={settings} update={updateSettings} />
 
@@ -169,22 +172,17 @@ export default function Options() {
       </section>
 
       <section>
-        <h2>Known instances</h2>
+        <h2>Instances</h2>
         <p className="msb-options__hint">
-          Used by "Compare with another instance". Only *.service-now.com hosts are accepted.
+          The list behind the instance switcher: type <code>/i</code> in the command palette to open the page you are on, on
+          another instance (Enter: this tab, Shift+Enter: new tab). The label and colour also tag the browser tab. Also used by
+          "Compare with another instance". Only *.service-now.com hosts are accepted, without a path.
         </p>
         <p className="msb-options__hint">
           Also offered by Push to instance (/push). A label with the word "prod" or "production" makes every push to that
           instance ask you to type its name, whatever its hostname looks like.
         </p>
-        <PairList
-          load={listInstances}
-          add={({ a, b }) => addInstance({ label: a, host: b })}
-          remove={removeInstance}
-          labelPlaceholder="label (e.g. PROD)"
-          valuePlaceholder="prod12345.service-now.com"
-          render={(item) => `${item.label} \u2014 ${item.host}`}
-        />
+        <InstanceManager />
       </section>
 
       <section>

@@ -9,6 +9,7 @@
 // it can be done, an undo payload.
 import { buildNavTarget, matchUiAction, dedupeActions, normalizeFieldValues, placeholderProblemIn, diffRecord, snapshotForReinsert, summarizePage, classifyPageKind, parseWorkspaceRecord, newMessages, hashText, atfState, TABLE_RE, SYS_ID_RE } from '../lib/agent/control.js';
 import { assessWriteChain, isGuardedEnv, CREDENTIAL_TABLE_RE } from '../lib/agent/policy.js';
+import { resolveGuardrails, isSecurityTable, liveChangeNote, activeEditBlock, updateSetCard, createStalePins, LIVE_INACTIVE_NOTE } from '../lib/agent/guardrails.js';
 import { analyzeScriptRisk, formatRiskSummary, wrapWithGuards } from '../lib/scriptSafety.js';
 import { redactSecrets } from '../providers/redact.js';
 import { assertNoInlineScript } from '../lib/queryGuard.js';
@@ -28,7 +29,7 @@ const DEFAULT_LIST_COLUMNS = ['number', 'name', 'short_description', 'user_name'
 const DISPLAY_COLUMNS = ['number', 'name', 'short_description', 'user_name', 'title', 'sys_name'];
 // Largest record copy kept for undo of a delete (characters of JSON); a bigger record has no undo, and the card says so.
 const MAX_UNDO_CHARS = 200000;
-// Portal pages that hold a form whose unsaved edits MySnowBuddy cannot see.
+// Portal pages that hold a form whose unsaved edits NowBuddy cannot see.
 const PORTAL_FORM_PAGES = new Set(['form', 'ticket', 'sc_cat_item', 'sc_cat_item_guide', 'sc_request', 'csm_ticket', 'standard_ticket', 'hri_case', 'record_producer']);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,6 +60,16 @@ function assertPlainName(value, label) {
  */
 export function createControlTools(ctx) {
   const { control, callPage, queryTable, fetchRecord, createRecord, updateRecord, deleteRecord, getSchema, fieldNamesOf, assertKnownColumns, runVerify, audit, recordUrl, getInstanceInfo, runBackgroundScript, getCsrfToken, extractScriptOutput, dryRuns, tableHierarchy, pollMs = 2000 } = ctx;
+  // The user's safety settings (Options > Agent > Agent safety) and what the approval card last showed for a record.
+  const getGuardrails = ctx.getGuardrails || (async () => ({ guard: resolveGuardrails({}) }));
+  const stalePins = ctx.stalePins || createStalePins();
+  /** Role facts the guardrails need, read from the live session; unknown counts as "no". */
+  async function sessionNow() {
+    const info = await control.session.readSessionInfo().catch(() => null);
+    return { admin: info?.admin === true, securityAdmin: info?.securityAdmin === true };
+  }
+  const versionOf = (row) => ({ updatedOn: raw(row?.sys_updated_on), modCount: raw(row?.sys_mod_count) });
+  const GUARD_COLUMNS = ['active', 'sys_updated_on', 'sys_mod_count'];
   const host = () => getInstanceInfo().host;
   // What the approval card showed for a click, so a different record opened meanwhile is never clicked.
   const pinned = new Map();
@@ -328,9 +339,9 @@ export function createControlTools(ctx) {
         const which = status.changedFields?.length ? ` (${status.changedFields.slice(0, 8).join(', ')})` : '';
         throw new Error(`The open form (${status.table || 'record'}) has unsaved changes${which}. Save it with save_form, or ask the user, before leaving it. Nothing was opened.`);
       }
-      // A workspace or portal form keeps its edits where MySnowBuddy cannot see them: a person decides.
+      // A workspace or portal form keeps its edits where NowBuddy cannot see them: a person decides.
       if (!status?.table && onInvisibleForm()) {
-        if (!control.confirm) throw new Error('This page is a workspace or portal form whose unsaved changes MySnowBuddy cannot see. Ask the user to leave it first. Nothing was opened.');
+        if (!control.confirm) throw new Error('This page is a workspace or portal form whose unsaved changes NowBuddy cannot see. Ask the user to leave it first. Nothing was opened.');
         const decision = await control.confirm({
           id: meta.callId,
           tool: 'navigate',
@@ -575,8 +586,14 @@ export function createControlTools(ctx) {
       const schemaFields = await schemaForWrite(cls);
       checkColumns(cls, clean, schemaFields);
       const journal = journalFields(schemaFields, clean);
-      const current = await fetchRecord(cls, sysId, [...Object.keys(clean), ...DISPLAY_COLUMNS.filter((c) => !(c in clean))]).catch(() => null);
+      const current = await fetchRecord(cls, sysId, [...Object.keys(clean), ...DISPLAY_COLUMNS.filter((c) => !(c in clean)), ...GUARD_COLUMNS.filter((c) => !(c in clean))]).catch(() => null);
       if (!current) throw new Error(`No ${table} record with sys_id ${sysId} (or you cannot read it). Nothing was written.`);
+      // Guardrails that need the record as it is right now: active code (when the user turned edits of it off) and a
+      // record that changed after the approval card was made.
+      const activeBlock = activeEditBlock({ guard: (await getGuardrails()).guard, active: raw(current.active), isConfig: isConfigChain(verdict) });
+      if (activeBlock) throw new Error(activeBlock);
+      const stale = stalePins.check(sysId, versionOf(current));
+      if (stale) throw new Error(stale);
       const previous = Object.fromEntries(Object.keys(clean).map((k) => [k, journal.includes(k) ? '' : raw(current[k])]));
       const changes = diffRecord(previous, clean);
       if (!changes.length) return { updated: false, table: cls, sysId, note: 'Every field already has that value. Nothing was written.' };
@@ -618,6 +635,8 @@ export function createControlTools(ctx) {
       const cls = verdict.cls;
       const row = await fetchRecord(cls, sysId, []).catch(() => null);
       if (!row) throw new Error(`No ${table} record with sys_id ${sysId} (or you cannot read it). Nothing was deleted.`);
+      const stale = stalePins.check(sysId, versionOf(row));
+      if (stale) throw new Error(stale);
       const kept = await reinsertPayload(cls, sysId, row);
       await deleteRecord(cls, sysId);
       const display = displayOf(row);
@@ -657,7 +676,7 @@ export function createControlTools(ctx) {
         dryRunFirst,
         risk: formatRiskSummary(risk),
         output: clip(extractScriptOutput(html), 8000) || '(no output)',
-        note: 'This was a real run in the global scope. MySnowBuddy cannot undo it.',
+        note: 'This was a real run in the global scope. NowBuddy cannot undo it.',
       };
     },
 
@@ -827,7 +846,19 @@ export function createControlTools(ctx) {
   async function checkRecordWrite({ op, table, sysId, fields = {}, restoring = false }) {
     if (!TABLE_RE.test(table || '')) return { block: `"${table}" is not a valid table name.`, warnings: [], cls: table, tables: [table] };
     const chain = await recordChain(table, op === 'create' ? null : sysId);
-    return { ...assessWriteChain({ op, tables: chain.tables, fields, restoring }), ...chain };
+    const { guard } = await getGuardrails();
+    // ACL and role tables: the elevation is read from the live session, never taken from the model or the card.
+    const session = chain.tables.some(isSecurityTable) ? await sessionNow() : {};
+    return { ...assessWriteChain({ op, tables: chain.tables, fields, restoring, guard, session }), ...chain };
+  }
+
+  /** Is this record configuration (a sys_metadata child): code and rules that go live and land in an update set? */
+  const isConfigChain = (verdict) => Array.isArray(verdict?.tables) && verdict.tables.includes('sys_metadata');
+
+  /** Update set sentence(s) for the card of a configuration write. */
+  async function updateSetCardFor(verdict) {
+    if (!isConfigChain(verdict)) return { notes: [], warnings: [] };
+    return updateSetCard(await control.session.readCurrentUpdateSet().catch(() => null));
   }
 
   /** A value undo must not keep: it holds something the redactor would hide (a password in a script...). */
@@ -864,7 +895,7 @@ export function createControlTools(ctx) {
       ? 'No undo: the record is too large to keep a copy.'
       : `Undo re-inserts the record with the same sys_id and values.${dropped.length ? ` Not kept, so not restored: ${dropped.map((d) => `${d.field} (${d.why})`).join(', ')}.` : ''} Records the platform deletes or clears along with it, journal entries and attachments are not restored either.`;
 
-  /** Pages whose unsaved edits MySnowBuddy cannot see: a workspace record, or a portal page with a form. */
+  /** Pages whose unsaved edits NowBuddy cannot see: a workspace record, or a portal page with a form. */
   function onInvisibleForm() {
     const here = control.page.currentUrl ? control.page.currentUrl() : control.page.currentPath();
     const [pathOnly, search = ''] = String(here || '').split('?');
@@ -895,7 +926,7 @@ export function createControlTools(ctx) {
       return {
         target: `"${hit.label}"${hit.actionName ? ` (${hit.actionName})` : ''} on ${record.table || 'this page'} ${record.display || record.sysId || (record.isNewRecord ? '(new record)' : '')}`.trim(),
         warnings,
-        undo: 'Not available: MySnowBuddy cannot undo a UI action.',
+        undo: 'Not available: NowBuddy cannot undo a UI action.',
       };
     },
 
@@ -904,11 +935,13 @@ export function createControlTools(ctx) {
       const clean = normalizeFieldValues(args.fields);
       const verdict = await checkRecordWrite({ op: 'create', table: args.table, fields: clean });
       const labels = await labelsOf(args.table);
+      const setCard = await updateSetCardFor(verdict);
       return {
         target: `New ${args.table} record`,
         blocked: verdict.block || placeholderProblemIn(clean) || (await columnProblem(args.table, clean)) || undefined,
         fieldList: Object.entries(clean).map(([field, value]) => ({ field, label: labels[field] || field, value })),
-        warnings: verdict.warnings,
+        notes: setCard.notes.length ? setCard.notes : undefined,
+        warnings: [...verdict.warnings, ...setCard.warnings],
         undo: 'Undo deletes the new record.',
       };
     },
@@ -919,11 +952,17 @@ export function createControlTools(ctx) {
       const verdict = await checkRecordWrite({ op: 'update', table: args.table, sysId: args.sysId, fields: clean });
       const cls = verdict.cls || args.table;
       const [rows, labels] = await Promise.all([
-        queryTable(cls, `sys_id=${args.sysId}`, [...Object.keys(clean), ...DISPLAY_COLUMNS.filter((c) => !(c in clean))], { limit: 1, displayValue: true }),
+        queryTable(cls, `sys_id=${args.sysId}`, [...Object.keys(clean), ...DISPLAY_COLUMNS.filter((c) => !(c in clean)), ...GUARD_COLUMNS.filter((c) => !(c in clean))], { limit: 1, displayValue: true }),
         labelsOf(cls),
       ]);
       const row = rows[0];
       if (!row) return { blocked: `No ${args.table} record with sys_id ${args.sysId}.` };
+      // What this card is built on: the write refuses if the record moved on before it is approved.
+      stalePins.set(args.sysId, versionOf(row));
+      const config = isConfigChain(verdict);
+      const liveNote = config ? liveChangeNote(raw(row.active)) : null;
+      const activeBlock = activeEditBlock({ guard: (await getGuardrails()).guard, active: raw(row.active), isConfig: config });
+      const setCard = await updateSetCardFor(verdict);
       const journal = journalFields(await getSchema(cls).then((s) => s.fields).catch(() => []), clean);
       const before = Object.fromEntries(Object.keys(clean).map((k) => [k, journal.includes(k) ? '' : raw(row[k])]));
       const shown = (k) => (journal.includes(k) ? '(new journal entry)' : flat(row[k]) && flat(row[k]) !== raw(row[k]) ? `${flat(row[k])} (${raw(row[k])})` : raw(row[k]));
@@ -933,11 +972,17 @@ export function createControlTools(ctx) {
       const undoable = restorable.length - notKept.length;
       return {
         target: `${cls} ${displayOf(row) || args.sysId}${cls !== args.table ? ` (named as ${args.table})` : ''}`,
-        blocked: verdict.block || placeholderProblemIn(clean) || (await columnProblem(cls, clean)) || undefined,
+        blocked: verdict.block || activeBlock || placeholderProblemIn(clean) || (await columnProblem(cls, clean)) || undefined,
         fieldDiff: diff,
-        notes: diff.length < Object.keys(clean).length ? [`${Object.keys(clean).length - diff.length} field(s) already have that value and are skipped.`] : undefined,
+        notes: [
+          ...(diff.length < Object.keys(clean).length ? [`${Object.keys(clean).length - diff.length} field(s) already have that value and are skipped.`] : []),
+          ...(liveNote && liveNote === LIVE_INACTIVE_NOTE ? [liveNote] : []),
+          ...setCard.notes,
+        ],
         warnings: [
           ...verdict.warnings,
+          ...(liveNote && liveNote !== LIVE_INACTIVE_NOTE ? [liveNote] : []),
+          ...setCard.warnings,
           ...(journal.length ? [`${journal.join(', ')}: adds a journal entry, which undo cannot remove.`] : []),
           ...(notKept.length ? [`${notKept.join(', ')}: the old value holds a secret, so it is not kept and undo cannot restore it.`] : []),
         ],
@@ -963,11 +1008,14 @@ export function createControlTools(ctx) {
         .filter(([k, v]) => flat(v) !== '' && !SECRET_NAME_RE.test(k) && !passwordTyped.has(k))
         .map(([field, v]) => ({ field, label: labels[field] || field, value: flat(v) }));
       const kept = await reinsertPayload(cls, args.sysId, rawRow);
+      stalePins.set(args.sysId, versionOf(rawRow));
+      const setCard = await updateSetCardFor(verdict);
       return {
         target: `${cls} ${displayOf(row) || args.sysId}${cls !== args.table ? ` (named as ${args.table})` : ''}`,
         blocked: verdict.block || undefined,
         fieldList,
-        warnings: verdict.warnings,
+        notes: setCard.notes.length ? setCard.notes : undefined,
+        warnings: [...verdict.warnings, ...setCard.warnings],
         undo: deleteUndoText(kept),
       };
     },

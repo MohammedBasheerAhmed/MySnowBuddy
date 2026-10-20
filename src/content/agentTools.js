@@ -11,6 +11,7 @@ import { closest } from '../lib/apiCatalog/index.js';
 import { analyzeScriptRisk, formatRiskSummary, DRY_RUN_TAMPER_MARK } from '../lib/scriptSafety.js';
 import { isSecretName, redactSecrets } from '../providers/redact.js';
 import { isGuardedEnv } from '../lib/agent/policy.js';
+import { resolveGuardrails, deniedTableBlock, nonAdminBlock, liveChangeNote, activeEditBlock, updateSetCard, createStalePins, RECORD_CHANGING_TOOLS, LIVE_INACTIVE_NOTE } from '../lib/agent/guardrails.js';
 import { parseSteps } from '../lib/automation.js';
 import { assertNoInlineScript } from '../lib/queryGuard.js';
 import { parseEncodedQuery } from '../lib/query.js';
@@ -141,9 +142,38 @@ export function createAgentTools(deps) {
     recordUrl,
     audit,
     control,
+    getSettings = async () => ({}),
     saveCheckDelayMs = 750,
     atfPollMs,
   } = deps;
+
+  // The user's safety settings (Options > Agent > Agent safety), read fresh on every check so a change applies at once.
+  async function getGuardrails() {
+    let settings = {};
+    try {
+      settings = (await getSettings()) || {};
+    } catch {
+      settings = {};
+    }
+    return { guard: resolveGuardrails(settings) };
+  }
+
+  /** Admin / elevated security_admin of the live session. Unknown counts as "no": a restriction never fails open. */
+  async function sessionNow() {
+    const info = control?.session?.readSessionInfo ? await control.session.readSessionInfo().catch(() => null) : await callPage('getSessionInfo').catch(() => null);
+    return { admin: info?.admin === true, securityAdmin: info?.securityAdmin === true };
+  }
+
+  /** What the approval card showed for a record, so a write refuses if the record moved on before it was approved. */
+  const stalePins = createStalePins();
+
+  /** "Updating records is turned off for your role" for a non-admin when the user turned that on, else null. */
+  async function nonAdminRefusal(tool) {
+    if (!RECORD_CHANGING_TOOLS.has(tool)) return null;
+    const { guard } = await getGuardrails();
+    if (!guard.readOnlyForNonAdmin) return null;
+    return nonAdminBlock(tool, guard, await sessionNow());
+  }
 
   const schemaCache = new Map();
   // Scripts dry-run in this session (by hash), so a real run's approval card can say whether it was tried first.
@@ -175,6 +205,8 @@ export function createAgentTools(deps) {
   /** Why set_form_field must not write this field of the open form, or null. */
   async function formFieldRefusal(table, name) {
     if (table && DENIED_TABLE_RE.test(table)) return `${table} holds credentials or keys; the agent never changes it.`;
+    const listed = table ? deniedTableBlock(table, (await getGuardrails()).guard) : null;
+    if (listed) return listed;
     if (SECRET_FIELD_NAME_RE.test(String(name || ''))) return `"${name}" looks like a password or secret; the agent never writes those.`;
     let type = (await fieldTypesOf(table))[name];
     if (!type) type = (await callPage('getFieldState', [name]).catch(() => null))?.type;
@@ -321,6 +353,8 @@ export function createAgentTools(deps) {
     async query_table({ table, query = '', fields = [], limit = 20, displayValue = false }) {
       assertTable(table);
       if (DENIED_TABLE_RE.test(table)) throw new Error(`Reading ${table} through the agent is not allowed.`);
+      const listedTable = deniedTableBlock(table, (await getGuardrails()).guard);
+      if (listedTable) throw new Error(listedTable);
       const cleanFields = (Array.isArray(fields) ? fields : []).filter((f) => /^[a-z0-9_.]+$/i.test(f)).slice(0, 25);
       const safeQuery = assertSafeQuery(query);
       await assertKnownColumns(table, safeQuery, cleanFields);
@@ -352,6 +386,8 @@ export function createAgentTools(deps) {
     async count_records({ table, query = '' }) {
       assertTable(table);
       if (DENIED_TABLE_RE.test(table)) throw new Error(`Reading ${table} through the agent is not allowed.`);
+      const listedTable = deniedTableBlock(table, (await getGuardrails()).guard);
+      if (listedTable) throw new Error(listedTable);
       const safeQuery = assertSafeQuery(query);
       await assertKnownColumns(table, safeQuery);
       return { table, query, count: await countRecords(table, safeQuery) };
@@ -504,7 +540,7 @@ export function createAgentTools(deps) {
         tampered: tampered || undefined,
         note: tampered
           ? 'WARNING: the script replaced an intercepted GlideRecord method while it ran, so writes after that point may have been REAL. Tell the user and check the records it touches.'
-          : 'GlideRecord writes were intercepted and logged as "[MySnowBuddy dry run]". Direct SQL, outbound REST, gs.setProperty and already-queued events are not intercepted.',
+          : 'GlideRecord writes were intercepted and logged as "[NowBuddy dry run]". Direct SQL, outbound REST, gs.setProperty and already-queued events are not intercepted.',
       };
     },
 
@@ -539,7 +575,7 @@ export function createAgentTools(deps) {
         previousLength: previous.length,
         saved: false,
         verification,
-        note: keepPrevious ? 'The form is not saved yet.' : 'The form is not saved yet. The old value held a secret, so it was not kept and this change cannot be undone by MySnowBuddy.',
+        note: keepPrevious ? 'The form is not saved yet.' : 'The form is not saved yet. The old value held a secret, so it was not kept and this change cannot be undone by NowBuddy.',
       };
     },
 
@@ -573,6 +609,19 @@ export function createAgentTools(deps) {
       if (!fields || typeof fields !== 'object' || !Object.keys(fields).length) throw new Error('fields is empty.');
       const placeholder = placeholderProblemIn(Object.fromEntries(Object.entries(fields).filter(([, v]) => typeof v === 'string')));
       if (placeholder) throw new Error(placeholder);
+
+      // 0. The user's safety settings, against the record as it is right now: a denied table, active code (when the user
+      // turned edits of it off) and a record that changed after the approval card was made.
+      const { guard } = await getGuardrails();
+      const listed = deniedTableBlock(table, guard);
+      if (listed) throw new Error(listed);
+      if (sysId) {
+        const state = await fetchRecord(table, sysId, ['active', 'sys_updated_on', 'sys_mod_count']).catch(() => null);
+        const activeBlock = activeEditBlock({ guard, active: state?.active, isConfig: true });
+        if (activeBlock) throw new Error(activeBlock);
+        const stale = stalePins.check(sysId, { updatedOn: state?.sys_updated_on, modCount: state?.sys_mod_count });
+        if (stale) throw new Error(stale);
+      }
 
       // 1. Every column must really exist: invented field names are the commonest AI mistake.
       const known = await fieldNamesOf(table);
@@ -735,6 +784,8 @@ export function createAgentTools(deps) {
     extractScriptOutput,
     dryRuns,
     tableHierarchy,
+    getGuardrails,
+    stalePins,
     pollMs: atfPollMs,
   });
   for (const [name, fn] of Object.entries(controlTools.tools)) {
@@ -760,6 +811,9 @@ export function createAgentTools(deps) {
       const fn = Object.prototype.hasOwnProperty.call(tools, name) ? tools[name] : null;
       if (!fn) throw new Error(`Unknown tool "${name}".`);
       requireArgs(name, args);
+      // Authoritative: the approval step may have been skipped or answered from an old card, this runs at the write.
+      const refusal = await nonAdminRefusal(name);
+      if (refusal) throw new Error(refusal);
       return fn(args, meta);
     },
 
@@ -769,6 +823,8 @@ export function createAgentTools(deps) {
      * @param {(request: object) => Promise<{approved: boolean}>} requestApproval
      */
     async undoWithApproval(requestApproval) {
+      const noWrite = await nonAdminRefusal('undo_last_write');
+      if (noWrite) throw new Error(noWrite);
       const preview = await previewUndo();
       if (preview.blocked) throw new Error(preview.blocked);
       const decision = await requestApproval({ tool: 'undo_last_write', args: {}, mode: isGuardedEnv(getInstanceInfo().env) ? 'ask-strong' : 'ask', source: 'user', preview });
@@ -778,6 +834,8 @@ export function createAgentTools(deps) {
 
     /** Extra context for an approval card: what changes (before/after) and whether it verifies. */
     async preview(name, args = {}) {
+      const noWrite = await nonAdminRefusal(name).catch(() => null);
+      if (noWrite) return { blocked: noWrite };
       if (control && Object.prototype.hasOwnProperty.call(controlTools.tools, name)) {
         return (await controlTools.preview(name, args)) || {};
       }
@@ -800,10 +858,28 @@ export function createAgentTools(deps) {
         }
         if (name === 'save_artifact') {
           const out = { after: typeof args.fields?.script === 'string' ? args.fields.script : '' };
+          const { guard } = await getGuardrails();
+          const warnings = [];
+          const notes = [];
+          const listed = deniedTableBlock(args.table, guard);
+          if (listed) out.blocked = listed;
           if (args.sysId && SYS_ID_RE.test(args.sysId)) {
-            const prev = await fetchRecord(args.table, args.sysId, ['script']).catch(() => null);
+            const prev = await fetchRecord(args.table, args.sysId, ['script', 'active', 'sys_updated_on', 'sys_mod_count']).catch(() => null);
             out.before = prev?.script ?? '';
+            if (prev) {
+              // What this card is built on: the write refuses if the record moved on before it is approved.
+              stalePins.set(args.sysId, { updatedOn: prev.sys_updated_on, modCount: prev.sys_mod_count });
+              const live = liveChangeNote(prev.active);
+              if (live) (live === LIVE_INACTIVE_NOTE ? notes : warnings).push(live);
+              const activeBlock = activeEditBlock({ guard, active: prev.active, isConfig: true });
+              if (activeBlock && !out.blocked) out.blocked = activeBlock;
+            }
           }
+          const setCard = updateSetCard(await Promise.resolve().then(() => getCurrentUpdateSet()).catch(() => null));
+          notes.push(...setCard.notes);
+          warnings.push(...setCard.warnings);
+          if (warnings.length) out.warnings = warnings;
+          if (notes.length) out.notes = notes;
           const kind = kindForTable(args.table);
           if (kind && out.after) {
             const { result } = await runVerify({ code: out.after, kind, clientType: args.fields?.type, when: args.fields?.when });

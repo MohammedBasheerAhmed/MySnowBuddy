@@ -1706,3 +1706,34 @@ details[open] > summary.msb-panel__result-toggle::before {
 .msb-xp__table td { padding: 3px 6px; border-bottom: 1px solid var(--msb-border); color: var(--msb-fg-soft); vertical-align: top; }
 .msb-xp__inactive td { opacity: 0.55; }
 .msb-xp__pad { padding: 8px 12px; }
+
+/* Today's AI calls (and cost once prices are set) next to the model name; warns from 80% of a limit. */
+.msb-sidebar__usage {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: transparent;
+  color: var(--msb-fg-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.msb-sidebar__usage:hover {
+  border-color: var(--msb-border-strong);
+}
+
+.msb-sidebar__usage--warn {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-sidebar__usage--blocked {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}

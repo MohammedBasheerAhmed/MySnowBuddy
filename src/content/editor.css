@@ -524,6 +524,7 @@
 }
 
 .msb-ed__pfix:hover { border-color: var(--msb-accent); }
+.msb-ed__pempty .msb-ed__pfix { margin-left: 10px; }
 .msb-ed__pempty { padding: 8px 12px; color: var(--msb-fg-muted); }
 
 button.msb-ed__problems {
@@ -631,3 +632,25 @@ button.msb-ed__problems:hover { text-decoration: underline; }
   .msb-ed__help { right: 8px; width: calc(100% - 16px); }
   .msb-ed__help-list { grid-template-columns: 1fr; }
 }
+
+/* ---------------------------------------------------------------------------
+   In place: the editor sits over the form's own script field (position and size come from the
+   field's box, set in script). The page stays clickable around it.
+   --------------------------------------------------------------------------- */
+.msb-ed.msb-ed--inplace {
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.msb-ed--inplace .msb-ed__dialog {
+  position: absolute;
+  pointer-events: auto;
+  border: 2px solid var(--msb-accent);
+  border-radius: var(--msb-radius);
+  box-shadow: var(--msb-shadow-lg);
+}
+
+.msb-ed--inplace .msb-ed__title { font-size: var(--msb-text-md, 13px); }

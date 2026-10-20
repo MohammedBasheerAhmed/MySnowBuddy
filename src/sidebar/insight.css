@@ -1,0 +1,210 @@
+/* Break this list down (/breakdown): src/sidebar/InsightPanel.jsx */
+
+.msb-insight__tabs {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0 4px;
+  padding: 3px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-subtle);
+}
+
+.msb-insight__tab {
+  flex: 1;
+  height: 26px;
+  border: none;
+  border-radius: calc(var(--msb-radius-sm) - 2px);
+  background: transparent;
+  color: var(--msb-fg-soft);
+  font-size: var(--msb-text-sm);
+  cursor: pointer;
+}
+
+.msb-insight__tab:hover {
+  background: var(--msb-bg-sunken);
+}
+
+.msb-insight__tab--on,
+.msb-insight__tab--on:hover {
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+  font-weight: 600;
+}
+
+.msb-insight__busy {
+  margin-top: 10px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-insight__head {
+  margin: 10px 0 6px;
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg-soft);
+}
+
+.msb-insight__bars {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A bar is a button: label and numbers on one line (the numbers carry the meaning, the bar only shows the proportion). */
+.msb-insight__bar {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 5px 8px 6px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font: inherit;
+  font-size: var(--msb-text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.msb-insight__bar:hover {
+  border-color: var(--msb-accent);
+  background: var(--msb-bg-subtle);
+}
+
+.msb-insight__bar:focus-visible {
+  outline: 2px solid var(--msb-accent);
+  outline-offset: 1px;
+}
+
+.msb-insight__bar--picked {
+  border-color: var(--msb-accent);
+  box-shadow: inset 0 0 0 1px var(--msb-accent);
+}
+
+.msb-insight__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msb-insight__figures {
+  font-variant-numeric: tabular-nums;
+  color: var(--msb-fg-soft);
+}
+
+.msb-insight__track {
+  grid-column: 1 / -1;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--msb-bg-sunken);
+  overflow: hidden;
+}
+
+.msb-insight__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--msb-accent);
+}
+
+.msb-insight__bar--other .msb-insight__fill {
+  background: var(--msb-fg-muted);
+}
+
+.msb-insight__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+}
+
+.msb-insight__compare {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-accent);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg);
+}
+
+/* Over time: one button per period, the count written above its bar. */
+.msb-insight__chart {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 150px;
+  margin-top: 6px;
+  padding: 6px 4px 0;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-insight__col {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--msb-fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.msb-insight__col:hover {
+  background: var(--msb-bg-subtle);
+}
+
+.msb-insight__col:focus-visible {
+  outline: 2px solid var(--msb-accent);
+  outline-offset: 1px;
+}
+
+.msb-insight__colcount {
+  height: 14px;
+  font-size: var(--msb-text-xs);
+  line-height: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--msb-fg-soft);
+}
+
+.msb-insight__colbar {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  width: 100%;
+  min-height: 0;
+  border-bottom: 1px solid var(--msb-border-strong);
+}
+
+.msb-insight__colbar > span {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: var(--msb-accent);
+}
+
+.msb-insight__collabel {
+  height: 18px;
+  max-width: 100%;
+  overflow: visible;
+  font-size: var(--msb-text-xs);
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--msb-fg-muted);
+}

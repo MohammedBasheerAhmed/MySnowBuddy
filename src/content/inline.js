@@ -23,6 +23,7 @@ import { xrayDocuments, classicFormLabels } from './xray.js';
 import { detectPageContext, detectListInfo, readFormScript } from './context.js';
 import { callPage } from './pageBridge.js';
 import { queryTable, countRecords } from './tableApi.js';
+import { FORMATS, readList, getCopyFormat, copyRows, copyIds, openSelected, copyListLink, columnStats } from './listTools.js';
 import {
   copyText,
   navigate,
@@ -40,6 +41,9 @@ import { lintScript, formatLintFindings } from '../lib/lint.js';
 import { explainQuery, toGlideRecord } from '../lib/query.js';
 import { redactSecrets } from '../providers/redact.js';
 import { trustedDom } from '../sidebar/trusted.js';
+import { anchorRect } from './popover.js';
+import { openFormToolsMenu, clearFormTools } from './formTools.js';
+import { handleSelection as handleSmartSelection, cancelSmartSelect } from './smartSelect.js';
 import { UI_HOST_ID } from './uiRoot.js';
 import { isFieldPath, isSysId } from '../lib/xray.js';
 import {
@@ -69,6 +73,8 @@ const OBSERVE_MS = 600;
 const SCAN_MS = 1500;
 const CONTEXT_MS = 2500;
 const COLLAPSED_KEY = 'inlineBarCollapsed';
+const NAMES_KEY = 'inlineFieldNames';
+const NAMES_ATTR = 'data-msb-names';
 const MAX_SCRIPT_CHARS = 12000;
 
 const state = {
@@ -84,6 +90,7 @@ const state = {
   barKey: '',
   ctx: null,
   collapsed: false,
+  names: false, // show the database name next to every label and column title
   seq: 0, // popover request counter: a slow answer must not overwrite a newer popover
 };
 
@@ -101,9 +108,20 @@ const PAGE_CSS = `
 .msb-inl-btn:hover{background:#d3eadf!important;border-color:#1b6b4f!important}
 .msb-inl-btn--menu{font-weight:800!important;padding:0 5px!important}
 .msb-inl-btn--col{margin:0 0 0 4px!important}
+/* Database names: hidden until the user turns "Names" on (html[data-msb-names]). */
+.msb-inl-btn--name{display:none!important;font:600 10.5px/15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;background:#fff!important;border-style:dashed!important}
+html[data-msb-names] .msb-inl-btn--name{display:inline-flex!important}
 `;
 
+function applyNames(doc) {
+  const root = doc.documentElement;
+  if (!root) return;
+  if (state.names) root.setAttribute(NAMES_ATTR, '');
+  else root.removeAttribute(NAMES_ATTR);
+}
+
 function ensureStyle(doc) {
+  applyNames(doc);
   if (doc.getElementById(STYLE_ID)) return;
   const style = doc.createElement('style');
   style.id = STYLE_ID;
@@ -222,10 +240,91 @@ function currentSysId() {
   return isSysId(id) ? id : '';
 }
 
+/** The open record's sys_id from the form itself: a record opened by number or query has none in its URL. */
+async function formSysId() {
+  const known = currentSysId();
+  if (known) return known;
+  const meta = await callPage('getFormMeta').catch(() => null);
+  return isSysId(meta?.sysId) ? meta.sysId : '';
+}
+
+/**
+ * Where a form field sits, in top-window coordinates, for the in-place editor. The control is found again on
+ * every call (the form re-renders it); null while it is gone or has no size.
+ */
+function fieldPlace(doc, table, field) {
+  // Releases draw the script field with Monaco, CodeMirror or a plain textarea; Monaco also keeps a 1px
+  // textarea for input, so take the first candidate that is a real, visible box.
+  const CANDIDATES = '.monaco-editor, .CodeMirror, .ace_editor, textarea';
+  const find = () => {
+    const wrap = doc.getElementById(`element.${table}.${field}`);
+    const sized = (el) => {
+      const box = el.getBoundingClientRect();
+      return box.width >= 80 && box.height >= 24;
+    };
+    return (
+      (wrap && [...wrap.querySelectorAll(CANDIDATES)].find(sized)) ||
+      (() => {
+        const input = doc.getElementById(`${table}.${field}`);
+        return input && sized(input) ? input : null;
+      })() ||
+      wrap
+    );
+  };
+  return {
+    rect: () => {
+      try {
+        const el = find();
+        if (!el || !el.isConnected) return null;
+        const rect = anchorRect(el, doc);
+        return rect.width > 0 && rect.height > 0 ? rect : null;
+      } catch {
+        return null; // the frame navigated away
+      }
+    },
+  };
+}
+
+function editInPlace(doc, table, field) {
+  const place = fieldPlace(doc, table, field);
+  if (!place.rect()) {
+    state.deps.toast.info('That field is not visible on the form. Opening the full-screen editor.');
+    return state.deps.openEditor({ field });
+  }
+  return state.deps.openEditor({ field, place });
+}
+
+/**
+ * Open the script editor over the script field on this form (the field called `script` first). Returns false when no
+ * script field is visible in a classic document, so the caller can fall back to the full-screen editor.
+ */
+export function editScriptInPlace() {
+  if (!state.installed || !state.deps) return false;
+  for (const doc of xrayDocuments()) {
+    try {
+      const labels = classicFormLabels(doc);
+      const table = dominantTable(labels.map((entry) => entry.parsed.table));
+      const fields = labels
+        .filter(({ parsed }) => parsed.table === table && isScriptColumn(parsed.field))
+        .map(({ parsed }) => parsed.field)
+        .sort((a, b) => (a === 'script' ? -1 : b === 'script' ? 1 : 0));
+      for (const field of fields) {
+        const place = fieldPlace(doc, table, field);
+        if (place.rect()) {
+          state.deps.openEditor({ field, place });
+          return true;
+        }
+      }
+    } catch {
+      // The frame navigated away.
+    }
+  }
+  return false;
+}
+
 function openFieldMenu(anchor, { doc, table, field }) {
   const { popover, sidebar, openEditor } = state.deps;
   const script = isScriptColumn(field);
-  const sysId = currentSysId();
   const label = `${table}.${field}`;
 
   const run = {
@@ -246,7 +345,8 @@ function openFieldMenu(anchor, { doc, table, field }) {
       // X-ray's details live in the sidebar panel; openPanel is absent or false when the sidebar is off.
       if (!sidebar.openPanel?.('xray', { args: field })) state.deps.toast.info('Turn on the sidebar in Options to see X-ray details.');
     },
-    edit: () => openEditor(),
+    editHere: () => editInPlace(doc, table, field),
+    edit: () => openEditor({ field, fullScreen: true }),
     lint: () => lintPopover({ anchor, doc, table, label: field, read: () => readField(field) }),
     ask: async () => askAboutScript({ table, label: field, body: await readField(field).catch(() => '') }),
   };
@@ -262,12 +362,10 @@ function openFieldMenu(anchor, { doc, table, field }) {
   }));
 
   const base = { anchor, doc, title: field, subtitle: table, actions, tone: 'info' };
-  const query = auditQuery(table, sysId, field);
-  if (!query) {
-    showMessage({ ...base, rows: [{ label: 'Last changed', value: sysId ? 'Not available for this field.' : 'Save the record to see its change history.' }] });
-    return;
-  }
   withPopover(base, async () => {
+    const sysId = await formSysId();
+    const query = auditQuery(table, sysId, field);
+    if (!query) return { rows: [{ label: 'Last changed', value: sysId ? 'Not available for this field.' : 'Save the record to see its change history.' }] };
     try {
       const rows = await queryTable('sys_audit', query, ['sys_created_on', 'sys_created_by', 'oldvalue', 'newvalue'], { limit: 1 });
       return { rows: lastChangeRows(rows[0], field) };
@@ -283,6 +381,11 @@ function openColumnMenu(anchor, { doc, table, column }) {
     copyName: () => copyWithToast(column, `column name ${column}`),
     dictionary: () => openInNewTab(listUrl('sys_dictionary', dictionaryQuery(table, column))),
     acls: () => openInNewTab(listUrl('sys_security_acl', fieldAclQuery(table, column))),
+    distinct: () => showDistinct(anchor, doc, column),
+    countBy: () => {
+      state.deps.sidebar.openForTool?.();
+      if (!state.deps.sidebar.openPanel?.('insight', { args: column })) state.deps.toast.info('Turn on the sidebar in Options to see this panel.');
+    },
   };
   showMessage({
     anchor,
@@ -294,10 +397,60 @@ function openColumnMenu(anchor, { doc, table, column }) {
       label: item.label,
       primary: item.id === 'copyName',
       onClick: () => {
-        popover.hide();
+        // Distinct values replaces this popover with its own answer; every other action closes it first.
+        if (item.id !== 'distinct') popover.hide();
         run[item.id]();
       },
     })),
+  });
+}
+
+/** Count of each value in one column of the rows on screen, most common first; Copy puts a value on the clipboard. */
+function showDistinct(anchor, doc, column) {
+  const stats = columnStats(column);
+  if (!stats) {
+    showMessage({ anchor, doc, title: column, tone: 'warn', body: 'This column is not in the list rows on screen.' });
+    return;
+  }
+  const { result } = stats;
+  showMessage({
+    anchor,
+    doc,
+    title: `${stats.label}: values`,
+    subtitle: `${result.distinct} distinct in ${result.total} visible ${result.total === 1 ? 'row' : 'rows'}`,
+    tone: 'info',
+    rows: result.top.map((t) => ({ label: `${t.count}×`, value: t.value, copy: !t.empty })),
+    body: result.more ? `+ ${result.more} more values not shown` : '',
+  });
+}
+
+/** The toolbar's Copy rows menu: format choice (the last one is highlighted), sys_ids, open ticked rows, link. */
+async function openRowsMenu(anchor) {
+  const { popover, toast } = state.deps;
+  const list = readList();
+  if (!list) {
+    showMessage({ anchor, title: 'No list found', tone: 'warn', body: 'Open a classic list first. Next Experience lists cannot be read from the page.' });
+    return;
+  }
+  const ticked = list.model.rows.filter((r) => r.selected).length;
+  const total = list.model.rows.length;
+  const remembered = await getCopyFormat();
+  const run = (fn) => () => {
+    popover.hide();
+    Promise.resolve(fn()).catch((err) => toast.error(errorText(err)));
+  };
+  showMessage({
+    anchor,
+    title: 'Copy rows',
+    subtitle: ticked ? `${ticked} ticked of ${total} rows` : `${total} rows on screen. Tick rows to copy only those`,
+    tone: 'info',
+    actions: [
+      ...FORMATS.map((f) => ({ label: `Copy as ${f.short}`, primary: f.id === remembered, onClick: run(() => copyRows({ toast, format: f.id })) })),
+      { label: 'Copy sys_ids', onClick: run(() => copyIds({ toast })) },
+      { label: 'sys_ids as JS array', onClick: run(() => copyIds({ toast, kind: 'array' })) },
+      { label: ticked ? `Open ${Math.min(ticked, 8)} in tabs` : 'Open ticked rows', onClick: run(() => openSelected({ toast })) },
+      { label: 'Copy link to this list', onClick: run(() => copyListLink({ toast })) },
+    ],
   });
 }
 
@@ -314,10 +467,11 @@ function annotateForm(doc) {
     const wrap = doc.createElement('span');
     wrap.setAttribute(ATTR, 'wrap');
     wrap.className = 'msb-inl-wrap';
+    wrap.appendChild(makeButton(doc, { text: field, title: `${field}: click to copy the database name`, className: 'msb-inl-btn--name' }, () => copyWithToast(field, `field name ${field}`)));
     wrap.appendChild(makeButton(doc, { text: '⋯', title: `${field}: copy name or value, dictionary entry, ACLs, last change`, className: 'msb-inl-btn--menu' }, (btn) => openFieldMenu(btn, { doc, table, field })));
     if (isScriptColumn(field)) {
       const strip = (text, title, fn) => wrap.appendChild(makeButton(doc, { text, title }, fn));
-      strip('Edit', `Edit ${field} in the full-screen editor`, () => state.deps.openEditor());
+      strip('Edit', `Edit ${field} right here, over the field (changes flow to the form as you type)`, () => editInPlace(doc, table, field));
       strip('Lint', `Lint ${field} (no AI tokens)`, (btn) => lintPopover({ anchor: btn, doc, table, label: field, read: () => readField(field) }));
       strip('AI', `Ask the AI to review ${field}`, async () => askAboutScript({ table, label: field, body: await readField(field).catch(() => '') }));
     }
@@ -335,9 +489,10 @@ function annotateList(doc) {
     const btn = makeButton(doc, { text: '⋯', title: `${column}: copy name, dictionary entry, ACLs`, className: 'msb-inl-btn--menu msb-inl-btn--col' }, (b) => openColumnMenu(b, { doc, table, column }));
     // Current releases wrap the title, sort icon and their own ⋮ menu in a flex container; a button placed after it
     // lands under the next column's resize handle. Beside the title it stays clickable.
+    const nameBtn = makeButton(doc, { text: column, title: `${column}: click to copy the database name`, className: 'msb-inl-btn--name msb-inl-btn--col' }, () => copyWithToast(column, `column name ${column}`));
     const title = th.querySelector('.list_header_cell_container a.column_head');
-    if (title) title.after(btn);
-    else th.appendChild(btn);
+    if (title) title.after(nameBtn, btn);
+    else th.append(nameBtn, btn);
   });
 }
 
@@ -359,7 +514,11 @@ function peekSysId(event, doc) {
   if (event.isTrusted !== true) return;
   if ((event.composedPath?.() || []).some((n) => n?.id === UI_HOST_ID || n?.dataset?.msbInline)) return;
   const sysId = sysIdFromSelection(selectedText(doc));
-  if (!sysId) return;
+  if (!sysId) {
+    // Anything else worth a look (JSON, Base64, a timestamp, a table name ...): smartSelect.js decides and stays quiet when unsure.
+    handleSmartSelection({ event, doc, popover: state.deps.popover, toast: state.deps.toast });
+    return;
+  }
   const anchor = { x: event.clientX, y: event.clientY };
   withPopover({ anchor, doc, title: 'sys_id', subtitle: sysId, tone: 'info' }, async () => {
     const found = await findRecordBySysId(sysId, detectPageContext()?.table || '');
@@ -435,10 +594,12 @@ function scan() {
 }
 
 function removeFromDocs() {
+  cancelSmartSelect();
   const docs = new Set([...xrayDocuments(), ...state.observers.keys(), ...state.peekDocs.keys()]);
   docs.forEach((doc) => {
     try {
       doc.querySelectorAll(`[${ATTR}]`).forEach((node) => node.remove());
+      doc.documentElement?.removeAttribute(NAMES_ATTR);
     } catch {
       // The frame is gone.
     }
@@ -494,6 +655,12 @@ function toolbarAction(id, anchor) {
           ],
         };
       });
+    case 'copyRows':
+      return openRowsMenu(anchor);
+    case 'names':
+      return toggleFieldNames();
+    case 'formtools':
+      return openFormToolsMenu(anchor, { popover: state.deps.popover, toast });
     case 'edit':
       return openEditor();
     case 'lint':
@@ -510,6 +677,11 @@ function toolbarAction(id, anchor) {
     case 'copyQuery':
     case 'copyGlide':
       return listAction(id, anchor);
+    case 'insight':
+    case 'refs':
+      sidebar.openForTool?.();
+      if (!sidebar.openPanel?.(id)) toast.info('Turn on the sidebar in Options to see this panel.');
+      return undefined;
     case 'more':
       sidebar.openForTool?.();
       return sidebar.openQueryPanel();
@@ -555,7 +727,7 @@ function buildToolbar(shadow) {
   const bar = document.createElement('div');
   bar.className = 'msb-bar';
   bar.setAttribute('role', 'toolbar');
-  bar.setAttribute('aria-label', 'MySnowBuddy page tools');
+  bar.setAttribute('aria-label', 'NowBuddy page tools');
   bar.hidden = true;
 
   const handle = document.createElement('button');
@@ -592,13 +764,27 @@ function renderToolbar(model) {
   bar.hidden = !state.on || !model.length;
   const items = bar.querySelector('.msb-bar__items');
   items.replaceChildren();
+  let lastGroup = null;
   model.forEach((item) => {
+    if (lastGroup !== null && item.group !== lastGroup) {
+      const sep = document.createElement('span');
+      sep.className = 'msb-bar__sep';
+      sep.setAttribute('role', 'separator');
+      sep.setAttribute('aria-orientation', 'vertical');
+      items.appendChild(sep);
+    }
+    lastGroup = item.group;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'msb-bar__btn';
     btn.textContent = item.short;
     btn.title = item.label;
-    btn.setAttribute('aria-label', item.label);
+    // The accessible name must contain the visible text (WCAG 2.5.3), so lead with it when the label does not.
+    btn.setAttribute('aria-label', item.label.toLowerCase().startsWith(item.short.toLowerCase()) ? item.label : `${item.short}: ${item.label}`);
+    if (item.toggle) {
+      btn.dataset.msbToggle = item.id;
+      btn.setAttribute('aria-pressed', String(state.names));
+    }
     btn.addEventListener(
       'click',
       trustedDom(() => {
@@ -647,6 +833,7 @@ function disable() {
   clearInterval(state.contextTimer);
   clearTimeout(state.pending);
   state.pending = null;
+  clearFormTools();
   removeFromDocs();
   state.bar.hidden = true;
   state.deps.popover.hide();
@@ -661,8 +848,26 @@ export function toggleInline(force) {
   return inlineStatus();
 }
 
+/** Show or hide the database name beside every label and column title (no argument toggles). */
+export function toggleFieldNames(force) {
+  if (!state.installed) return { names: false };
+  state.names = typeof force === 'boolean' ? force : !state.names;
+  xrayDocuments().forEach((doc) => {
+    try {
+      applyNames(doc);
+    } catch {
+      // The frame navigated away.
+    }
+  });
+  state.bar?.querySelectorAll('[data-msb-toggle="names"]').forEach((btn) => btn.setAttribute('aria-pressed', String(state.names)));
+  saveUiState({ [NAMES_KEY]: state.names }).catch(() => {});
+  if (state.on) state.deps.toast.info(state.names ? 'Showing database names. Click one to copy it.' : 'Database names hidden.');
+  else state.deps.toast.info('Turn on the on-page tools to see database names.');
+  return inlineStatus();
+}
+
 export function inlineStatus() {
-  return { on: state.on, installed: state.installed };
+  return { on: state.on, installed: state.installed, names: state.names };
 }
 
 /**
@@ -677,7 +882,16 @@ export function installInline({ shadow, toast, sidebar, popover, openEditor, too
   getUiState()
     .then((ui) => {
       state.collapsed = ui[COLLAPSED_KEY] === true;
+      state.names = ui[NAMES_KEY] === true;
       applyCollapsed();
+      xrayDocuments().forEach((doc) => {
+        try {
+          if (state.on) applyNames(doc);
+        } catch {
+          // The frame navigated away.
+        }
+      });
+      state.bar?.querySelectorAll('[data-msb-toggle="names"]').forEach((btn) => btn.setAttribute('aria-pressed', String(state.names)));
     })
     .catch(() => {});
   applyCollapsed();

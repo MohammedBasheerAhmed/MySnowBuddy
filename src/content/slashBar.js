@@ -14,6 +14,7 @@ import {
 } from './quickActions.js';
 import { searchTables } from './tableCatalog.js';
 import { queryTable } from './tableApi.js';
+import { similarKeywords, similarQuery, rankSimilar } from '../lib/similar.js';
 import { listCustomCommands } from './stores.js';
 import { findCommand, buildFindQuery, escapeQueryValue, expandTemplate, slashHelpRows, SPECIAL_VERBS } from '../lib/slashCommands.js';
 
@@ -27,7 +28,7 @@ const SPECIAL_SET = new Set(SPECIAL_VERBS.map(([verb]) => verb));
  * @param {{ctx: object, sidebar: object, reopen: (text: string) => void}} deps
  * @returns {(query: string) => Promise<object[]>}
  */
-export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, startFileSync, toast, getCsrfToken }) {
+export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, startFileSync, toggleFieldNames, toast, getCsrfToken }) {
   const helpRows = (prefix, custom = []) =>
     slashHelpRows(custom)
       .filter(([verb]) => verb.startsWith(prefix))
@@ -194,6 +195,31 @@ export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, 
         }));
       }
 
+      case 'similar': {
+        if (!ctx.table || !isSysId(ctx.sysId)) return [{ id: 'slash.similar.none', title: 'Open a saved record first', hint: 'Similar records are matched on its short description', group: GROUP, score: 1100, run: () => {} }];
+        const rec = (await queryTable(ctx.table, `sys_id=${ctx.sysId}`, ['short_description', 'name', 'title'], { limit: 1 }).catch(() => []))[0] || {};
+        const text = [rec.short_description, rec.name, rec.title].find((v) => typeof v === 'string' && v.trim()) || '';
+        const keywords = similarKeywords(text);
+        if (!keywords.length) return [{ id: 'slash.similar.nowords', title: 'Nothing to match on', hint: 'This record has no short description with distinctive words', group: GROUP, score: 1100, run: () => {} }];
+        const query = similarQuery(keywords, { excludeSysId: ctx.sysId });
+        const found = await queryTable(ctx.table, query, ['sys_id', 'number', 'short_description', 'name', 'state', 'sys_updated_on'], { limit: 30, displayValue: true }).catch(() => []);
+        const flat = (v) => (v && typeof v === 'object' ? v.display_value ?? v.value ?? '' : v ?? '');
+        const hits = rankSimilar(found, keywords).slice(0, 8);
+        const head = { id: 'slash.similar.list', title: `All ${ctx.table} matching ${keywords.join(', ')}`, hint: 'Open the list with this filter', group: GROUP, score: 1100, url: listUrl(ctx.table, query) };
+        return [
+          head,
+          ...hits.map(({ row, shared, total }, index) => ({
+            id: `slash.similar.${flat(row.sys_id)}`,
+            title: `${flat(row.number) ? `${flat(row.number)}  ` : ''}${flat(row.short_description) || flat(row.name) || '(no description)'}`,
+            hint: `${shared}/${total} words · ${flat(row.state) || ctx.table} · ${String(flat(row.sys_updated_on)).slice(0, 10)}`,
+            group: GROUP,
+            score: 1090 - index,
+            url: recordUrl(ctx.table, flat(row.sys_id)),
+          })),
+          ...(hits.length ? [] : [{ id: 'slash.similar.empty', title: 'No similar records found', hint: `Searched for ${keywords.join(', ')}`, group: GROUP, score: 1080, run: () => {} }]),
+        ];
+      }
+
       case 'sys': {
         if (!isSysId(arg)) return [{ id: 'slash.sys.invalid', title: 'Paste a 32-character sys_id', group: GROUP, score: 1100, run: () => {} }];
         const found = await findRecordBySysId(arg, ctx.table);
@@ -238,8 +264,11 @@ export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, 
       case 'bg':
         return [{ id: 'slash.bg', title: 'Background script runner', group: GROUP, score: 1100, run: () => { sidebar.openForTool(); sidebar.openBackgroundScriptPanel(); } }];
 
+      case 'names':
+        return toggleFieldNames ? [{ id: 'slash.names', title: 'Show or hide database names on the page', hint: 'Field names under every label, column names in lists', group: GROUP, score: 1100, run: () => toggleFieldNames() }] : [];
+
       case 'edit':
-        return openScriptEditor ? [{ id: 'slash.edit', title: 'Edit script in full-screen editor', group: GROUP, score: 1100, run: () => openScriptEditor() }] : [];
+        return openScriptEditor ? [{ id: 'slash.edit', title: 'Edit the script (over the field)', group: GROUP, score: 1100, run: () => openScriptEditor() }] : [];
 
       case 'sync':
         return startFileSync ? [{ id: 'slash.sync', title: 'Edit script in VS Code (sync to a folder)', group: GROUP, score: 1100, run: () => startFileSync() }] : [];

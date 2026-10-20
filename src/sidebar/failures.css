@@ -1,0 +1,184 @@
+/* What went wrong? panel (/failed): src/sidebar/FailuresPanel.jsx */
+
+.msb-fail__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.msb-fail__segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.msb-fail__segments button[aria-pressed='true'],
+.msb-fail__chip[aria-pressed='true'] {
+  background: var(--msb-accent);
+  border-color: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-fail__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.msb-fail__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-sm);
+  cursor: pointer;
+}
+
+.msb-fail__chip:hover {
+  border-color: var(--msb-accent);
+}
+
+.msb-fail__summary-line {
+  margin-top: 10px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__groups {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.msb-fail__group {
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-danger);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+}
+
+.msb-fail__group--warn {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-fail__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: 8px 10px;
+}
+
+/* Colour alone never says how serious it is: the word is always there. */
+.msb-fail__sev {
+  flex: none;
+  font-size: var(--msb-text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__title {
+  flex: 1 1 14em;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.msb-fail__meta {
+  flex: none;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__body {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.msb-fail__hint {
+  margin: 0;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-fail__times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__times div {
+  display: flex;
+  gap: 4px;
+}
+
+.msb-fail__times dt {
+  font-weight: 600;
+}
+
+.msb-fail__times dd {
+  margin: 0;
+}
+
+.msb-fail__raw {
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msb-fail__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-fail__list li {
+  display: flex;
+  gap: 8px;
+}
+
+.msb-fail__button {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.msb-fail__notes {
+  margin-top: 10px;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-fail__notes ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--msb-fg-muted);
+}

@@ -283,7 +283,7 @@ export async function createAndSwitchUpdateSet({ name, confirmName } = {}) {
   if (!checked.ok) throw new Error(checked.error);
 
   const application = await readCurrentApplication().catch(() => null);
-  const fields = { name: checked.name, state: 'in progress', description: 'Created from MySnowBuddy.' };
+  const fields = { name: checked.name, state: 'in progress', description: 'Created from NowBuddy.' };
   if (application?.sysId) fields.application = application.sysId;
   const created = await createRecord('sys_update_set', fields);
   const sysId = refValue(created?.sys_id);

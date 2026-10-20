@@ -27,12 +27,15 @@ import { queryTable, fetchRecord } from './tableApi.js';
 import { restRecordUrl, glideRecordSnippet, recordJson } from '../lib/recordSnippets.js';
 import { parseRecordNumber, tablesForNumber } from '../lib/recordNumber.js';
 import { addBookmark } from './stores.js';
-import { currentPageHref } from './context.js';
+import { currentPageHref, detectListInfo } from './context.js';
+import { makeQueryDynamic, applyListFilter } from './queryTools.js';
+import { copyRows, copyIds, openSelected, copyListLink } from './listTools.js';
 import { resolveTarget } from '../lib/urlTarget.js';
 import { isScriptLabel } from '../lib/inline.js';
 import { formDocuments } from './quickActions.js';
 import { PANELS } from '../sidebar/panelRegistry.js';
 import { toggleXray, xrayServices } from './xray.js';
+import { toggleHiddenFields, toggleHighlights, copyFormValues, duplicateAsNew, openRecordAs } from './formTools.js';
 
 const xrayStatus = () => xrayServices.xrayStatus();
 
@@ -63,7 +66,7 @@ export const GROUPS = {
  * @param {object} deps - { ctx, sidebar, toast, getCsrfToken, impersonate }
  */
 export function buildCommands(deps) {
-  const { ctx = {}, sidebar, toast, getCsrfToken, impersonate, openScriptEditor, startFileSync, stopFileSync, isFileSyncActive } = deps;
+  const { ctx = {}, sidebar, toast, getCsrfToken, impersonate, openScriptEditor, startFileSync, stopFileSync, isFileSyncActive, openPalette } = deps;
   const table = ctx.table || '';
   const sysId = ctx.sysId || '';
   const commands = [];
@@ -84,8 +87,8 @@ export function buildCommands(deps) {
   if (hasScript && openScriptEditor) {
     add({
       id: 'tools.editor',
-      title: 'Edit script in full-screen editor',
-      hint: 'Alt+Shift+E \u00b7 highlighting, find and replace, Ctrl+S applies to the form',
+      title: 'Edit the script',
+      hint: 'Alt+Shift+E \u00b7 opens over the field and saves with the form; Full screen button inside',
       group: GROUPS.record,
       keywords: 'edit script editor code fullscreen monaco highlight replace',
       run: () => openScriptEditor(),
@@ -284,6 +287,91 @@ export function buildCommands(deps) {
       url: recordUrl(table, sysId),
       newTab: true,
     });
+  }
+
+  // --- Form tools: read the open form, never change a value (src/content/formTools.js) -------------------------
+  if (table && !ctx.isList) {
+    const formRun = (fn) => async () => {
+      try {
+        await fn();
+      } catch (err) {
+        toast.error(err.message || String(err));
+      }
+    };
+
+    add({
+      id: 'form.hidden',
+      title: 'Show hidden fields',
+      hint: 'Fields a UI policy or script hid, marked "hidden". Run again to hide them',
+      group: GROUPS.record,
+      keywords: 'hidden fields unhide reveal show ui policy display none',
+      run: formRun(() => toggleHiddenFields({ toast })),
+    });
+
+    add({
+      id: 'form.highlight',
+      title: 'Highlight required, read-only and changed fields',
+      hint: 'Outline and tag them. Run again to clear',
+      group: GROUPS.record,
+      keywords: 'highlight mandatory required read only readonly changed unsaved outline',
+      run: formRun(() => toggleHighlights({ toast })),
+    });
+
+    add({
+      id: 'form.copyValues',
+      title: 'Copy the form values as JSON',
+      hint: 'What is on the form now, unsaved edits included. Secrets redacted',
+      group: GROUPS.record,
+      keywords: 'copy values json fields form data',
+      run: formRun(() => copyFormValues('json', { toast })),
+    });
+
+    add({
+      id: 'form.copyMarkdown',
+      title: 'Copy the form values as a Markdown table',
+      hint: 'Label, name, value and display value, ready for a ticket or a chat',
+      group: GROUPS.record,
+      keywords: 'copy values markdown table fields form',
+      run: formRun(() => copyFormValues('markdown', { toast })),
+    });
+
+    add({
+      id: 'form.copyScript',
+      title: 'Copy the form values as a "set values" script',
+      hint: 'GlideRecord with a setValue per field; the insert is commented out',
+      group: GROUPS.record,
+      keywords: 'copy values script gliderecord setvalue insert fields form test data',
+      run: formRun(() => copyFormValues('script', { toast })),
+    });
+
+    add({
+      id: 'record.similar',
+      title: 'Find similar records',
+      hint: '/similar · same table, matched on the short description, best match first',
+      group: GROUPS.record,
+      keywords: 'similar related duplicate same problem seen before other tickets like this',
+      run: () => openPalette?.('/similar'),
+    });
+
+    add({
+      id: 'form.duplicate',
+      title: 'Duplicate as a new record',
+      hint: 'A new record in a new tab, prefilled from this form. You press Submit',
+      group: GROUPS.record,
+      keywords: 'duplicate copy clone new record prefilled',
+      run: formRun(() => duplicateAsNew({ toast })),
+    });
+
+    if (sysId) {
+      add({
+        id: 'record.openJson',
+        title: 'Open this record as JSON',
+        hint: 'The Table API response, in a new tab',
+        group: GROUPS.record,
+        keywords: 'json rest api table api response raw',
+        run: formRun(() => openRecordAs('json')),
+      });
+    }
   }
 
   // --- This table ----------------------------------------------------------
@@ -656,6 +744,29 @@ export function buildCommands(deps) {
     });
   }
 
+  // A JSON blob, Base64, a token, a timestamp, a table name ... that is selected on the page: say what it is.
+  if (deps.decodeSelection && ctx.selection && deps.selectionKind?.(ctx.selection)) {
+    add({
+      id: 'tools.smartSelect',
+      title: 'Decode the selection',
+      hint: `The selected text looks like ${deps.selectionKind(ctx.selection)}`,
+      group: GROUPS.tools,
+      keywords: 'decode selection selected text pretty print format json xml base64 jwt token timestamp epoch date url decode what is this',
+      run: () => deps.decodeSelection(ctx.selection),
+    });
+  }
+
+  if (openPalette) {
+    add({
+      id: 'tools.new',
+      title: 'New script from a template…',
+      hint: '/new br, si, cs, uia, sj, fix, rest · opens a new form with a checked template',
+      group: GROUPS.tools,
+      keywords: 'new create start business rule script include client script ui action scheduled job fix script rest template boilerplate scaffold',
+      run: () => openPalette('/new '),
+    });
+  }
+
   add({
     id: 'tools.inline.toggle',
     title: 'Toggle on-page tools',
@@ -669,6 +780,26 @@ export function buildCommands(deps) {
     },
   });
 
+  if (deps.toggleFieldNames) {
+    add({
+      id: 'tools.fieldNames.toggle',
+      title: 'Show or hide database names',
+      hint: deps.fieldNamesOn?.() ? 'Names are showing: hide them' : 'Field names under every label, column names in lists',
+      group: GROUPS.tools,
+      keywords: 'technical names field names column names database names labels show hide tn dictionary element',
+      run: () => deps.toggleFieldNames(),
+    });
+  }
+
+  add({
+    id: 'savetrace.arm',
+    title: 'Trace the next save',
+    hint: 'Arm it, press Update or Submit, then collect what the save caused',
+    group: GROUPS.analyze || GROUPS.tools,
+    keywords: 'save trace arm debug on save what happened when i saved timeline',
+    run: openPanel(() => sidebar.openPanel('savetrace', { args: 'arm' })),
+  });
+
   add({
     id: 'tools.fieldNameTip',
     title: 'Copy a field name or value',
@@ -677,6 +808,34 @@ export function buildCommands(deps) {
     keywords: 'field name value copy label dictionary',
     run: () => toast.info('Alt+click a field label to copy its name. Alt+Shift+click copies its value.', { timeout: 8000 }),
   });
+
+  // Classic lists: take the rows off the page (the ticked ones, else every row on screen).
+  if (ctx.isList && table) {
+    const listGroup = GROUPS.table;
+    add({ id: 'tools.list.tsv', title: 'Copy list rows for Excel', hint: 'Ticked rows, else every row on screen, tab-separated', group: listGroup, keywords: 'copy rows excel sheets spreadsheet tab separated paste table', run: () => copyRows({ toast, format: 'tsv' }) });
+    add({ id: 'tools.list.markdown', title: 'Copy list rows as a Markdown table', hint: 'For a ticket, a wiki or a pull request', group: listGroup, keywords: 'copy rows markdown table wiki ticket', run: () => copyRows({ toast, format: 'markdown' }) });
+    add({ id: 'tools.list.json', title: 'Copy list rows as JSON', hint: 'Keyed by database column name, with the sys_id', group: listGroup, keywords: 'copy rows json array objects test data', run: () => copyRows({ toast, format: 'json' }) });
+    add({ id: 'tools.list.sysids', title: 'Copy sys_ids of the list rows', hint: 'Comma list; the page toolbar also has a JavaScript array', group: listGroup, keywords: 'copy sys ids comma list array selected rows', run: () => copyIds({ toast }) });
+    add({ id: 'tools.list.openSelected', title: 'Open the ticked rows in new tabs', hint: 'Up to 8; asks first above 3', group: listGroup, keywords: 'open selected rows tabs records bulk review', run: () => openSelected({ toast }) });
+    add({ id: 'tools.list.link', title: 'Copy a link to this filtered list', hint: 'Opens the same list and filter for whoever you send it to', group: listGroup, keywords: 'copy link url filtered list share query', run: () => copyListLink({ toast }) });
+  }
+
+  // Static filter -> dynamic: relative dates and "me" instead of the literal values the filter builder saved.
+  if (ctx.isList && table) {
+    const dynamicFilter = async (mode) => {
+      const info = await detectListInfo().catch(() => null);
+      if (!info?.query) return toast.info('This list has no filter to make dynamic.');
+      const result = await makeQueryDynamic(info.query);
+      if (!result.changes.length) return toast.info('Nothing in this filter can be made dynamic: it has no day-boundary dates or sys_ids of yours.', { timeout: 8000 });
+      if (mode === 'copy') {
+        await copyText(result.query);
+        return toast.success(`Copied the dynamic query (${result.changes.length} change${result.changes.length === 1 ? '' : 's'})`);
+      }
+      return applyListFilter(info.table, result.query);
+    };
+    add({ id: 'tools.list.dynamic', title: 'Make the list filter dynamic', hint: 'Dates become gs.daysAgoStart(7), your sys_id becomes gs.getUserID()', group: GROUPS.table, keywords: 'dynamic filter encoded query relative dates last 7 days today me current user javascript gs static', run: () => dynamicFilter('apply').catch((err) => toast.error(err.message || String(err))) });
+    add({ id: 'tools.list.dynamicCopy', title: 'Copy the list filter as a dynamic query', hint: 'For a report, a UI action, a GlideRecord or a saved filter', group: GROUPS.table, keywords: 'copy dynamic encoded query relative dates javascript gs filter', run: () => dynamicFilter('copy').catch((err) => toast.error(err.message || String(err))) });
+  }
 
   add({
     id: 'tools.impersonate',
@@ -706,7 +865,27 @@ export function buildCommands(deps) {
     run: openPanel(() => sidebar.openPanel('mywork', { args: 'switch' })),
   });
 
+  add({
+    id: 'testdata.cleanup',
+    title: 'Clean up test data',
+    hint: 'Remove the sample records NowBuddy created here (only those, from its own list)',
+    group: GROUPS.tools,
+    keywords: 'clean up cleanup remove delete test data sample records dummy fake users created by nowbuddy',
+    run: openPanel(() => sidebar.openPanel('testdata', { args: 'cleanup' })),
+  });
+
   // --- Instance ------------------------------------------------------------
+  if (openPalette) {
+    add({
+      id: 'instance.switch',
+      title: 'Switch instance',
+      hint: '/i · this page on dev, test or prod',
+      group: GROUPS.instance,
+      keywords: 'switch instance environment go to other dev test prod same page /i',
+      run: () => openPalette('/i '),
+    });
+  }
+
   add({
     id: 'instance.cache',
     title: 'Flush instance cache',
@@ -820,6 +999,24 @@ export function buildCommands(deps) {
       run: openPanel(() => sidebar.openPanel(p.name)),
     })
   );
+
+  // The Test panel (src/sidebar/TestKitPanel.jsx) on a given tab, offered where it applies.
+  const testTab = (args) => openPanel(() => sidebar.openPanel('testkit', { args }));
+  const SCRIPT_TABLES = ['sys_script', 'sys_ui_action', 'sys_script_include', 'sys_script_fix', 'sysauto_script'];
+  if (table && sysId && SCRIPT_TABLES.includes(table)) {
+    add({ id: 'test.run', title: 'Run this script against a record', hint: 'Dry run with current and previous bound to a record you pick; shows the writes it held back', group: GROUPS.tools, keywords: 'test run script against record dry run current previous pretend changed business rule', run: testTab('run') });
+  }
+  if (table === 'sys_script_include' && sysId) {
+    add({ id: 'test.unit', title: 'Write a unit test for this script include', hint: 'Generates a runnable test with assertions, runs it as a dry run, saves it for later', group: GROUPS.tools, keywords: 'unit test script include assert methods generate test', run: testTab('unit') });
+  }
+  if (table) {
+    add({ id: 'test.atf', title: 'Find ATF tests for this', hint: 'Automated tests that mention this table or script include, and how they last went', group: GROUPS.tools, keywords: 'atf automated test framework coverage suite tests results', run: testTab('atf') });
+    add({ id: 'test.access', title: 'Who can access this?', hint: 'Read, write, create and delete for up to five users side by side', group: GROUPS.tools, keywords: 'access matrix acl users roles side by side who can read write delete', run: testTab('access') });
+  }
+  if (table && (sysId || ctx.isList)) {
+    add({ id: 'test.snapshot', title: ctx.isList ? 'Snapshot this list' : 'Snapshot this record', hint: 'Save its state now, do something, then compare', group: GROUPS.tools, keywords: 'snapshot save state before after compare baseline record list rows', run: testTab('snapshot') });
+    add({ id: 'test.compare', title: 'Compare with snapshot', hint: 'What changed since you took the snapshot, field by field', group: GROUPS.tools, keywords: 'compare snapshot diff changed since before after', run: testTab('snapshot') });
+  }
 
   return commands;
 }

@@ -125,7 +125,7 @@ agg.addAggregate('COUNT');
 agg.query();
 var n = 0;
 if (agg.next()) { n = parseInt(agg.getAggregate('COUNT'), 10); }
-gs.info('open incidents: ' + n, 'MySnowBuddy');`;
+gs.info('open incidents: ' + n, 'NowBuddy');`;
   const r = verifyScript({ code, kind: 'background_script' });
   assert.equal(r.ok, true, formatVerification(r));
   assert.equal(r.errors, 0);
@@ -490,8 +490,16 @@ test('provider config resolves from legacy and new storage', () => {
   assert.equal(resolveProviderConfig({ [STORAGE_KEYS.openaiKey]: 'sk-x' }).provider, 'openai');
   assert.equal(resolveProviderConfig({}).provider, 'anthropic');
   const c = resolveProviderConfig({ [STORAGE_KEYS.provider]: 'anthropic', [STORAGE_KEYS.anthropicKey]: 'k', [STORAGE_KEYS.models]: { anthropic: 'claude-haiku-5-5' } });
-  assert.deepEqual(c, { provider: 'anthropic', model: 'claude-haiku-5-5', apiKey: 'k' });
+  assert.deepEqual(c, { provider: 'anthropic', model: 'claude-haiku-5-5', apiKey: 'k', baseUrl: '', keyOptional: false, promptCache: true });
   assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'anthropic', [STORAGE_KEYS.models]: { anthropic: 'bogus' } }).model, 'claude-opus-5-5');
+  // A custom endpoint takes any model id; an invalid address is ignored rather than used; a local server needs no key.
+  const custom = resolveProviderConfig({ [STORAGE_KEYS.provider]: 'openai', [STORAGE_KEYS.openaiBaseUrl]: 'https://api.x.ai/v1/', [STORAGE_KEYS.models]: { openai: ' grok-4 ' } });
+  assert.equal(custom.baseUrl, 'https://api.x.ai/v1');
+  assert.equal(custom.model, 'grok-4');
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'openai', [STORAGE_KEYS.openaiBaseUrl]: 'http://evil.example/v1', [STORAGE_KEYS.models]: { openai: 'grok-4' } }).baseUrl, '');
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'openai', [STORAGE_KEYS.openaiBaseUrl]: 'http://localhost:11434/v1' }).keyOptional, true);
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'openai', [STORAGE_KEYS.openaiBaseUrl]: 'https://api.x.ai/v1' }).keyOptional, false);
+  assert.equal(resolveProviderConfig({ mysnowbuddy_settings: { promptCache: false } }).promptCache, false);
 });
 
 // ---- regressions from the full-repo bug hunt --------------------------------------------

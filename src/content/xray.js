@@ -929,7 +929,7 @@ function annotate(doc) {
     else if (kind === 'list') found = annotateList(doc);
     found = annotateCatalog(doc) || found;
   } catch (err) {
-    console.warn('[MySnowBuddy] X-ray could not annotate the page', err);
+    console.warn('[NowBuddy] X-ray could not annotate the page', err);
   }
   if (found) {
     ensureStyle(doc);

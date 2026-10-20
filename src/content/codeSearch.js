@@ -176,6 +176,7 @@ export async function searchCode(term, options = {}) {
 
   const errors = [];
   const results = [];
+  const capped = []; // tables that returned a full page of rows: there may be more matches than were checked
 
   const settled = await Promise.allSettled(
     targets.map(async (artifact) => {
@@ -191,6 +192,7 @@ export async function searchCode(term, options = {}) {
       const query = activeOnly && hasActive ? `active=true^${likeClause}` : likeClause;
       const fields = [...new Set([...artifact.fields, ...artifact.scriptFields])];
       const rows = await queryTable(artifact.table, query, fields, { limit: limitPerTable });
+      if (rows.length >= limitPerTable) capped.push(artifact.label);
 
       rows.forEach((row) => {
         if (activeOnly && 'active' in row && String(row.active) === 'false') return;
@@ -208,6 +210,8 @@ export async function searchCode(term, options = {}) {
             field,
             scopeHint: row.collection || row.table || row.event_name || '',
             matches,
+            // The whole script, when the caller wants to look closer than the matching lines (find references).
+            source: options.withSource ? row[field] : undefined,
           });
         });
       });
@@ -231,6 +235,7 @@ export async function searchCode(term, options = {}) {
     totalMatches: results.reduce((sum, r) => sum + r.matches.length, 0),
     totalRecords: results.length,
     scannedTables: targets.length,
+    capped,
     errors,
     results,
   };

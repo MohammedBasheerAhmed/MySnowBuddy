@@ -266,7 +266,7 @@ function askPrompt(data) {
   if (live) lines.push(`Live state: read-only ${live.readOnly}, mandatory ${live.mandatory}, visible ${live.visible}.`);
   states.forEach((label) => {
     const kind = Object.keys(STATE_LABELS).find((k) => STATE_LABELS[k] === label);
-    lines.push(`Candidate causes for ${label}, most likely first (found by MySnowBuddy X-ray):`);
+    lines.push(`Candidate causes for ${label}, most likely first (found by NowBuddy X-ray):`);
     causes[kind].forEach((c) => lines.push(`- [${c.confidence}] ${c.title}: ${c.detail}`));
   });
   if (entry) {

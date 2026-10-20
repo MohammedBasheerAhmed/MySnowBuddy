@@ -17,14 +17,14 @@ const PRESETS = [
     label: 'Create record',
     method: 'POST',
     path: '/api/now/table/incident',
-    body: json({ short_description: 'Created from MySnowBuddy' }),
+    body: json({ short_description: 'Created from NowBuddy' }),
   },
   {
     group: 'Table API',
     label: 'Update record',
     method: 'PATCH',
     path: '/api/now/table/incident/<sys_id>',
-    body: json({ work_notes: 'Updated from MySnowBuddy' }),
+    body: json({ work_notes: 'Updated from NowBuddy' }),
   },
   { group: 'Table API', label: 'Delete record', method: 'DELETE', path: '/api/now/table/incident/<sys_id>' },
 

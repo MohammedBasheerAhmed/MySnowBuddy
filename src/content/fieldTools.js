@@ -1,4 +1,4 @@
-// Alt+click a field label to copy its database name, Alt+Shift+click to copy its current value.
+// Alt+click a field label to copy its database name, Alt+Shift+click to copy its current value, double-click for the name.
 // Classic forms live in the gsft_main iframe, which is replaced on every navigation, so the
 // listeners are re-attached on a timer.
 
@@ -7,11 +7,11 @@ import { callPage } from './pageBridge.js';
 
 const ATTACH_MS = 2000;
 
-export function installFieldTools({ toast }) {
+export function installFieldTools({ toast, isEnabled = () => true }) {
   const attached = new WeakSet();
 
   async function onClick(event) {
-    if (!event.altKey) return;
+    if (!event.altKey || event.isTrusted !== true) return;
     const label = event.target.closest?.('label');
     const field = label && fieldNameFromLabel(label);
     if (!field) return;
@@ -34,11 +34,31 @@ export function installFieldTools({ toast }) {
     }
   }
 
+  // Double-click a label to copy the database name (the quickest way to get a field name while scripting).
+  async function onDoubleClick(event) {
+    if (event.isTrusted !== true || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !isEnabled()) return;
+    if (event.target.closest?.('[data-msb-inline],[data-msb-xray],a,input,select,textarea,button')) return;
+    const label = event.target.closest?.('label');
+    // A checkbox's label toggles it; two quick clicks must not become a copy.
+    if (!label || label.querySelector('input[type="checkbox"]') || label.control?.type === 'checkbox') return;
+    const field = fieldNameFromLabel(label);
+    if (!field) return;
+    event.preventDefault();
+    try {
+      label.ownerDocument.getSelection?.()?.removeAllRanges(); // the double-click selected a word
+      await copyText(field);
+      toast.success(`Copied field name ${field}`);
+    } catch (err) {
+      toast.error(err.message || String(err));
+    }
+  }
+
   function attach() {
     formDocuments().forEach((doc) => {
       if (attached.has(doc)) return;
       attached.add(doc);
       doc.addEventListener('click', onClick, true);
+      doc.addEventListener('dblclick', onDoubleClick, true);
     });
   }
 

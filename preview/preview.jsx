@@ -14,8 +14,13 @@ import { fetchTableFields, fetchTableInfo, fetchColumnDetail, fetchListLayout } 
 import { listInstances } from '../src/content/stores.js';
 import { installXray } from '../src/content/xray.js';
 import { installInline } from '../src/content/inline.js';
+import { openScriptEditor } from '../src/content/scriptEditor.js';
+import { findReferences } from '../src/content/references.js';
+import { checkBeforeSave, createBreakingCheck } from '../src/content/breakingCheck.js';
 import { createPopover } from '../src/content/popover.js';
 import { createToastHost } from '../src/content/toast.js';
+import { askConfirm } from '../src/content/confirmDialog.js';
+import { prodGuardAsk, runScriptAsk } from '../src/lib/confirmCopy.js';
 import { createCommandPalette } from '../src/content/commandPalette.js';
 import { createWelcome } from '../src/content/welcome.js';
 import { createGuide } from '../src/content/guide.js';
@@ -74,8 +79,10 @@ const store = {
 Object.assign(memory, {
   mysnowbuddy_settings: { theme: THEME, agentEnabled: true, agentAutonomy: params.get('autonomy') || 'ask' },
   mysnowbuddy_known_instances: [
+    { id: 'i0', label: 'DEV', host: 'acmedev.service-now.com', color: '#175cd3' },
     { id: 'i1', label: 'TEST', host: 'acmetest.service-now.com' },
     { id: 'i2', label: 'PROD', host: 'acmeprod.service-now.com' },
+    { id: 'i3', label: 'Sandbox', host: 'sbx77.service-now.com', color: '#6941c6' },
   ],
 });
 if (params.get('width')) memory.mysnowbuddy_sidebar_width = Number(params.get('width'));
@@ -247,9 +254,18 @@ const agentTools = createAgentTools({
   },
   fetchRecord: async () => null,
   countRecords: async () => 42,
-  createRecord: async (table, fields) => ({ sys_id: 'f1e2d3c4b5a697887766554433221100', ...fields }),
+  // Unique ids, remembered, so the test data panel's batch and cleanup can be tried here (see testDataExisting below).
+  createRecord: async (table, fields) => {
+    window.__created = window.__created || new Set();
+    const sys_id = `c0ffee${String(window.__created.size + 1).padStart(26, '0')}`;
+    window.__created.add(sys_id);
+    return { sys_id, ...fields };
+  },
   updateRecord: async (table, sysId, fields) => ({ sys_id: sysId, ...fields }),
-  deleteRecord: async () => null,
+  deleteRecord: async (table, sysId) => {
+    window.__created?.delete(sysId);
+    return null;
+  },
   fetchTableFields: async (table) => {
     await wait(120);
     if (!SCHEMAS[table]) throw new Error(`Table ${table} was not found.`);
@@ -297,6 +313,12 @@ const api = mountSidebar(container, { getContext: context, instance: INSTANCE, o
 api.registerServices({
   // Feature panels (panelRegistry.js) and the built-ins they lean on, backed by preview/fakeInstance.js.
   ...FEATURE_SERVICES,
+  // Test data panel: the preview host is "localhost" (an unrecognised instance), so say dev unless ?env says otherwise.
+  testDataGuard: async () => {
+    const env = params.get('env') || 'dev';
+    return { host: 'dev12345.service-now.com', env, label: env.toUpperCase(), allowed: env === 'dev' || env === 'test' || env === 'stage' };
+  },
+  testDataExisting: async (table, ids) => new Set(ids.filter((id) => window.__created?.has(id))),
   fetchLiveUpdateSets: () => fetchLiveUpdateSets(),
   findCollisions: (setId) => findCollisions(setId),
   findUncapturedChanges: (options) => findUncapturedChanges(options),
@@ -305,7 +327,23 @@ api.registerServices({
   fetchColumnDetail: (table, element) => fetchColumnDetail(table, element),
   fetchListLayout: (table) => fetchListLayout(table),
   listInstances: () => listInstances(),
-  agentExecute: (name, args) => agentTools.execute(name, args),
+  // The preview has no control-plane tools, so record writes (the Test data panel's create and cleanup) go to a small
+  // fake with the same result shape as src/content/controlTools.js. Everything else is the real agent.
+  agentExecute: async (name, args) => {
+    window.__created = window.__created || new Set();
+    if (name === 'create_record') {
+      const sysId = `c0ffee${String(window.__created.size + 1).padStart(26, '0')}`;
+      window.__created.add(sysId);
+      await wait(60);
+      return { created: true, table: args.table, sysId, display: args.fields.short_description || args.fields.name || sysId };
+    }
+    if (name === 'delete_record') {
+      window.__created.delete(args.sysId);
+      return { deleted: true, table: args.table, sysId: args.sysId };
+    }
+    if (name === 'update_record') return { updated: true, table: args.table, sysId: args.sysId, changed: Object.keys(args.fields) };
+    return agentTools.execute(name, args);
+  },
   agentPreview: (name, args) => agentTools.preview(name, args),
   readFormScript: async () => ({ body: GOOD_SCRIPT, label: 'Script' }),
   auditList: async () => audit.load(),
@@ -316,11 +354,13 @@ installXray({ sidebar: api });
 
 // ?inline=1: the on-page tools (toolbar, label and column menus) over the fake classic form or list.
 if (params.get('inline')) {
-  history.replaceState(null, '', params.get('page') === 'list' ? '/incident_list.do?sysparm_query=active%3Dtrue' : '/incident.do?sys_id=9de5069c0b0f0300b8b9e5cd35673a5b');
+  history.replaceState(null, '', params.get('page') === 'list' ? '/incident_list.do?sysparm_query=active%3Dtrue' : params.get('page') === 'script' ? '/sys_script.do?sys_id=9de5069c0b0f0300b8b9e5cd35673a5b' : '/incident.do?sys_id=9de5069c0b0f0300b8b9e5cd35673a5b');
   const toast = createToastHost();
   shadow.appendChild(toast.element);
   window.__toast = toast;
-  installInline({ shadow, toast, sidebar: api, popover: createPopover({ shadow, toast }), openEditor: () => toast.info('Full-screen editor'), tools: { lintScript }, enabled: true });
+  window.__openEditor = () => openScriptEditor({ shadow, toast, tools: { findReferences: (t, o) => findReferences(t, o), beforeSave: () => checkBeforeSave({ toast }) } });
+  if (params.get('page') === 'si') createBreakingCheck({ toast, getSettings: async () => ({ guardsEnabled: true }), getContext: () => ({ table: 'sys_script_include' }) });
+  installInline({ shadow, toast, sidebar: api, popover: createPopover({ shadow, toast }), openEditor: (opts) => openScriptEditor({ shadow, toast, tools: { findReferences: (t, o) => findReferences(t, o), beforeSave: () => checkBeforeSave({ toast }) }, field: opts?.field, place: opts?.place }), tools: { lintScript }, enabled: true });
 }
 // ?palette=1: the real command palette over the fake page; ?welcome=1: the first-run card; ?guide=1: the developer guide. ?scriptform=1 makes the
 // fake page a script form, ?record=<table>:<key> any other record.
@@ -358,7 +398,7 @@ if (params.get('palette') || params.get('welcome') || params.get('guide')) {
   guide = createGuide({ shadow, openPalette: (text) => palette.open(text), getContext: pageContext, showTour: () => welcome?.show() });
   if (params.get('welcome')) welcome.show();
   if (params.get('guide')) guide.show();
-  if (params.get('palette') === 'open') setTimeout(() => palette.open(), 300);
+  if (params.get('palette') === 'open') setTimeout(() => palette.open(params.get('prefill') || ''), 300);
 }
 window.__msb = { api, agentTools, audit, shadow, palette, welcome, guide };
 
@@ -367,3 +407,16 @@ const open = params.get('open');
 if (open === 'api') setTimeout(() => api.openApiPanel(params.get('q') || ''), 50);
 else if (open === 'bench') setTimeout(() => api.openTestPanel(), 50);
 else if (open) setTimeout(() => api.openPanel(open, { args: params.get('q') || '' }), 50);
+
+// ?confirm=1: the in-app confirmation (a danger one; ?confirm=safe shows a plain one). The answer lands in window.__confirmResult.
+if (params.get('confirm')) {
+  const danger = params.get('confirm') !== 'safe';
+  setTimeout(() => {
+    window.__confirmResult = 'pending';
+    askConfirm(
+      danger
+        ? { ...prodGuardAsk('save', 'sys_script') }
+        : { ...runScriptAsk({ hostname: 'dev364920.service-now.com', riskSummary: '' }) }
+    ).then((ok) => (window.__confirmResult = ok ? 'yes' : 'no'));
+  }, 500);
+}

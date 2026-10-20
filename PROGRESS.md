@@ -3,6 +3,68 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
+## 2026-10-20 gaps built (NOT committed, NOT live-checked on a real instance)
+The two gaps named in "Added 2026-10-16" are done. Pure logic: src/lib/scriptApi.js (declaredMembers, diffApi, selfCalls, callersOf,
+referenceTarget, classifyReference; tests/scriptapi.test.js).
+- **Find all references** (script editor): `Shift+F12` or the footer "References" button reads the name at the caret (a Script Include
+  class, `Class.method`, `new X().m`, `var x = new X(); x.m`, `this.m` inside a Script Include, or plain text) and searches every script table
+  (src/content/references.js on top of codeSearch.searchCode, which gained `withSource` and `capped`). Each hit is classified: confirmed
+  call vs possible use. List shows in the editor; click opens the record. The record being edited is excluded.
+- **Save-time breaking-change check** (src/content/breakingCheck.js): on Save/Update of a Script Include (and the editor's Apply & save) it
+  diffs the form's script with the saved record: method removed (with a rename guess), fewer or reordered parameters, class renamed; it
+  searches for active scripts that still call them (incl. GlideAjax `sysparm_name`) and `this.x()` calls left in the script, then asks via
+  askConfirm ("Save anyway" / "Go back", wording in lib/confirmCopy.js breakingChangeAsk). Fails OPEN (any error or 15 s -> saves with a
+  notice). Uses the safety-guards setting. Limits: only the Save buttons (id sysverb_update*) and the editor are covered, not the context
+  menu Save; a search term under 3 characters is skipped; 100 rows read per table (reported when capped); the Next Experience form is not covered.
+- Verified in the preview harness only (`?inline=1&page=si`, fake Script Include + two callers; headless Chrome script in the scratchpad):
+  harmless save goes through, removed method lists 3 callers, Go back does not save, Save anyway saves exactly once, class rename flagged.
+  Live-check on the PDI: create an SI with two methods and a BR that calls one, remove that method, press Update.
+- **LIVE-VERIFIED on the PDI (2026-10-20, new build):** Shift+F12 on a method found the business rule calling it; renaming the method and
+  pressing Update showed the dialog (Go back = nothing saved, mod count unchanged; Save anyway = saved exactly once). Test SI + BR deleted.
+  **Bug found live and fixed:** in the Next Experience shell (/now/nav/ui/classic/...) the `gsft_main` iframe is inside a shadow root, so
+  `formDocuments()` (quickActions.js) only returned the top document and NO save listener ever attached. It now uses `findClassicFrame()`
+  (controlPage.js, cached 1 s). This also means the PRODUCTION SAVE GUARD (guards.js) was dead in that shell before this fix; it shares
+  formDocuments but has still not been live-tested on a prod-tagged instance. Other formDocuments users (context, fieldTools, commands) now
+  also see the form frame: toolbar and Names pills still fine after the change, nothing else re-checked.
+- "Extension context invalidated" errors on chrome://extensions come from tabs opened before a reload (e.g. a stale sys_script.do?sys_id=-1 tab): harmless.
+- 866 tests passed before the machine got busy; under load the timing tests (editor/hardening) flake, they pass alone.
+
+## 2026-10-20 late batch (found unlogged at the start of the next session; NOT committed, NOT live-checked)
+The previous session ended right after a burst of parallel-agent work (files dated 20:48-20:54) without updating this file.
+Reference used for part of it: github.com/cgatlin08/gmg-ai-agent-for-servicenow (GMG AI Agent, Apache-2.0, a ServiceNow-side update set,
+NOT part of this repo; cloned only to read). Its ideas adopted: guardrails (src/lib/agent/guardrails.js, tests/guardrails.test.js: ACL/role
+tables refused, seal check), AI cost log and budget (src/lib/aiUsage.js, src/providers/budget.js, src/options/UsageSettings.jsx).
+Other new modules (each has src/lib pure logic + src/content + src/sidebar panel + tests): Insight / "break this list down" (insight),
+Hotspots, Failures ("what went wrong"), Recent changes, Release notes, Save trace, Why didn't my rule run (ruleExplain, WhyRulePanel),
+Reference graph ("what points at this record", refGraph), Similar, Test kit + Test data + ATF helpers (testKit/testData/testRun/testSnapshot/testAtf).
+State after this session: 847 tests pass, `node build.js` clean, `npm run a11y` all pass. Fixed here: toolbar buttons' aria-label now starts
+with their visible text; Insight bar buttons dropped their aria-label (visible text is the name). Next: reload the extension and live-check the
+new panels on the PDI one by one (none has run on a real instance), add them to docs/SHOWCASE.md if missing, then commit when asked.
+
+## 2026-10-20 session (NOT committed yet; ask before committing)
+- **Renamed to NowBuddy** (display name only). Kept on purpose: storage keys `mysnowbuddy_*`, DOM host id `mysnowbuddy-root`, MCP server name
+  `mysnowbuddy`, `MYSNOWBUDDY_PORT`, token dir `~/.mysnowbuddy`, the repo and the D:MySnowBuddy folder (renaming would wipe saved keys or break
+  the user's `claude mcp add`). A stray tracked file `c/Users/bashe/AppData/.../sp.cjs` is still in git; removing it was blocked, ask the user.
+- **In-place script editor** (item 1): the `Edit` button on a script field label (and field menu "Edit in place") opens the editor OVER the field
+  (`openScriptEditor({ field, place: { rect } })`, `editorBox` in lib/inline.js, class `msb-ed--inplace`). It follows the field (rAF), syncs to the
+  form 350 ms after typing (`pushToForm`), Ctrl+S saves the record, Esc closes with nothing lost, "Full screen" / "Back to field" toggles.
+  Palette/toolbar "Edit" stays full screen. Verified in the preview harness (`?inline=1&page=script`, fake script form added to fakeInstance.js);
+  NOT yet live (needs a reload; Next Experience form fields are not reachable, only classic forms).
+- **Field names** (item 2): toolbar "Names" toggle, palette "Show or hide database names", `/names`; `html[data-msb-names]` shows a name pill beside
+  every label and column title; double-click a label copies its name (fieldTools.js, trusted events only, not on checkboxes); typing a slash command
+  in ServiceNow's navigator filter (`input#filter`, found live in the Polaris menu's shadow root) and pressing Enter opens the palette with it
+  (src/content/navSlash.js, src/lib/navSlash.js). Live-checked only the selector on the PDI; not the extension behaviour.
+- **Ease-of-use pass (2020-10-20, after the live test):** (hover-only ⋯ buttons were tried and REVERTED the same day: the user wanted them always visible, do not hide them again); "Edit the script" (toolbar, palette, /edit, Alt+Shift+E) opens OVER the field by default via editScriptInPlace() in inline.js, `fullScreen:true` or no visible field gives the full-screen editor; toolbar buttons are grouped with separators; first-run card text updated; ALL window.confirm replaced by the in-app askConfirm (src/content/confirmDialog.js, confirm.css, lib/confirmCopy.js; guards.js holds and replays the click). Preview/a11y checked; not live yet (needs reload).
+- **Encoded queries (colleague's two asks, 2026-10-20):** src/lib/dynamicQuery.js (pure, tests/dynamicquery.test.js): makeDynamic turns day-boundary dates into gs.daysAgoStart/beginningOfThisMonth... (smallest named period first, alternatives listed), my sys_id -> javascript:gs.getUserID(), my groups -> getMyGroups(); looksLikeEncodedQuery/splitTableQuery; queryScriptRisk (non-standard javascript: asks via askConfirm). src/content/queryTools.js: palette provider (typed/pasted query -> Apply to list / Apply dynamic version / Copy), applyListFilter = navigation to <table>_list.do?sysparm_query=...; list commands 'Make the list filter dynamic' + copy; List filter panel got 'Apply to the list' and 'Make dynamic' (+Undo). Checked in preview only; dates use the browser clock (note shown). NOT yet live.
+- **Developer-productivity batch (4 parallel agents):** smart selection (src/lib/smartSelect.js), list tools (listCopy.js/listTools.js: copy rows TSV/MD/JSON, sys_ids, open selected, distinct values), form tools (formTools.js: show hidden fields, highlight mandatory/read-only/changed, copy values, duplicate via URL), scaffolds (scaffolds.js: /new br|si|cs|uia|sj|fix|rest). See each module's tests.
+- 650 tests, build and `npm run a11y` pass after the batch. Selecting an encoded query on a page also offers Apply / dynamic / copy (smart selection kind registered in queryTools.js). **Live-check list after the user reloads:** Form menu (show hidden, highlight, duplicate), list Copy rows menu, select JSON/epoch/base64 text, `/new br`, paste `incident active=true^opened_at>=...` in the palette, 'Make the list filter dynamic', production-save confirm. Nothing committed.
+- **Instance switcher** (item 6, by a parallel agent): `/i`, "Switch instance", per-instance label + colour, tab tag, Options manager; see src/lib/instances.js,
+  src/content/instanceSwitch.js, src/options/InstanceManager.jsx.
+- **Accessibility** (item 5, by a parallel agent): floating windows move/resize/maximise/close by keyboard (arrows, Shift = big step, Alt+arrows resize, Enter, Esc) with focus in and back; sidebar separator and theme menu keyboard-operable; popover arrow keys; palette returns focus. `npm run a11y` (preview/a11y.js, axe-core + keyboard checks, light and dark) passes with 0 serious/critical; moderate findings only (heading order, options landmarks). Not covered: Next Experience, the script editor (incl. in-place), the real closed shadow root, screen readers.
+- 581 tests pass. **Next:** the user reloads the extension, then live-check in-place editing on a business rule, the Names toggle, `/tn x` + Enter in the navigator filter, `/i`; then commit when asked.
+- **Live-verified on the PDI 2026-10-20 (new build):** Names toggle (form), double-click label copy, in-place editor on a new Business Rule (edits reached g_form and the Monaco field, Esc closes), `/tn incident` + Enter in the navigator filter (palette opens, runs), `/i` shows Remember/Switch instance. Found and fixed: the in-place editor measured Monaco's 1px hidden textarea (fix in inline.js fieldPlace; needs a reload to see). After the reload: placement fix and scroll-follow ARE live-verified on an existing rule (opened and closed with no edit; form stayed clean). Logo: the manifest has no icons, so Chrome shows the first letter of the name (now N); the user wants that kept, SUPERSEDED: the user then asked to use the page toolbar's round mark as the logo, so assets/logo.svg + assets/icons/*.png (preview/make-icons.js renders them) are in the manifest (icons + action.default_icon) and copied to dist/icons by build.js. NOT yet live: an actual instance switch (needs a 2nd instance in Options), Ctrl+S save-record. A test tab with an unsaved new Business Rule may still be open (leave-page prompt).
+- Claude-in-Chrome ran on the user's own Chrome, which has the unpacked extension loaded: the content script there was the OLD build until the user reloads.
+
 ## RESUME HERE (state at the end of the 2026-10-19 session; the user will say "continue")
 **State.** HEAD `ab68dcc` is pushed to origin/main (github.com/MohammedBasheerAhmed/MySnowBuddy); working tree clean;
 559 tests pass (`npm test`); `node build.js` clean; the extension loads unpacked from D:\MySnowBuddy\dist in the user's

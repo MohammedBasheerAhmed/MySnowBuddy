@@ -77,7 +77,7 @@ export async function fetchRecords(instanceUrl, table, fields, { query = '', lim
     }
     throw new Error(
       `Not authenticated to ${new URL(base).hostname}. Either log into it in this browser, ` +
-        'or add credentials for it in the MySnowBuddy options page.'
+        'or add credentials for it in the NowBuddy options page.'
     );
   }
 
@@ -181,7 +181,7 @@ export async function writeRecord(instanceUrl, table, { method, sysId, fields })
   if (!cred?.username || !cred?.password) {
     throw new Error(
       `Not authenticated to ${host} for writing. A browser session alone is usually not enough for a cross-instance write; ` +
-        'add credentials for it in the MySnowBuddy options page.'
+        'add credentials for it in the NowBuddy options page.'
     );
   }
   response = await fetch(url, {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
-import { clampRect, resizeRect, MIN_WINDOW } from '../lib/toolWindow.js';
+import { clampRect, resizeRect, moveByKey, resizeByKey, windowKeyAction, WINDOW_KEY_HINT, MIN_WINDOW } from '../lib/toolWindow.js';
 
 const RECTS_KEY = 'mysnowbuddy_window_rects';
 
@@ -36,6 +36,22 @@ export default function ToolWindow({ name, title, defaultRect, z, onFocus, onClo
   const rectRef = useRef(rect);
   rectRef.current = rect;
   const restoreRef = useRef(null);
+  const rootRef = useRef(null);
+  const saveTimer = useRef(0);
+  const hintId = useRef(`msb-win-hint-${Math.random().toString(36).slice(2, 8)}`).current;
+
+  // Focus moves into the window when it opens and returns to whatever opened it when it closes.
+  // Nothing is trapped: Tab leaves the window like any other part of the page.
+  useEffect(() => {
+    const node = rootRef.current;
+    const root = node?.getRootNode?.();
+    const opener = root?.activeElement || document.activeElement;
+    node?.focus({ preventScroll: true });
+    return () => {
+      clearTimeout(saveTimer.current);
+      if (opener && opener !== document.body && opener.isConnected) opener.focus?.({ preventScroll: true });
+    };
+  }, []);
 
   // A remembered place wins over the computed default, once it has loaded.
   useEffect(() => {
@@ -85,6 +101,31 @@ export default function ToolWindow({ name, title, defaultRect, z, onFocus, onClo
     target.addEventListener('pointercancel', onUp);
   }
 
+  // Title bar focused: arrows move, Alt+arrows resize, Enter maximizes, Escape closes (see lib/toolWindow.js).
+  function onBarKeyDown(event) {
+    if (event.key === 'Escape' && !event.defaultPrevented) {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose?.();
+      return;
+    }
+    if (event.target !== event.currentTarget) return; // keys on the bar's own buttons keep their meaning
+    const action = windowKeyAction(event);
+    if (!action) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (action.type === 'maximize') {
+      toggleMaximize();
+      return;
+    }
+    if (maximized) return;
+    const next = (action.type === 'move' ? moveByKey : resizeByKey)(rectRef.current, action.key, action.shift, viewport());
+    setRect(next);
+    rectRef.current = next;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => saveRect(name, rectRef.current), 300);
+  }
+
   function toggleMaximize() {
     if (maximized) {
       setMaximized(false);
@@ -107,9 +148,24 @@ export default function ToolWindow({ name, title, defaultRect, z, onFocus, onClo
       style={style}
       role="dialog"
       aria-label={title}
+      tabIndex={-1}
+      ref={rootRef}
       onPointerDownCapture={onFocus}
+      onFocusCapture={onFocus}
     >
-      <div className="msb-win__bar" onPointerDown={(e) => startGesture(e, 'move')} onDoubleClick={toggleMaximize}>
+      <div
+        className="msb-win__bar"
+        role="group"
+        aria-label={`${title} window: move and resize`}
+        aria-describedby={hintId}
+        tabIndex={0}
+        onKeyDown={onBarKeyDown}
+        onPointerDown={(e) => startGesture(e, 'move')}
+        onDoubleClick={toggleMaximize}
+      >
+        <span id={hintId} className="msb-win__hint">
+          {WINDOW_KEY_HINT}
+        </span>
         <span className="msb-win__grip" aria-hidden="true" />
         <span className="msb-win__title">{title}</span>
         <span className="msb-win__actions">
@@ -134,14 +190,10 @@ export default function ToolWindow({ name, title, defaultRect, z, onFocus, onClo
       <div className="msb-win__body">{children}</div>
       {!maximized && (
         <>
-          <div className="msb-win__edge msb-win__edge--e" onPointerDown={(e) => startGesture(e, 'e')} />
-          <div className="msb-win__edge msb-win__edge--s" onPointerDown={(e) => startGesture(e, 's')} />
-          <div
-            className="msb-win__edge msb-win__edge--se"
-            onPointerDown={(e) => startGesture(e, 'se')}
-            role="separator"
-            aria-label="Resize window"
-          />
+          {/* Pointer-only handles; the keyboard resizes from the title bar (Alt+arrows). */}
+          <div className="msb-win__edge msb-win__edge--e" aria-hidden="true" onPointerDown={(e) => startGesture(e, 'e')} />
+          <div className="msb-win__edge msb-win__edge--s" aria-hidden="true" onPointerDown={(e) => startGesture(e, 's')} />
+          <div className="msb-win__edge msb-win__edge--se" aria-hidden="true" onPointerDown={(e) => startGesture(e, 'se')} />
         </>
       )}
     </div>

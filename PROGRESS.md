@@ -3,6 +3,8 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
+**Committed and pushed 2026-10-20 as 4473473 (origin/main). Every "NOT committed" note below this line is out of date; HEAD is that commit. A stray tracked scratch file c/Users/.../sp.cjs is still in git: ask the user before removing it.**
+
 ## 2026-10-20 gaps built (NOT committed, NOT live-checked on a real instance)
 The two gaps named in "Added 2026-10-16" are done. Pure logic: src/lib/scriptApi.js (declaredMembers, diffApi, selfCalls, callersOf,
 referenceTarget, classifyReference; tests/scriptapi.test.js).

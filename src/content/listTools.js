@@ -21,7 +21,10 @@ import {
   toJsArray,
   distinctValues,
   planOpen,
+  listRestUrl,
+  pickTwo,
 } from '../lib/listCopy.js';
+import { toGlideRecord } from '../lib/query.js';
 
 const FORMAT_KEY = 'listCopyFormat';
 const OUR_NODES = '[data-msb-inline],[data-msb-xray],script,style';
@@ -165,6 +168,45 @@ export async function copyListLink({ toast }) {
   } catch (err) {
     toast.error(errorText(err));
   }
+  return undefined;
+}
+
+/** Copy the Table API URL that returns this list: its filter and the columns on screen. */
+export async function copyListRest({ toast }) {
+  const info = await detectListInfo().catch(() => null);
+  if (!info) return noList(toast);
+  try {
+    const list = readList();
+    const columns = (list?.model.columns || []).map((c) => c.name).filter(Boolean);
+    await copyText(listRestUrl(window.location.origin, info.table, info.query, { columns }));
+    toast.success(`Copied the Table API URL for this list (first 100 rows${columns.length ? `, ${columns.length} columns` : ''})`);
+  } catch (err) {
+    toast.error(errorText(err));
+  }
+  return undefined;
+}
+
+/** Put a GlideRecord loop for this list's filter in the background script runner (dry run is on; nothing runs). */
+export async function listToRunner({ toast, sidebar }) {
+  const info = await detectListInfo().catch(() => null);
+  if (!info) return noList(toast);
+  try {
+    sidebar.openForTool();
+    sidebar.loadBackgroundScript(toGlideRecord(info.table, info.query));
+    toast.info('The script for this list is in the runner. Dry run is on: read it, then run.');
+  } catch (err) {
+    toast.error(errorText(err));
+  }
+  return undefined;
+}
+
+/** Compare the two ticked rows field by field (the compare panel, opened on the first row against the second). */
+export function compareTicked({ toast, sidebar }) {
+  const list = readList();
+  if (!list) return noList(toast);
+  const picked = pickTwo(list.model);
+  if (picked.error) return toast.info(picked.error);
+  sidebar.openPanel('recordcompare', { table: list.table, left: picked.ids[0], args: picked.ids[1] });
   return undefined;
 }
 

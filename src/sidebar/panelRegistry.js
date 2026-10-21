@@ -24,6 +24,9 @@ import AccessDebuggerPanel from './AccessDebuggerPanel.jsx';
 import { MY_WORK_PANELS } from './MyWorkPanel.jsx';
 import HealthScanPanel from './HealthScanPanel.jsx';
 import ImpactPanel from './ImpactPanel.jsx';
+import FieldUsagePanel from './FieldUsagePanel.jsx';
+import RecordComparePanel from './RecordComparePanel.jsx';
+import FieldHistoryPanel from './FieldHistoryPanel.jsx';
 import SaveTracePanel from './SaveTracePanel.jsx';
 import HotspotsPanel from './HotspotsPanel.jsx';
 import FailuresPanel from './FailuresPanel.jsx';
@@ -102,6 +105,57 @@ PANELS.push({
   withContext: true,
   launcher: true,
   component: ImpactPanel,
+});
+
+// Where is this field used? (/usage incident.state): scripts that set, read or query a field, and the policies, ACLs and
+// rules that control it: src/sidebar/FieldUsagePanel.jsx, src/content/fieldUsage.js, src/lib/fieldUsage.js.
+PANELS.push({
+  name: 'fieldusage',
+  title: 'Where is this field used?',
+  hint: 'Every script that sets, reads or queries a field, and the UI policies, ACLs and rules that control it',
+  launcherHint: 'Who sets or reads a field',
+  icon: 'search',
+  slash: ['/usage', '/field'],
+  help: 'where a field is used: scripts that set or read it, policies, ACLs (also /usage incident.state)',
+  keywords: 'field usage where is this field used who sets this field who writes this field who changes the value what sets state what reads this column references find usages of a field ui policy acl data policy business rule client script dictionary override remove a field safely',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: FieldUsagePanel,
+});
+
+// Compare two records (/vs INC0010002): the record on screen against another of the same table, field by field:
+// src/sidebar/RecordComparePanel.jsx, src/content/recordCompare.js, src/lib/recordCompare.js.
+PANELS.push({
+  name: 'recordcompare',
+  title: 'Compare with another record',
+  hint: 'Why does this record work and that one not? Every field that differs between two records of the same table',
+  launcherHint: 'Two records, field by field',
+  icon: 'layers',
+  slash: ['/vs', '/diff'],
+  help: 'compare this record with another of the same table (also /vs INC0010002, a sys_id or a name)',
+  keywords: 'compare two records diff difference between records why does this one work and that one not which fields differ side by side compare tickets compare users compare cis compare business rules working vs broken',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: RecordComparePanel,
+});
+
+// Who changed this value? (/history state): one field of the record on screen as a timeline from the audit trail:
+// src/sidebar/FieldHistoryPanel.jsx, src/content/fieldHistory.js, src/lib/fieldHistory.js.
+PANELS.push({
+  name: 'fieldhistory',
+  title: 'History of a field',
+  hint: 'Who changed this value, when, and how long each value stayed. Spots values that keep bouncing back',
+  launcherHint: 'Who changed this value',
+  icon: 'clock',
+  slash: ['/history', '/changes'],
+  help: 'every change to one field of this record (also /history state)',
+  keywords: 'field history who changed this value when did the state change audit trail timeline who set assignment group changed how long in state bounced flipped back automation fighting sys_audit what changed this field',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: FieldHistoryPanel,
 });
 
 // What went wrong recently? (/failed): failed email, flows, overdue jobs, integration errors, import rows, events:

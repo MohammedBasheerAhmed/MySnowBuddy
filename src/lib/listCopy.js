@@ -125,6 +125,30 @@ export function toJsArray(ids) {
   return `[${ids.map((id) => `'${id}'`).join(', ')}]`;
 }
 
+/**
+ * The Table API URL that returns what the list shows: same table, same filter, the columns on screen.
+ * @param {string} origin e.g. https://dev1.service-now.com
+ * @param {{ columns?: string[], limit?: number, displayValue?: boolean }} options
+ */
+export function listRestUrl(origin, table, query, { columns = [], limit = 100, displayValue = false } = {}) {
+  if (!/^[a-z][a-z0-9_]*$/.test(String(table || ''))) throw new Error('This page has no table name to build a URL from.');
+  const params = [];
+  if (query) params.push(`sysparm_query=${encodeURIComponent(query)}`);
+  const fields = [...new Set(columns.filter((c) => /^[a-z][a-z0-9_.]*$/.test(c || '')).concat('sys_id'))];
+  if (columns.length) params.push(`sysparm_fields=${fields.join(',')}`);
+  params.push(`sysparm_limit=${Math.max(1, Math.min(10000, Number(limit) || 100))}`);
+  if (displayValue) params.push('sysparm_display_value=true');
+  return `${String(origin).replace(/\/+$/, '')}/api/now/table/${table}?${params.join('&')}`;
+}
+
+/** The two ticked rows to compare: exactly two with a sys_id, else a message saying what to do. */
+export function pickTwo(model) {
+  const ticked = (model.rows || []).filter((r) => r.selected && r.sysId);
+  if (ticked.length === 2) return { ids: [ticked[0].sysId, ticked[1].sysId] };
+  if (!ticked.length) return { error: 'Tick the two rows you want to compare, then run this again.' };
+  return { error: ticked.length === 1 ? 'Only 1 row is ticked. Tick one more to compare.' : `${ticked.length} rows are ticked. Tick exactly two to compare them.` };
+}
+
 /** The text of "Copied N sys_ids" style toasts. */
 export function describeIds(count, scope, what = 'sys_ids') {
   const noun = count === 1 ? what.replace(/s$/, '') : what;

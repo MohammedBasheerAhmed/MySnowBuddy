@@ -162,7 +162,7 @@ test('trigger text describes when each kind of script runs', () => {
     'Business rule: runs after insert/update on incident, order 100'
   );
   assert.match(I.describeTrigger('sys_script_include', { client_callable: 'true' }), /client callable/);
-  assert.match(I.describeTrigger('sys_script_client', { type: 'onChange', field_name: 'state', table: 'incident' }), /onChange of state on incident/);
+  assert.match(I.describeTrigger('sys_script_client', { type: 'onChange', field: 'state', table: 'incident' }), /onChange of state on incident/);
   assert.match(I.describeTrigger('sysevent_script_action', { event_name: 'incident.closed' }), /incident\.closed/);
   assert.equal(I.describeTrigger('unknown_table', {}), '');
 });

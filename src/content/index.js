@@ -143,6 +143,7 @@ async function init() {
     openForTool() {},
     notify() {},
     openBackgroundScriptPanel() {},
+    loadBackgroundScript() {},
     openComparePanel() {},
     openSearchPanel() {},
     openUpdateSetPanel() {},
@@ -229,6 +230,9 @@ async function init() {
     sidebarApi.registerServices({
       // Services for the panels in src/sidebar/panelRegistry.js; built-in names below win on a clash.
       ...FEATURE_SERVICES,
+
+      // Lets a panel hand over to another one (X-ray -> where is this field used).
+      openRegisteredPanel: (name, params) => sidebarApi.openPanel?.(name, params),
 
       // Phase 2: conflict checker - deterministic checks run locally here,
       // the semantic pass happens in the sidebar via the service worker.
@@ -387,7 +391,11 @@ async function init() {
   try {
     installSelectionTracking();
     startScriptWatcher();
-    installFieldTools({ toast, isEnabled: () => inlineStatus().on });
+    installFieldTools({
+      toast,
+      isEnabled: () => inlineStatus().on,
+      openUsage: (table, field) => sidebarApi.openPanel?.('fieldusage', { args: `${table}.${field}` }),
+    });
   } catch (err) {
     console.error('[NowBuddy] selection tracking failed', err);
   }
@@ -460,6 +468,7 @@ async function init() {
     openCompare: () => sidebarApi.openRemotePanel(),
     getUpdateSet: () => getCurrentUpdateSet(),
     findDefinition: (name) => findDefinitionUrl(name),
+    openFieldUsage: (table, field) => sidebarApi.openPanel?.('fieldusage', { args: `${table}.${field}` }),
     findReferences: (target, opts) => findReferences(target, opts),
     beforeSave: () => checkBeforeSave({ toast }),
     isProd: () => getInstanceInfo().env === 'prod',

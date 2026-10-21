@@ -659,3 +659,37 @@ test('the catalog knows server methods found on a live instance (GlideRecord and
   // The global-scope gap found earlier stays recorded.
   assert.match(lookupApi('gs.base64Encode', 'server').text, /scoped|missing/i);
 });
+
+test('named providers resolve to a fixed address, any model id and the right protocol', () => {
+  const { PROVIDERS, apiOf, keyStorageFor, baseUrlStorageFor } = require('../src/providers/config.js');
+  // Every provider speaks a known protocol, has what the settings screen needs, and presets have a valid address.
+  for (const [id, p] of Object.entries(PROVIDERS)) {
+    assert.ok(['anthropic', 'openai'].includes(p.api), id);
+    assert.ok(p.label && p.keyLabel && p.keyHint && Array.isArray(p.models), id);
+    if (p.baseUrl) assert.match(p.baseUrl, /^(https:\/\/[^/?#]+(\/[^?#]*[^/])?|http:\/\/localhost:\d+\/v1)$/, id);
+    if (id !== 'custom') assert.ok(p.models.some((m) => m.id === p.defaultModel), `${id} default is a listed model`);
+  }
+  // Per-provider storage: the two older vendors keep their keys, the others get their own.
+  assert.equal(keyStorageFor('anthropic'), STORAGE_KEYS.anthropicKey);
+  assert.equal(keyStorageFor('openai'), STORAGE_KEYS.openaiKey);
+  assert.equal(keyStorageFor('gemini'), 'mysnowbuddy_key_gemini');
+  assert.notEqual(keyStorageFor('gemini'), keyStorageFor('deepseek'));
+  assert.equal(baseUrlStorageFor('custom'), 'mysnowbuddy_base_url_custom');
+  // Gemini: fixed address, the OpenAI protocol, any model id, the user's key.
+  const gem = resolveProviderConfig({ [STORAGE_KEYS.provider]: 'gemini', [keyStorageFor('gemini')]: 'AIzaX', [STORAGE_KEYS.models]: { gemini: ' gemini-3-pro ' } });
+  assert.equal(apiOf('gemini'), 'openai');
+  assert.equal(gem.baseUrl, 'https://generativelanguage.googleapis.com/v1beta/openai');
+  assert.equal(gem.model, 'gemini-3-pro');
+  assert.equal(gem.apiKey, 'AIzaX');
+  assert.equal(gem.keyOptional, false);
+  // No model chosen yet: the preset's default.
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'deepseek' }).model, 'deepseek-chat');
+  // A typed address cannot redirect a preset; only OpenAI, Anthropic and "other" take one.
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'deepseek', mysnowbuddy_base_url_deepseek: 'https://evil.example/v1' }).baseUrl, 'https://api.deepseek.com');
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'custom', mysnowbuddy_base_url_custom: 'https://api.together.xyz/v1/', [STORAGE_KEYS.models]: { custom: 'm' } }).baseUrl, 'https://api.together.xyz/v1');
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'custom', mysnowbuddy_base_url_custom: 'http://evil.example/v1' }).baseUrl, '');
+  // Ollama needs no key; the others do.
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'ollama' }).keyOptional, true);
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'groq' }).keyOptional, false);
+  assert.equal(resolveProviderConfig({ [STORAGE_KEYS.provider]: 'custom', mysnowbuddy_base_url_custom: 'http://localhost:1234/v1' }).keyOptional, true);
+});

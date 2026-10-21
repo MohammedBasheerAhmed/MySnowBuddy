@@ -1,0 +1,86 @@
+/* Record compare panel (/vs): src/sidebar/RecordComparePanel.jsx. Headline and busy text reuse .msb-usage__ and .msb-impact__. */
+
+.msb-vs__form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.msb-vs__label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+/* The input would otherwise inherit the muted label colour and read like a placeholder. */
+.msb-vs__label input {
+  color: var(--msb-fg);
+  font-weight: 400;
+}
+
+.msb-vs__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-vs__table td,
+.msb-vs__table th {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+.msb-vs__field {
+  font-family: var(--msb-font-mono, monospace);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  text-align: left;
+}
+
+/* History of a field (/history): src/sidebar/FieldHistoryPanel.jsx */
+
+.msb-hist__list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border-left: 2px solid var(--msb-border);
+}
+
+.msb-hist__item {
+  position: relative;
+  margin-left: 10px;
+  padding: 6px 0 8px 10px;
+}
+
+.msb-hist__item::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--msb-accent);
+}
+
+.msb-hist__item--bounce::before {
+  background: var(--msb-warn);
+}
+
+.msb-hist__from {
+  color: var(--msb-fg-muted);
+}
+
+.msb-hist__change {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--msb-text-sm);
+}

@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { getUiState, saveUiState } from '../content/storage.js';
+import { rememberSearch, cleanSearches, describeSearch } from '../lib/recentSearches.js';
 import { searchableTableOptions, recordUrl } from '../content/codeSearch.js';
 import { searchResultsToMarkdown, downloadText, suggestFilename } from '../lib/report.js';
 
@@ -19,19 +21,40 @@ export default function SearchPanel({ onClose, runSearch, onAskAi, initialTerm =
   const [error, setError] = useState(null);
   const [search, setSearch] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [recent, setRecent] = useState([]);
 
-  async function handleSearch() {
-    if (!term.trim()) return;
+  useEffect(() => {
+    getUiState().then((ui) => setRecent(cleanSearches(ui.recentCodeSearches)), () => {});
+  }, []);
+
+  function remember(entry) {
+    const next = rememberSearch(recent, entry);
+    setRecent(next);
+    saveUiState({ recentCodeSearches: next }).catch(() => {});
+  }
+
+  function runAgain(entry) {
+    setTerm(entry.term);
+    setWholeWord(entry.wholeWord);
+    setActiveOnly(entry.activeOnly);
+    setSelectedTables(entry.tables);
+    handleSearch(entry);
+  }
+
+  async function handleSearch(again) {
+    const using = again && again.term ? again : { term, wholeWord, activeOnly, tables: selectedTables };
+    if (!using.term.trim()) return;
     setBusy(true);
     setError(null);
     setSearch(null);
     try {
-      const result = await runSearch(term, {
-        wholeWord,
-        activeOnly,
-        tables: selectedTables.length ? selectedTables : null,
+      const result = await runSearch(using.term, {
+        wholeWord: using.wholeWord,
+        activeOnly: using.activeOnly,
+        tables: using.tables.length ? using.tables : null,
       });
       setSearch(result);
+      remember(using);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -106,7 +129,18 @@ export default function SearchPanel({ onClose, runSearch, onAskAi, initialTerm =
           </div>
         )}
 
-        <button className="msb-panel__run" onClick={handleSearch} disabled={busy || term.trim().length < 3}>
+        {recent.length > 0 && !search && (
+          <div className="msb-panel__recent" role="group" aria-label="Recent searches">
+            <span className="msb-panel__hint">Recent</span>
+            {recent.map((entry) => (
+              <button key={`${entry.term}|${describeSearch(entry)}`} type="button" className="msb-panel__chip" title={describeSearch(entry) || 'Search again'} onClick={() => runAgain(entry)} disabled={busy}>
+                {entry.term}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <button className="msb-panel__run" onClick={() => handleSearch()} disabled={busy || term.trim().length < 3}>
           {busy ? 'Searching...' : 'Search'}
         </button>
       </div>

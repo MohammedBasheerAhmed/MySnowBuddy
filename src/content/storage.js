@@ -25,6 +25,7 @@ export const nextTheme = (theme) => THEMES[(THEMES.indexOf(theme) + 1) % THEMES.
 
 const DEFAULT_UI_STATE = {
   recentCommands: [], // command ids, most recent first
+  recentCodeSearches: [], // the last few code searches: { term, wholeWord, activeOnly, tables }
   pinnedCommands: [], // command ids the user pinned; shown first when the palette opens
   commandStats: {}, // command id -> { n: times run, t: last run (epoch ms) }, for frecency ranking
 };

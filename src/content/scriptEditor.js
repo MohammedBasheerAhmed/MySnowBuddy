@@ -94,7 +94,7 @@ const SHORTCUTS = [
   ['Enter or Tab', 'Accept a suggestion (Esc closes the list)'],
   ['Ctrl+Shift+Space', 'Parameter hints'],
   ['F12 or Ctrl+click', 'Go to definition: Script Include, table, field, local function'],
-  ['Shift+F12', 'Find all references: every script on the instance that uses the Script Include, method or name at the caret'],
+  ['Shift+F12', 'Find all references: every script that uses the Script Include, method or table at the caret; on a field it opens Where is this field used?'],
   ['Ctrl+.', 'Quick fix for the problem on this line'],
   ['F8 / Shift+F8', 'Next / previous problem'],
   ['Ctrl+Shift+M', 'Show or hide the problems list'],
@@ -1179,13 +1179,36 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
       const values = await callPage('getFormValues').catch(() => null);
       ownName = String(values?.values?.name || '').trim();
     }
-    const target = referenceTarget(ta.value, ta.selectionStart, { table, ownName });
+    // A field or a table at the caret has a better answer than a text search (the table is known from the form or from
+    // new GlideRecord('...')), so resolve the name the way F12 does first.
+    let target = null;
+    try {
+      for (let round = 0; round < 3; round += 1) {
+        const needs = collectNeeds(ta.value, ta.selectionStart, intelCtx());
+        if (!needs.length) break;
+        // eslint-disable-next-line no-await-in-loop -- dot-walked names need one table at a time.
+        if (!(await ensureEditorData(needs))) break;
+      }
+      const def = getDefinitionTarget(ta.value, ta.selectionStart, intelCtx());
+      if (def?.type === 'field' && tools.openFieldUsage) {
+        tools.openFieldUsage(def.table, def.name);
+        toast.info(`Where ${def.table}.${def.name} is used is open in the sidebar.`);
+        return;
+      }
+      if (def?.type === 'table' && /^[a-z][a-z0-9_]*$/.test(def.name)) target = { kind: 'table', name: def.name };
+      // `current` and `previous` come back as the API entry for the record; the table they stand for is the rule's table.
+      const record = def?.type === 'api' && /^(?:current|previous):/.test(def.hover?.title || '') ? intelCtx().table : '';
+      if (record && /^[a-z][a-z0-9_]*$/.test(record)) target = { kind: 'table', name: record };
+    } catch {
+      // Fall back to the plain reference search below.
+    }
+    if (!target) target = referenceTarget(ta.value, ta.selectionStart, { table, ownName });
     if (!target) {
       toast.error('Put the caret on a name of three or more characters first.');
       return;
     }
     refList.hidden = false;
-    refList.replaceChildren(h('div', 'msb-ed__pempty', `Searching the instance for ${target.kind === 'method' ? `${target.className}.` : ''}${target.name}…`));
+    refList.replaceChildren(h('div', 'msb-ed__pempty', `Searching the instance for ${target.kind === 'method' ? `${target.className}.` : target.kind === 'table' ? 'scripts that use the table ' : ''}${target.name}…`));
     try {
       const result = await tools.findReferences(target, { excludeSysId: meta?.sysId || '' });
       renderRefs(result.hits, result.summary);

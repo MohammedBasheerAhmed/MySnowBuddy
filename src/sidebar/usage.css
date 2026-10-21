@@ -1,0 +1,99 @@
+/* Field usage panel (/usage): src/sidebar/FieldUsagePanel.jsx. The result list reuses the .msb-impact__* styles. */
+
+.msb-usage__form {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.msb-usage__label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+/* The input would otherwise inherit the muted label colour and read like a placeholder. */
+.msb-usage__label input {
+  color: var(--msb-fg);
+  font-weight: 400;
+}
+
+.msb-usage__headline {
+  margin: 12px 0 6px;
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+}
+
+.msb-usage__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+
+.msb-usage__filter {
+  padding: 3px 9px;
+  border: 1px solid var(--msb-border);
+  border-radius: 999px;
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-xs);
+  cursor: pointer;
+}
+
+.msb-usage__filter[aria-checked='true'] {
+  border-color: var(--msb-accent);
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-usage__group {
+  margin: 12px 0 4px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+.msb-usage__notes {
+  margin-top: 10px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+@media (max-width: 420px) {
+  .msb-usage__form {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Recent code searches (Code search panel): src/sidebar/SearchPanel.jsx */
+
+.msb-panel__recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.msb-panel__chip {
+  max-width: 100%;
+  padding: 3px 10px;
+  overflow: hidden;
+  border: 1px solid var(--msb-border);
+  border-radius: 999px;
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.msb-panel__chip:hover:not(:disabled) {
+  border-color: var(--msb-accent);
+}

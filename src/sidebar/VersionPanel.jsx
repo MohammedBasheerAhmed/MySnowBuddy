@@ -46,7 +46,7 @@ export default function VersionPanel({ context, services, onClose }) {
     }
   }
 
-  const label = (v) => `${v.sys_recorded_at} - ${v.sys_created_by}${v.state ? ` (${v.state})` : ''}`;
+  const label = (v) => `${v.sys_created_on || v.sys_recorded_at} - ${v.sys_created_by}${v.state ? ` (${v.state})` : ''}`;
 
   return (
     <div className="msb-panel">

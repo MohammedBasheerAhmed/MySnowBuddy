@@ -29,7 +29,7 @@ import { parseRecordNumber, tablesForNumber } from '../lib/recordNumber.js';
 import { addBookmark } from './stores.js';
 import { currentPageHref, detectListInfo } from './context.js';
 import { makeQueryDynamic, applyListFilter } from './queryTools.js';
-import { copyRows, copyIds, openSelected, copyListLink } from './listTools.js';
+import { copyRows, copyIds, openSelected, copyListLink, copyListRest, listToRunner, compareTicked } from './listTools.js';
 import { resolveTarget } from '../lib/urlTarget.js';
 import { isScriptLabel } from '../lib/inline.js';
 import { formDocuments } from './quickActions.js';
@@ -745,6 +745,32 @@ export function buildCommands(deps) {
   }
 
   // A JSON blob, Base64, a token, a timestamp, a table name ... that is selected on the page: say what it is.
+  // A name selected anywhere on the page (a method, a field, a property): one step to every place it is used.
+  const picked = String(ctx.selection || '').trim();
+  if (/^[A-Za-z_$][\w$.]{2,79}$/.test(picked)) {
+    const word = picked.replace(/^.*\./, '');
+    if (word.length >= 3) {
+      add({
+        id: 'search.selection',
+        title: `Find where “${word}” is used`,
+        hint: 'Every script field on the instance that mentions it',
+        group: GROUPS.tools,
+        keywords: 'find references usages where used selection selected name code search method function script include',
+        run: () => { sidebar.openForTool(); sidebar.openSearchPanel(word); },
+      });
+    }
+    if (table && !ctx.isList && /^[a-z][a-z0-9_]*$/.test(word)) {
+      add({
+        id: 'search.selectionField',
+        title: `Where is the field “${word}” used on ${table}?`,
+        hint: 'Scripts that set or read it, policies, ACLs, data policies',
+        group: GROUPS.tools,
+        keywords: 'field usage where used selection selected field name who sets who reads references',
+        run: () => { sidebar.openForTool(); sidebar.openPanel?.('fieldusage', { args: `${table}.${word}` }); },
+      });
+    }
+  }
+
   if (deps.decodeSelection && ctx.selection && deps.selectionKind?.(ctx.selection)) {
     add({
       id: 'tools.smartSelect',
@@ -803,10 +829,10 @@ export function buildCommands(deps) {
   add({
     id: 'tools.fieldNameTip',
     title: 'Copy a field name or value',
-    hint: 'Alt+click a label for its name, Alt+Shift+click for its value',
+    hint: 'Alt+click a label for its name, Alt+Shift+click for its value, Ctrl+Alt+click for where it is used',
     group: GROUPS.tools,
     keywords: 'field name value copy label dictionary',
-    run: () => toast.info('Alt+click a field label to copy its name. Alt+Shift+click copies its value.', { timeout: 8000 }),
+    run: () => toast.info('Alt+click a field label to copy its name. Alt+Shift+click copies its value. Ctrl+Alt+click shows where the field is used.', { timeout: 8000 }),
   });
 
   // Classic lists: take the rows off the page (the ticked ones, else every row on screen).
@@ -817,6 +843,9 @@ export function buildCommands(deps) {
     add({ id: 'tools.list.json', title: 'Copy list rows as JSON', hint: 'Keyed by database column name, with the sys_id', group: listGroup, keywords: 'copy rows json array objects test data', run: () => copyRows({ toast, format: 'json' }) });
     add({ id: 'tools.list.sysids', title: 'Copy sys_ids of the list rows', hint: 'Comma list; the page toolbar also has a JavaScript array', group: listGroup, keywords: 'copy sys ids comma list array selected rows', run: () => copyIds({ toast }) });
     add({ id: 'tools.list.openSelected', title: 'Open the ticked rows in new tabs', hint: 'Up to 8; asks first above 3', group: listGroup, keywords: 'open selected rows tabs records bulk review', run: () => openSelected({ toast }) });
+    add({ id: 'tools.list.compare', title: 'Compare the two ticked rows', hint: 'Every field that differs between the two records', group: listGroup, keywords: 'compare two records ticked rows diff difference which fields differ side by side', run: () => compareTicked({ toast, sidebar }) });
+    add({ id: 'tools.list.rest', title: 'Copy the Table API URL of this list', hint: 'Same filter, the columns on screen, first 100 rows', group: listGroup, keywords: 'copy rest api url table api list filter postman curl integration sysparm_query sysparm_fields', run: () => copyListRest({ toast }) });
+    add({ id: 'tools.list.runner', title: 'Open this list as a script in the runner', hint: 'A GlideRecord loop for the filter; dry run is on', group: listGroup, keywords: 'background script glide record loop list filter run script bulk update fix script query runner', run: () => listToRunner({ toast, sidebar }) });
     add({ id: 'tools.list.link', title: 'Copy a link to this filtered list', hint: 'Opens the same list and filter for whoever you send it to', group: listGroup, keywords: 'copy link url filtered list share query', run: () => copyListLink({ toast }) });
   }
 

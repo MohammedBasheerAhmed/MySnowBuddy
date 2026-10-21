@@ -14,6 +14,9 @@ import { impactServices } from './impact.js';
 import { queryServices } from './queryTools.js';
 import { saveTraceServices } from './saveTrace.js';
 import { hotspotServices } from './hotspots.js';
+import { fieldUsageServices } from './fieldUsage.js';
+import { recordCompareServices } from './recordCompare.js';
+import { fieldHistoryServices } from './fieldHistory.js';
 import { insightServices } from './insight.js';
 import { failureServices } from './failures.js';
 import { recentChangesServices } from './recentChanges.js';
@@ -38,6 +41,15 @@ Object.assign(FEATURE_SERVICES, ruleExplainServices);
 
 // Hot spots (src/content/hotspots.js).
 Object.assign(FEATURE_SERVICES, hotspotServices);
+
+// Where is this field used? (src/content/fieldUsage.js).
+Object.assign(FEATURE_SERVICES, fieldUsageServices);
+
+// Compare with another record (src/content/recordCompare.js).
+Object.assign(FEATURE_SERVICES, recordCompareServices);
+
+// History of a field (src/content/fieldHistory.js).
+Object.assign(FEATURE_SERVICES, fieldHistoryServices);
 
 // Test kit: run against a record, unit tests, ATF finder, snapshots, access matrix (src/content/testKit.js).
 Object.assign(FEATURE_SERVICES, testKitServices);

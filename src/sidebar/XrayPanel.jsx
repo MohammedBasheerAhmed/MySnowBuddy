@@ -384,6 +384,16 @@ function FieldDetail({ table, field, services, onAskAi }) {
           </button>
         )}
         <CopyButton text={field} label="Copy name" />
+        {services.openRegisteredPanel && (
+          <button type="button" className="msb-panel__link" title="Scripts that set or read it, policies, ACLs, data policies" onClick={() => services.openRegisteredPanel('fieldusage', { args: `${table}.${field}` })}>
+            Everywhere it is used
+          </button>
+        )}
+        {services.openRegisteredPanel && data.onForm && (
+          <button type="button" className="msb-panel__link" title="Every audited change to this field on this record" onClick={() => services.openRegisteredPanel('fieldhistory', { args: field })}>
+            Its history
+          </button>
+        )}
         {onAskAi && (
           <button type="button" className="msb-panel__link" onClick={() => onAskAi(`X-ray: ${table}.${field}`, askPrompt(data))}>
             Ask AI to explain

@@ -1,4 +1,5 @@
-// Alt+click a field label to copy its database name, Alt+Shift+click to copy its current value, double-click for the name.
+// Alt+click a field label to copy its database name, Alt+Shift+click to copy its current value, double-click for the name,
+// Ctrl+Alt+click to see where the field is used (the "Where is this field used?" panel).
 // Classic forms live in the gsft_main iframe, which is replaced on every navigation, so the
 // listeners are re-attached on a timer.
 
@@ -7,7 +8,7 @@ import { callPage } from './pageBridge.js';
 
 const ATTACH_MS = 2000;
 
-export function installFieldTools({ toast, isEnabled = () => true }) {
+export function installFieldTools({ toast, isEnabled = () => true, openUsage = null }) {
   const attached = new WeakSet();
 
   async function onClick(event) {
@@ -20,7 +21,11 @@ export function installFieldTools({ toast, isEnabled = () => true }) {
     event.stopPropagation();
 
     try {
-      if (event.shiftKey) {
+      if (event.ctrlKey && openUsage) {
+        const meta = await callPage('getFormMeta');
+        if (!meta?.table) throw new Error('Open a record form first.');
+        openUsage(meta.table, field);
+      } else if (event.shiftKey) {
         const state = await callPage('getFieldState', [field]);
         const value = state?.value ?? '';
         await copyText(String(value));

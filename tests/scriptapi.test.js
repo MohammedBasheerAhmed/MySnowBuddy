@@ -176,3 +176,13 @@ test('the save dialog for a renamed class, and for a script that only calls itse
   const own = breakingChangeAsk({ className: 'A', issues: [{ kind: 'removed', name: 'go', before: [] }], selfLines: [{ name: 'go', line: 3 }] });
   assert.equal(own.title, 'Saving this removes methods the script still calls');
 });
+
+test('a table is used when a script names it in quotes, not when the word only appears in a comment', () => {
+  const { classifyReference } = require('../src/lib/scriptApi.js');
+  const target = { kind: 'table', name: 'incident' };
+  assert.equal(classifyReference("var gr = new GlideRecord('incident');", target), 'call');
+  assert.equal(classifyReference('if (current.getTableName() == "incident") {}', target), 'call');
+  assert.equal(classifyReference("// new GlideRecord('incident')\nvar x = 1;", target), null);
+  assert.equal(classifyReference("var gr = new GlideRecord('incident_task');", target), null, 'a longer name is another table');
+  assert.equal(classifyReference('var incident = 1;', target), null);
+});

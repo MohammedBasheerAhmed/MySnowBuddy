@@ -3,7 +3,7 @@
 // rather than calling external origins directly. Also handles the toolbar
 // icon click, toggling the sidebar in the active tab's content script.
 import { loadProviderConfig, sendChat, validateKey } from '../providers/index.js';
-import { PROVIDERS } from '../providers/config.js';
+import { PROVIDERS, apiOf } from '../providers/config.js';
 import { validateBaseUrl } from '../lib/aiUsage.js';
 import { compareInstances, buildDiffSummaryPrompt } from './compare.js';
 import { fetchRecords, normalizeInstanceUrl } from './instanceClient.js';
@@ -198,7 +198,7 @@ async function handleValidateKey(payload) {
   const provider = payload?.provider || config.provider;
   const base = payload && 'baseUrl' in payload ? validateBaseUrl(payload.baseUrl) : { ok: true, url: config.provider === provider ? config.baseUrl : '', local: config.keyOptional };
   if (!base.ok) return { ok: false, error: base.error };
-  return validateKey({ provider, model: payload?.model || config.model, apiKey: payload?.apiKey, baseUrl: base.url, keyOptional: Boolean(base.local && provider === 'openai') });
+  return validateKey({ provider, model: payload?.model || config.model, apiKey: payload?.apiKey, baseUrl: base.url, keyOptional: Boolean(PROVIDERS[provider]?.keyOptional || (base.local && apiOf(provider) === 'openai')) });
 }
 
 // The dispatcher already checked the sender; handlers that reach the model or another

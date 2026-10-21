@@ -57,7 +57,7 @@ const SUBJECTS = {
   },
   sys_script_client: {
     kind: 'Client script',
-    fields: ['name', 'table', 'type', 'field_name', 'active', 'script'],
+    fields: ['name', 'table', 'type', 'field', 'active', 'script'],
     scripts: ['script'],
   },
   catalog_script_client: {
@@ -463,11 +463,11 @@ async function loadHistory(table, sysId) {
   const updateName = `${table}_${sysId}`;
   const [count, rows] = await Promise.all([
     countRecords('sys_update_version', `name=${updateName}`),
-    queryTable('sys_update_version', `name=${updateName}^ORDERBYDESCsys_recorded_at`, ['sys_id', 'name', 'sys_recorded_at', 'sys_created_by'], { limit: 3 }),
+    queryTable('sys_update_version', `name=${updateName}^ORDERBYDESCsys_recorded_at`, ['sys_id', 'name', 'sys_recorded_at', 'sys_created_on', 'sys_created_by'], { limit: 3 }),
   ]);
   return {
     count,
-    latest: rows.filter((r) => r.name === updateName).map((r) => ({ recordedAt: r.sys_recorded_at, by: r.sys_created_by })),
+    latest: rows.filter((r) => r.name === updateName).map((r) => ({ recordedAt: r.sys_created_on || r.sys_recorded_at, by: r.sys_created_by })),
   };
 }
 

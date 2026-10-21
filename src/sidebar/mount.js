@@ -16,6 +16,7 @@ export function mountSidebar(container, { getContext, instance = null, onOpenPal
     openForTool: () => ref.current?.openForTool(),
     notify: (text) => ref.current?.notify(text),
     openBackgroundScriptPanel: () => ref.current?.openBackgroundScriptPanel(),
+    loadBackgroundScript: (text) => ref.current?.loadBackgroundScript(text),
     openComparePanel: () => ref.current?.openComparePanel(),
     openSearchPanel: (query) => ref.current?.openSearchPanel(query),
     openUpdateSetPanel: () => ref.current?.openUpdateSetPanel(),

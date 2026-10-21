@@ -41,7 +41,7 @@ export async function findReferences(target, { excludeSysId = '', activeOnly = t
 
 /** One line for a result set: "7 uses of UserUtils.getEmail (5 confirmed)". */
 export function summarizeReferences({ target, hits, capped, errors }) {
-  const label = target.kind === 'method' ? `${target.className}.${target.name}` : target.name;
+  const label = target.kind === 'method' ? `${target.className}.${target.name}` : target.kind === 'table' ? `the table ${target.name}` : target.name;
   const confirmed = hits.filter((h) => h.certainty === 'call').length;
   let text = hits.length
     ? `${hits.length} ${hits.length === 1 ? 'script uses' : 'scripts use'} ${label}${confirmed && confirmed < hits.length ? ` (${confirmed} confirmed, ${hits.length - confirmed} possible)` : ''}`

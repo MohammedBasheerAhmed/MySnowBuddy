@@ -675,7 +675,8 @@ function ownText(el) {
   let text = '';
   el.childNodes.forEach((node) => {
     if (node.nodeType === 3) text += node.nodeValue;
-    else if (node.nodeType === 1 && !node.hasAttribute(ATTR)) text += ownText(node);
+    // Our own chips and the field-name badges of the Names toggle live inside labels; they are not the label's text.
+    else if (node.nodeType === 1 && !node.hasAttribute(ATTR) && !node.hasAttribute('data-msb-inline')) text += ownText(node);
   });
   return text.replace(/\s+/g, ' ').trim();
 }

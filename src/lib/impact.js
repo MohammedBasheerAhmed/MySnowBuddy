@@ -429,7 +429,7 @@ export function describeTrigger(table, row = {}) {
         ? 'Script Include, client callable: other scripts and the browser (GlideAjax) can call it'
         : 'Script Include: runs when another script calls it';
     case 'sys_script_client':
-      return `Client script: runs ${row.type || '?'}${row.type === 'onChange' && row.field_name ? ` of ${row.field_name}` : ''} on ${row.table || '?'} forms`;
+      return `Client script: runs ${row.type || '?'}${row.type === 'onChange' && (row.field || row.field_name) ? ` of ${row.field || row.field_name}` : ''} on ${row.table || '?'} forms`;
     case 'catalog_script_client':
       return `Catalog client script: runs ${row.type || '?'} on the catalog item form`;
     case 'sys_ui_action':

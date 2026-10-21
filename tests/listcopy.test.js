@@ -143,3 +143,21 @@ test('opening rows is capped, de-duplicated, and asks before opening many', () =
   assert.equal(planOpen(ids.slice(0, 4)).needsConfirm, true);
   assert.deepEqual(planOpen([]).open, []);
 });
+
+test('the Table API URL of a list carries its filter and the columns on screen', () => {
+  const { listRestUrl } = require('../src/lib/listCopy.js');
+  const url = listRestUrl('https://dev1.service-now.com/', 'incident', 'active=true^priority=1^ORDERBYnumber', { columns: ['number', 'short_description'] });
+  assert.equal(url, 'https://dev1.service-now.com/api/now/table/incident?sysparm_query=active%3Dtrue%5Epriority%3D1%5EORDERBYnumber&sysparm_fields=number,short_description,sys_id&sysparm_limit=100');
+  assert.equal(listRestUrl('https://x.service-now.com', 'incident', '', {}), 'https://x.service-now.com/api/now/table/incident?sysparm_limit=100', 'no filter, no columns');
+  assert.match(listRestUrl('https://x', 'incident', '', { columns: ['caller_id.name', 'bad col!'], displayValue: true, limit: 99999 }), /sysparm_fields=caller_id\.name,sys_id&sysparm_limit=10000&sysparm_display_value=true$/);
+  assert.throws(() => listRestUrl('https://x', 'bad table', ''), /no table name/);
+});
+
+test('comparing needs exactly two ticked rows', () => {
+  const { pickTwo } = require('../src/lib/listCopy.js');
+  const row = (sysId, selected) => ({ sysId, selected, cells: [] });
+  assert.deepEqual(pickTwo({ rows: [row('a', true), row('b', false), row('c', true)] }), { ids: ['a', 'c'] });
+  assert.match(pickTwo({ rows: [row('a', false)] }).error, /Tick the two rows/);
+  assert.match(pickTwo({ rows: [row('a', true), row('b', true), row('c', true)] }).error, /3 rows are ticked/);
+  assert.match(pickTwo({ rows: [row('', true), row('b', true)] }).error, /Only 1 row is ticked/, 'a row without a sys_id does not count');
+});

@@ -187,6 +187,8 @@ export function classifyReference(source, target) {
   const text = stripComments(String(source || ''));
   const word = (name) => new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
   if (target.kind === 'text') return word(target.name).test(text) ? 'maybe' : null;
+  // A table is used when a script names it in quotes: new GlideRecord('incident'), current.getTableName() == 'incident'.
+  if (target.kind === 'table') return new RegExp(`['"]${target.name.replace(/\$/g, '\\$')}['"]`).test(text) ? 'call' : null;
   if (target.kind === 'class') {
     if (callersOf(source, target.name)) return 'call';
     return word(target.name).test(text) ? 'maybe' : null;

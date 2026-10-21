@@ -3,6 +3,81 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
+## RESUME HERE (latest; end of the 2026-10-20 session; the user will say "continue")
+**State.** origin/main = local main = d53f831 (github.com/MohammedBasheerAhmed/MySnowBuddy, only branch). Working tree clean (this section
+may be uncommitted). 866 tests (`npm test`; two timing tests flake when the machine is busy, they pass alone), `node build.js` clean,
+`npm run a11y` passes. The extension loads unpacked from D:MySnowBuddydist; the user reloads it at chrome://extensions after every build
+(you cannot). PDI: https://dev364920.service-now.com (admin, Default [Global], scope global); it is a playground but delete what you create.
+Product goal (memory: product-goal-debug-code-explore): make NowBuddy great for ServiceNow developers at debugging, coding and exploring.
+
+**Live-verified on the PDI:** everything listed as live-verified in the 2026-10-18/19/20 entries, plus (2026-10-20) Find all references
+(Shift+F12) and the Script Include save-time breaking-change check (dialog, Go back, Save anyway). Live-found bug fixed: formDocuments() could
+not see the classic frame inside the Next Experience shell (shadow root), so no Save listener attached (also hit the production save guard).
+
+**Live-checked 2026-10-21 on the PDI (extension connected):** compare two ticked rows (/vs), field usage (Ctrl+Alt+click on a label; Shift+F12 on a
+field in the editor), /history state on a record with sys_audit rows (columns user/oldvalue/newvalue confirmed), list "open as a script" (runner,
+dry run on), recent code search chip persisted. Fixed from that pass: Shift+F12 on `current`/`previous` fell back to a text search (now the rule's
+table); the table/field inputs in the usage, history and compare panels inherited the muted label colour and looked like placeholders (CSS fix,
+rebuilt, tests/a11y pass, NOT yet re-looked at on the live page). Not verifiable from the browser: the copied Table API URL (clipboard read blocked).
+Still unchecked: the other usage config sources (data policy, dictionary overrides, UI policy conditions), the ~20 older panels below.
+
+**Full live pass, 2026-10-21 (same session, later; all on the PDI, test records deleted afterwards).** Worked live: dock (Info, Versions, Used by
+counts match the API, Form tools: show hidden / highlight), Page X-ray incl. the new "Everywhere it is used" / "Its history" buttons, access debugger,
+health scan (33 s, finding verified), hot spots, recent changes, release notes, break this list down, list dock (Explain/Count/Query/GlideRecord),
+encoded query in the palette, "Make the list filter dynamic" (user -> gs.getUserID(), dates -> daysAgoStart), why didn't my rule run, save trace
+(arm, save, collect), test data (plan, create 3, clean up; INSERT is ~8 s each here), change impact, background runner dry run (write SUPPRESSED, record
+unchanged), editor hover, Shift+F12 on a field and on a table inside a Script Include. Bugs found and FIXED in source (rebuilt; reload the extension
+to see them): sys_script_client stores the field in `field`, not `field_name` (field usage and change impact never showed onChange scripts);
+X-ray labels included the Names badge text ("Statestate"); Shift+F12 on `current`/`previous`; muted input colour in the usage/history/compare panels;
+change impact and the version list showed `sys_recorded_at` (an opaque token like 1a15eb19c4c0000001) instead of a date (now sys_created_on).
+Known, not fixed: "What went wrong" lists jobs 131 d overdue under "Last 24 hours"; field usage can list `gr.state = ...` on another table's
+GlideRecord as "on this table" (heuristic); the Test data progress label lags one step. Not yet live-checked: scaffolds (/new ...), Test kit, smart
+selection, instance switcher, Table API URL copy (clipboard unreadable from the browser tool), the 3 usage config sources beyond onChange.
+**New 2026-10-21: more AI providers.** src/providers/config.js now has presets that reuse the OpenAI-protocol adapter: Google Gemini
+(generativelanguage.googleapis.com/v1beta/openai), DeepSeek, xAI, Mistral, Groq, OpenRouter, Ollama (localhost, no key) and "Other
+(OpenAI-compatible)" with a typed address; model ids are free text with suggestions; keys are stored per provider (mysnowbuddy_key_<id>; the two
+older vendors keep their old keys). The options screen (AgentSettings.jsx ProviderSection) lists them all. Tested offline (901 tests) and the six
+addresses answer 401/400 without a key; NOT tested with a real key. Tool calling quality depends on the model (DeepSeek Reasoner and small local
+models may not support tools).
+
+**Open, in order**
+1. Live pass (Claude-in-Chrome on the PDI, new tab, the user must have reloaded) of the ~20 panels that have ONLY been checked in the preview
+   harness, by daily value: Failures ("what went wrong"), Save trace, Why didn't my rule run, Insight (break this list down), reference
+   graph (Used by), Recent changes, Hotspots, Release notes, Similar, Test kit / Test data / ATF helpers, scaffolds (/new br|si|cs|uia|sj|fix|rest),
+   encoded-query tools (paste a query in the palette, Make the list filter dynamic), form tools (show hidden, highlight, duplicate), list copy
+   menu, smart selection, instance switcher (/i, needs a 2nd instance). Expect live-only bugs (shadow roots, label ids); fix them as found.
+2. Production save guard (guards.js): never live-tested on a prod-tagged instance; it relies on the formDocuments fix. Check with a fake prod tag.
+3. Re-check the other formDocuments users after the fix (script-field detection in context.js, fieldTools double-click copy, commands.js).
+4. Never verified live: /push, VS Code file sync, ATF, the AI chat and agent (no API key used), the MCP server, Next Experience workspace forms.
+5. Ask the user before: removing the stray tracked scratch file c/Users/bashe/AppData/.../sp.cjs; any commit or push (they ask explicitly).
+6. Ideas: palette command or guide entry for Find references; Script Include breaking check for the context-menu Save (only the Save buttons and
+   the editor's Apply & save are covered); "find all references" for fields and tables.
+
+**Added 2026-10-21 (NOT committed, NOT live-checked; the browser extension was not connected):** `/usage incident.state` (alias /field), panel
+"Where is this field used?": scripts that set/read/query a field (code search narrowed to the table and parents; direct / names the table /
+might be another table), plus UI policy actions and conditions, onChange client scripts, field ACLs, data policy rules, dictionary overrides and
+Business Rule filter conditions. Files: src/lib/fieldUsage.js, src/content/fieldUsage.js, src/sidebar/FieldUsagePanel.jsx + usage.css,
+tests/fieldusage.test.js (877 tests pass). Ctrl+Alt+click on a form field label opens it for that field (fieldTools.js; live-check on a form).
+Also `/vs INC0010002` (alias /diff), panel "Compare with another record": the record on screen against another of the same table
+(number, sys_id or name), field by field with display values, bookkeeping hidden, scripts as line diffs. Files: src/lib/recordCompare.js,
+src/content/recordCompare.js, src/sidebar/RecordComparePanel.jsx + vs.css, tests/recordcompare.test.js (884 tests pass). Live-check: the
+name lookup columns and display_value=all rows.
+Also built the same day (all NOT committed, NOT live-checked; 900 tests pass): list palette commands "Compare the two ticked rows" (opens /vs with
+params.left/args), "Copy the Table API URL of this list" (listRestUrl in lib/listCopy.js) and "Open this list as a script in the runner"
+(sidebar.loadBackgroundScript, dry run on); X-ray field detail buttons "Everywhere it is used" and "Its history" (services.openRegisteredPanel);
+`/history state` (alias /changes), panel "History of a field" (src/lib/fieldHistory.js, src/content/fieldHistory.js, FieldHistoryPanel.jsx; reads
+sys_audit, labels from sys_choice, bounce detection); Shift+F12 in the script editor: on a field opens /usage, on a table (incl. `current` and
+new GlideRecord('x')) searches scripts that name it (reference kind 'table'); recent code searches as chips in the Code search panel
+(lib/recentSearches.js, uiState.recentCodeSearches); palette commands for a selected name ("Find where X is used", "Where is the field X used on T").
+NOT built on purpose: the Script Include breaking check for the context-menu Save / Ctrl+S. It needs a page-world wrapper around gsftSubmit; a bug
+there could block saves, so do it only with a live instance to test on. Live-check first: sys_audit columns (user, oldvalue, newvalue, reason),
+Ctrl+Alt+click on a label, the three list commands, the editor Shift+F12 paths. codeSearch.js gained an optional `extraQuery` option. Live-check first: the sys_data_policy_rule,
+sys_dictionary_override and sys_ui_policy.conditions column names, and the ui_policy.* dot-walk fields.
+
+**How to work:** see "How to work (hard-won)" in the older notes below. Live test recipe that worked: new tab, REST from the page with
+window.g_ck (X-UserToken) to create/delete test records, real mouse clicks for in-app dialogs (synthetic clicks never confirm), delete test
+records at the end. Preview harness: `npm run preview`, ?inline=1&page=si (Script Include form with two callers) and window.__msb.shadow.
+
 **Committed and pushed 2026-10-20 as 4473473 (origin/main). Every "NOT committed" note below this line is out of date; HEAD is that commit. A stray tracked scratch file c/Users/.../sp.cjs is still in git: ask the user before removing it.**
 
 ## 2026-10-20 gaps built (NOT committed, NOT live-checked on a real instance)
@@ -67,7 +142,7 @@ new panels on the PDI one by one (none has run on a real instance), add them to 
 - **Live-verified on the PDI 2026-10-20 (new build):** Names toggle (form), double-click label copy, in-place editor on a new Business Rule (edits reached g_form and the Monaco field, Esc closes), `/tn incident` + Enter in the navigator filter (palette opens, runs), `/i` shows Remember/Switch instance. Found and fixed: the in-place editor measured Monaco's 1px hidden textarea (fix in inline.js fieldPlace; needs a reload to see). After the reload: placement fix and scroll-follow ARE live-verified on an existing rule (opened and closed with no edit; form stayed clean). Logo: the manifest has no icons, so Chrome shows the first letter of the name (now N); the user wants that kept, SUPERSEDED: the user then asked to use the page toolbar's round mark as the logo, so assets/logo.svg + assets/icons/*.png (preview/make-icons.js renders them) are in the manifest (icons + action.default_icon) and copied to dist/icons by build.js. NOT yet live: an actual instance switch (needs a 2nd instance in Options), Ctrl+S save-record. A test tab with an unsaved new Business Rule may still be open (leave-page prompt).
 - Claude-in-Chrome ran on the user's own Chrome, which has the unpacked extension loaded: the content script there was the OLD build until the user reloads.
 
-## RESUME HERE (state at the end of the 2026-10-19 session; the user will say "continue")
+## Older resume notes (end of 2026-10-19; the open list below is partly done, use "RESUME HERE (latest)" at the top)
 **State.** HEAD `ab68dcc` is pushed to origin/main (github.com/MohammedBasheerAhmed/MySnowBuddy); working tree clean;
 559 tests pass (`npm test`); `node build.js` clean; the extension loads unpacked from D:\MySnowBuddy\dist in the user's
 Chrome. PDI: https://dev364920.service-now.com (Australia p7), session user admin, update set Default [Global], scope global.

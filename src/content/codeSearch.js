@@ -189,7 +189,10 @@ export async function searchCode(term, options = {}) {
       // condition before it. Filtering on the server matters: filtered afterwards, inactive
       // matches used up the row limit and active ones were never seen.
       const hasActive = artifact.fields.includes('active');
-      const query = activeOnly && hasActive ? `active=true^${likeClause}` : likeClause;
+      let query = activeOnly && hasActive ? `active=true^${likeClause}` : likeClause;
+      // A caller can narrow one table further (the field usage panel keeps rules on the asked table); ANDed on the end.
+      const extra = options.extraQuery ? options.extraQuery(artifact) : '';
+      if (extra) query += `^${extra}`;
       const fields = [...new Set([...artifact.fields, ...artifact.scriptFields])];
       const rows = await queryTable(artifact.table, query, fields, { limit: limitPerTable });
       if (rows.length >= limitPerTable) capped.push(artifact.label);

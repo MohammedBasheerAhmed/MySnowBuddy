@@ -15,7 +15,7 @@ export async function fetchVersionList(table, sysId, { limit = 30 } = {}) {
   return queryTable(
     'sys_update_version',
     `name=${table}_${sysId}^ORDERBYDESCsys_recorded_at`,
-    ['sys_id', 'sys_recorded_at', 'sys_created_by', 'source', 'state', 'action'],
+    ['sys_id', 'sys_recorded_at', 'sys_created_on', 'sys_created_by', 'source', 'state', 'action'],
     { limit }
   );
 }

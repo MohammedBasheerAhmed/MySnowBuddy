@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { PROVIDERS, STORAGE_KEYS, keyStorageFor, baseUrlStorageFor, resolveProviderConfig } from '../providers/config.js';
-import { validateBaseUrl, originPattern } from '../lib/aiUsage.js';
+import { PROVIDERS, STORAGE_KEYS, keyStorageFor, baseUrlStorageFor, effectiveBaseUrl, resolveProviderConfig } from '../providers/config.js';
+import { originPattern } from '../lib/aiUsage.js';
 import { AUTONOMY_LEVELS, MCP_CEILINGS, resolveMcpCeiling } from '../lib/agent/policy.js';
 
 const SETTINGS_STORAGE = 'mysnowbuddy_settings';
@@ -8,12 +8,12 @@ const SETTINGS_STORAGE = 'mysnowbuddy_settings';
 /** Provider, key and model. Keys are kept per vendor so switching never loses one. */
 export function ProviderSection() {
   const [provider, setProvider] = useState('anthropic');
-  const [keys, setKeys] = useState({ anthropic: '', openai: '' });
+  const [keys, setKeys] = useState({});
   const [models, setModels] = useState({});
   const [saved, setSaved] = useState(false);
   const [validation, setValidation] = useState(null);
   const [validating, setValidating] = useState(false);
-  const [baseUrls, setBaseUrls] = useState({ anthropic: '', openai: '' });
+  const [baseUrls, setBaseUrls] = useState({});
   const [baseError, setBaseError] = useState('');
   const [promptCache, setPromptCache] = useState(true);
 
@@ -21,18 +21,21 @@ export function ProviderSection() {
     chrome.storage.local.get(null).then((stored) => {
       const config = resolveProviderConfig(stored);
       setProvider(config.provider);
-      setKeys({ anthropic: stored[STORAGE_KEYS.anthropicKey] || '', openai: stored[STORAGE_KEYS.openaiKey] || '' });
+      setKeys(Object.fromEntries(Object.keys(PROVIDERS).map((id) => [id, stored[keyStorageFor(id)] || ''])));
       setModels(stored[STORAGE_KEYS.models] || {});
-      setBaseUrls({ anthropic: stored[STORAGE_KEYS.anthropicBaseUrl] || '', openai: stored[STORAGE_KEYS.openaiBaseUrl] || '' });
+      setBaseUrls(Object.fromEntries(Object.keys(PROVIDERS).map((id) => [id, stored[baseUrlStorageFor(id)] || ''])));
       setPromptCache(stored[SETTINGS_STORAGE]?.promptCache !== false);
     });
   }, []);
 
   const def = PROVIDERS[provider];
-  const base = validateBaseUrl(baseUrls[provider]);
+  const key = keys[provider] || '';
+  const base = effectiveBaseUrl(provider, baseUrls[provider]);
   const custom = base.ok && Boolean(base.url);
-  // With a custom endpoint the model is whatever that server calls it; otherwise one of the listed models.
-  const model = custom ? models[provider] || '' : def.models.some((m) => m.id === models[provider]) ? models[provider] : def.defaultModel;
+  // Presets and custom endpoints take any model id (the list only suggests); the vendors' own APIs use a fixed list.
+  const freeText = Boolean(def.freeModel) || custom;
+  const model = freeText ? models[provider] ?? def.defaultModel : def.models.some((m) => m.id === models[provider]) ? models[provider] : def.defaultModel;
+  const needsKey = !def.keyOptional && !(base.local && def.api === 'openai');
 
   /** Check the endpoint, ask Chrome for access to its host (this runs inside the Save click), then store everything. */
   async function save() {
@@ -41,27 +44,31 @@ export function ProviderSection() {
       setBaseError(base.error);
       return false;
     }
-    if (base.url && !model.trim()) {
-      setBaseError('Type the model id this endpoint expects, for example grok-4 or llama3.');
+    if (provider === 'custom' && !base.url) {
+      setBaseError('Type the address of the server, for example https://api.together.xyz/v1.');
+      return false;
+    }
+    if (base.url && !String(model).trim()) {
+      setBaseError('Type the model id this provider expects, for example grok-4 or llama3.');
       return false;
     }
     if (base.url) {
       const granted = await chrome.permissions.request({ origins: [originPattern(base.url)] }).catch(() => false);
       if (!granted) {
-        setBaseError(`Chrome did not give NowBuddy access to ${base.host}, so the endpoint was not saved.`);
+        setBaseError(`Chrome did not give NowBuddy access to ${base.host}, so ${def.label} was not saved.`);
         return false;
       }
     }
     const settings = (await chrome.storage.local.get(SETTINGS_STORAGE))[SETTINGS_STORAGE] || {};
+    const typedUrls = Object.fromEntries(Object.entries(PROVIDERS).filter(([, p]) => p.userBaseUrl).map(([id]) => [baseUrlStorageFor(id), id === provider ? base.url : (baseUrls[id] || '').trim()]));
     await chrome.storage.local.set({
       [STORAGE_KEYS.provider]: provider,
-      [STORAGE_KEYS.anthropicKey]: keys.anthropic.trim(),
-      [STORAGE_KEYS.openaiKey]: keys.openai.trim(),
-      [STORAGE_KEYS.models]: { ...models, [provider]: model },
-      [baseUrlStorageFor(provider)]: base.url,
+      ...Object.fromEntries(Object.keys(PROVIDERS).map((id) => [keyStorageFor(id), (keys[id] || '').trim()])),
+      [STORAGE_KEYS.models]: { ...models, [provider]: String(model).trim() },
+      ...typedUrls,
       [SETTINGS_STORAGE]: { ...settings, promptCache },
     });
-    setBaseUrls((u) => ({ ...u, [provider]: base.url }));
+    setBaseUrls((u) => ({ ...u, [provider]: def.userBaseUrl ? base.url : u[provider] }));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     return true;
@@ -75,7 +82,7 @@ export function ProviderSection() {
       setValidating(false);
       return;
     }
-    const result = await chrome.runtime.sendMessage({ type: 'VALIDATE_API_KEY', payload: { provider, model, apiKey: keys[provider].trim(), baseUrl: base.url } });
+    const result = await chrome.runtime.sendMessage({ type: 'VALIDATE_API_KEY', payload: { provider, model: String(model).trim(), apiKey: key.trim(), baseUrl: base.url } });
     setValidation(result);
     setValidating(false);
   }
@@ -84,46 +91,52 @@ export function ProviderSection() {
     <section>
       <h2>AI provider</h2>
       <p className="msb-options__hint">
-        Keys stay in this browser (chrome.storage.local) and are sent only to the provider you pick. Claude gives the best results for the agent and for script writing.
+        Keys stay in this browser (chrome.storage.local) and are sent only to the provider you pick. Claude gives the best results for the agent and for script writing; the others work for chat, explanations and drafts, and for the agent when the model supports tool calls.
       </p>
 
       <div className="msb-options__choices" role="radiogroup" aria-label="AI provider">
         {Object.entries(PROVIDERS).map(([id, p]) => (
-          <button key={id} type="button" role="radio" aria-checked={provider === id} className={`msb-options__choice${provider === id ? ' msb-options__choice--on' : ''}`} onClick={() => setProvider(id)}>
+          <button key={id} type="button" role="radio" aria-checked={provider === id} className={`msb-options__choice${provider === id ? ' msb-options__choice--on' : ''}`} onClick={() => { setProvider(id); setValidation(null); setBaseError(''); }}>
             <strong>{p.label}</strong>
-            <span>{keys[id] ? 'Key saved' : 'No key yet'}</span>
+            <span>{keys[id] ? 'Key saved' : p.keyOptional ? 'No key needed' : 'No key yet'}</span>
           </button>
         ))}
       </div>
 
       <label className="msb-options__field">
         {def.keyLabel}
-        <input type="password" value={keys[provider]} onChange={(e) => setKeys((k) => ({ ...k, [provider]: e.target.value }))} placeholder={provider === 'anthropic' ? 'sk-ant-...' : 'sk-...'} autoComplete="off" />
+        <input type="password" value={key} onChange={(e) => setKeys((k) => ({ ...k, [provider]: e.target.value }))} placeholder={def.keyPlaceholder || (provider === 'anthropic' ? 'sk-ant-...' : 'sk-...')} autoComplete="off" />
         <span className="msb-options__hint">{def.keyHint}</span>
       </label>
 
-      <label className="msb-options__field">
-        {provider === 'openai' ? 'OpenAI-compatible endpoint (optional)' : 'Anthropic proxy endpoint (optional)'}
-        <input
-          type="text"
-          value={baseUrls[provider]}
-          onChange={(e) => {
-            setBaseUrls((u) => ({ ...u, [provider]: e.target.value }));
-            setBaseError('');
-          }}
-          placeholder={provider === 'openai' ? 'https://api.x.ai/v1' : 'https://my-proxy.example.com/v1'}
-          autoComplete="off"
-          spellCheck="false"
-        />
-        <span className="msb-options__hint">
-          {provider === 'openai'
-            ? 'Leave empty for OpenAI itself. For another service that speaks the same API, give its base address, for example https://api.x.ai/v1 (xAI Grok), https://openrouter.ai/api/v1, or http://localhost:11434/v1 (Ollama, no key needed). NowBuddy calls <address>/chat/completions.'
-            : 'Leave empty for api.anthropic.com. Only fill this in if you route Claude through your own gateway; NowBuddy calls <address>/messages.'}
-        </span>
-      </label>
+      {def.userBaseUrl && (
+        <label className="msb-options__field">
+          {provider === 'openai' ? 'OpenAI-compatible endpoint (optional)' : provider === 'custom' ? 'Server address' : 'Anthropic proxy endpoint (optional)'}
+          <input
+            type="text"
+            value={baseUrls[provider] || ''}
+            onChange={(e) => {
+              setBaseUrls((u) => ({ ...u, [provider]: e.target.value }));
+              setBaseError('');
+            }}
+            placeholder={provider === 'anthropic' ? 'https://my-proxy.example.com/v1' : 'https://api.together.xyz/v1'}
+            autoComplete="off"
+            spellCheck="false"
+          />
+          <span className="msb-options__hint">
+            {provider === 'anthropic'
+              ? 'Leave empty for api.anthropic.com. Only fill this in if you route Claude through your own gateway; NowBuddy calls <address>/messages.'
+              : provider === 'custom'
+                ? 'Any service that speaks the OpenAI API: Together, Fireworks, Perplexity, Azure or your own gateway, LM Studio (http://localhost:1234/v1). NowBuddy calls <address>/chat/completions.'
+                : 'Leave empty for OpenAI itself. To use another service that speaks the same API, pick it above, or give its base address here. NowBuddy calls <address>/chat/completions.'}
+          </span>
+        </label>
+      )}
       {custom && (
         <div className="msb-options__hint" role="note">
-          Prompts, and the record data the agent has read, will be sent to <strong>{base.host}</strong> instead of the vendor above. Chrome asks you to allow that address when you save. Secrets are still masked before anything is sent.
+          {base.local
+            ? 'Prompts go to a server on this computer (' + base.host + ').'
+            : (<>Prompts, and the record data the agent has read, will be sent to <strong>{base.host}</strong>{provider === 'anthropic' || provider === 'openai' ? ' instead of the vendor above' : ''}. Chrome asks you to allow that address when you save. Secrets are still masked before anything is sent.</>)}
         </div>
       )}
       {baseError && (
@@ -133,9 +146,19 @@ export function ProviderSection() {
       )}
 
       <label className="msb-options__field">
-        {custom ? 'Model id' : 'Model'}
-        {custom ? (
-          <input type="text" value={model} onChange={(e) => setModels((m) => ({ ...m, [provider]: e.target.value }))} placeholder="grok-4" autoComplete="off" spellCheck="false" />
+        {freeText ? 'Model id' : 'Model'}
+        {freeText ? (
+          <>
+            <input type="text" list={`msb-models-${provider}`} value={model} onChange={(e) => setModels((m) => ({ ...m, [provider]: e.target.value }))} placeholder={def.defaultModel || 'the model id your provider lists'} autoComplete="off" spellCheck="false" />
+            <datalist id={`msb-models-${provider}`}>
+              {def.models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+            </datalist>
+            {def.models.length > 0 && <span className="msb-options__hint">Pick a suggestion or type any model id this provider offers.</span>}
+          </>
         ) : (
           <select value={model} onChange={(e) => setModels((m) => ({ ...m, [provider]: e.target.value }))}>
             {def.models.map((m) => (
@@ -147,19 +170,21 @@ export function ProviderSection() {
         )}
       </label>
 
-      <label>
-        <input type="checkbox" checked={promptCache} onChange={() => setPromptCache((on) => !on)} />
-        Prompt caching (Claude): reuse the unchanged start of a conversation at a lower token price. Turn off if a gateway rejects it.
-      </label>
+      {def.api === 'anthropic' && (
+        <label>
+          <input type="checkbox" checked={promptCache} onChange={() => setPromptCache((on) => !on)} />
+          Prompt caching (Claude): reuse the unchanged start of a conversation at a lower token price. Turn off if a gateway rejects it.
+        </label>
+      )}
 
       <div className="msb-options__actions">
         <button onClick={save}>Save</button>
-        <button onClick={test} disabled={validating || !keys[provider]}>
+        <button onClick={test} disabled={validating || (needsKey && !key)}>
           {validating ? 'Testing...' : 'Save and test'}
         </button>
         {saved && <span className="msb-options__saved">Saved ✓</span>}
       </div>
-      {validation && <div className={validation.ok ? 'msb-options__valid' : 'msb-options__invalid'}>{validation.ok ? 'The key works ✓' : `The test failed: ${validation.error}`}</div>}
+      {validation && <div className={validation.ok ? 'msb-options__valid' : 'msb-options__invalid'}>{validation.ok ? (needsKey ? 'The key works ✓' : 'The server answered ✓') : `The test failed: ${validation.error}`}</div>}
     </section>
   );
 }

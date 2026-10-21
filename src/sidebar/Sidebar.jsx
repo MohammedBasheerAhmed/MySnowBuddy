@@ -498,6 +498,10 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
       setTimeout(() => setNotice(null), 4000);
     },
     openBackgroundScriptPanel: () => setShowBgPanel(true),
+    loadBackgroundScript: (text) => {
+      loadScriptIntoRunner(String(text || ''));
+      setShowBgPanel(true);
+    },
     openComparePanel: () => openPanel('compare'),
     openSearchPanel: (query = '') => openPanel('search', { query }),
     openUpdateSetPanel: () => openPanel('updateset'),

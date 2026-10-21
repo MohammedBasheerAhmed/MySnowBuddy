@@ -1,6 +1,6 @@
 // Provider dispatch. Calling code passes neutral messages and tool definitions
 // and gets a neutral response, whichever vendor is configured.
-import { resolveProviderConfig, PROVIDERS } from './config.js';
+import { resolveProviderConfig, PROVIDERS, apiOf } from './config.js';
 import { sendOpenAI } from './openai.js';
 import { sendAnthropic } from './anthropic.js';
 import { redactMessages } from './redact.js';
@@ -24,8 +24,8 @@ export async function sendChat(config, { messages: input, tools = [], effort, ki
   if (!skipBudget) await assertWithinCaps(config.provider);
   const started = Date.now();
   const reply =
-    config.provider === 'openai'
-      ? await sendOpenAI({ apiKey: config.apiKey, model: config.model, messages, tools, baseUrl: config.baseUrl || '', keyOptional: Boolean(config.keyOptional) })
+    apiOf(config.provider) === 'openai'
+      ? await sendOpenAI({ apiKey: config.apiKey, model: config.model, messages, tools, baseUrl: config.baseUrl || '', keyOptional: Boolean(config.keyOptional), name: PROVIDERS[config.provider]?.baseUrl ? PROVIDERS[config.provider].label : '' })
       : await sendAnthropic({ apiKey: config.apiKey, model: config.model, messages, tools, effort, baseUrl: config.baseUrl || '', promptCache: config.promptCache !== false });
   await recordCall({ provider: config.provider, model: config.model, ms: Date.now() - started, usage: reply.usage, host, kind });
   return reply;

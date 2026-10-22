@@ -121,6 +121,26 @@ export default function Options() {
           />
           Show the page toolbar and field, column and script menus on the page itself
         </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={settings.roleTiersEnabled !== false}
+            onChange={() => updateSettings({ roleTiersEnabled: settings.roleTiersEnabled === false })}
+          />
+          Show tools by role: leave out the tools your ServiceNow roles cannot use
+        </label>
+        <span className="msb-options__hint">
+          Everyone sees the copy, explain and count tools; developers also see the tools that read configuration; the admin role sees all. This only hides buttons, ServiceNow's own access rules still apply. If your roles cannot be read, everything is shown.
+        </span>
+        <label className="msb-options__field">
+          Roles that count as developer (besides admin)
+          <input
+            type="text"
+            value={settings.developerRoles ?? 'delegated_developer, personalize_dictionary'}
+            onChange={(e) => updateSettings({ developerRoles: e.target.value })}
+            aria-label="Roles that count as developer"
+          />
+        </label>
       </section>
 
       <section>

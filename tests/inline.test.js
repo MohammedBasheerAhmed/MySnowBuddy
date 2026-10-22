@@ -11,6 +11,7 @@ const {
   dominantTable,
   toolbarModel,
   toolbarKey,
+  breadcrumbQuery,
   fieldMenuModel,
   fieldCode,
   editorBox,
@@ -188,4 +189,14 @@ test('the in-place editor covers its field, at least a usable size, and stays on
   assert.equal(editorBox({ left: 300, top: -900, width: 700, height: 120 }, viewport).visible, false, 'scrolled out of sight above');
   assert.equal(editorBox({ left: 300, top: 900, width: 700, height: 120 }, viewport).visible, false, 'scrolled out of sight below');
   assert.equal(editorBox({ left: 0, top: 0, width: 0, height: 0 }, viewport).visible, false, 'a field with no size is not on screen');
+});
+
+test('the breadcrumb query is the last crumb, with a related list\'s fixed query in front', () => {
+  const crumbs = ['', 'active=true', 'active=true^priority<=2'];
+  assert.equal(breadcrumbQuery({ filters: crumbs }), 'active=true^priority<=2');
+  assert.equal(breadcrumbQuery({ filters: [''] }), '');
+  assert.equal(breadcrumbQuery(), '');
+  assert.equal(breadcrumbQuery({ fixedQuery: 'parent=abc', filters: ['', 'active=true'] }), 'parent=abc^active=true');
+  assert.equal(breadcrumbQuery({ fixedQuery: 'parent=abc', filters: ['', 'parent=abc^active=true'] }), 'parent=abc^active=true');
+  assert.equal(breadcrumbQuery({ fixedQuery: 'parent=abc', filters: [''] }), 'parent=abc');
 });

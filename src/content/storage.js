@@ -18,6 +18,8 @@ const DEFAULT_SETTINGS = {
   theme: 'system',
   toolSurface: 'window', // where tools open: 'window' (floating, over the page) or 'sidebar' (docked)
   inlineEnabled: true, // page toolbar, field and list menus on the page itself
+  roleTiersEnabled: true, // show each user only the tools their roles can use (lib/roleTier.js)
+  developerRoles: 'delegated_developer, personalize_dictionary', // roles that count as developer without admin
 };
 
 export const THEMES = ['system', 'light', 'dark'];

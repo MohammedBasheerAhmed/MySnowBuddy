@@ -127,6 +127,17 @@ export function dominantTable(tables) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
 }
 
+/**
+ * The encoded query a list's filter breadcrumb stands for. The last crumb carries the whole filter
+ * (earlier crumbs are its prefixes); a related list adds its fixed query, which the crumbs leave out.
+ */
+export function breadcrumbQuery({ fixedQuery = '', filters = [] } = {}) {
+  const last = [...filters].reverse().find((f) => typeof f === 'string' && f.trim()) || '';
+  const fixed = String(fixedQuery || '').trim();
+  if (!fixed || last === fixed || last.startsWith(`${fixed}^`)) return last;
+  return last ? `${fixed}^${last}` : fixed;
+}
+
 // --- Models: what to show ----------------------------------------------------------------------
 
 /**

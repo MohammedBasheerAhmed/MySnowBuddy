@@ -3,7 +3,18 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
-## RESUME HERE (latest; end of the 2026-10-20 session; the user will say "continue")
+## 2026-10-22 (NOT committed, NOT live-checked; the demo moved to Monday 2026-10-26)
+- **Copy query on the list filter breadcrumb** (`annotateBreadcrumbs` in src/content/inline.js, `breadcrumbQuery` in src/lib/inline.js). The
+  button sits after `span.breadcrumb_container[table]`; the query is the last crumb's `filter` attribute (checked on the PDI: it holds the
+  whole filter), with a related list's `fixed_query` in front.
+- **Show tools by role** (src/lib/roleTier.js, src/content/roleAccess.js): tiers user / developer / admin from `getSessionInfo` roles; filters
+  the palette commands, slash verbs (slashBar.js), page toolbar and field/column menus. Unknown roles or the Options switch off = show
+  everything. Settings `roleTiersEnabled`, `developerRoles`. NOT covered: sidebar/chat buttons, agent tools (the older
+  `agentReadOnlyForNonAdmin` switch is separate). Tier lists are a judgement call: edit them in roleTier.js. TODO: reload the extension, check as
+  admin (nothing should change) and as a non-admin (impersonate an ITIL user on the PDI): palette shrinks, "Why are some tools hidden?" row.
+- 907 tests pass; `npm run a11y` passes.
+
+## RESUME HERE (latest before 2026-10-22; end of the 2026-10-20 session; the user will say "continue")
 **State.** origin/main = local main = d53f831 (github.com/MohammedBasheerAhmed/MySnowBuddy, only branch). Working tree clean (this section
 may be uncommitted). 866 tests (`npm test`; two timing tests flake when the machine is busy, they pass alone), `node build.js` clean,
 `npm run a11y` passes. The extension loads unpacked from D:MySnowBuddydist; the user reloads it at chrome://extensions after every build

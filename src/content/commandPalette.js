@@ -29,6 +29,7 @@ import { pageKind, pageSuggestions, suggestFor, SUGGESTED_TITLES } from '../lib/
 import { createIcon } from './icons.js';
 import { trustedDom } from '../sidebar/trusted.js';
 import { UI_HOST_ID } from './uiRoot.js';
+import { visibleTo, tierNote } from '../lib/roleTier.js';
 
 const GROUP_ICONS = {
   Pinned: 'pin',
@@ -533,10 +534,24 @@ export function createCommandPalette(deps) {
   async function open(prefill = '') {
     if (overlay.hidden) returnFocus = activeElementDeep();
     const ctx = safeContext(getContext);
+    const tier = await deps.roleAccess?.ready().catch(() => null);
     const stored = await buildStoredCommands({ ...deps, ctx }).catch(() => []);
     const instances = await buildInstanceCommands().catch(() => []);
     const definition = goToDefinitionCommand({ ctx, toast });
     commands = [...buildCommands({ ...deps, ctx, openPalette: (text) => open(text) }), ...(definition ? [definition] : []), ...stored, ...instances];
+    // Tools the user's roles cannot use are left out; one row says so and why.
+    commands = visibleTo(tier, commands);
+    const hiddenNote = tierNote(tier);
+    if (hiddenNote) {
+      commands.push({
+        id: 'help.roles',
+        title: 'Why are some tools hidden?',
+        hint: `Your tools follow your ServiceNow roles (${tier})`,
+        group: GROUPS.tools,
+        keywords: 'role roles hidden missing permission admin developer access tools not showing',
+        run: () => toast.info(hiddenNote),
+      });
+    }
     providers = [
       ...buildProviders({ ...deps, ctx }),
       openByNameProvider(),
@@ -544,6 +559,7 @@ export function createCommandPalette(deps) {
       scaffoldProvider({ ctx, toast, reopen: (text) => open(text) }),
       instanceSwitchProvider({ toast }),
       slashNavProvider({
+        roleAccess: deps.roleAccess,
         ctx,
         sidebar,
         reopen: (text) => open(text),

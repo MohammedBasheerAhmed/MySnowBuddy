@@ -42,6 +42,7 @@ import { lintScript } from '../lib/lint.js';
 import { wrapAsDryRun, wrapWithGuards } from '../lib/scriptSafety.js';
 import { mountSidebar } from '../sidebar/mount.js';
 import { getSettings, saveSettings, onSettingsChanged } from './storage.js';
+import { createRoleAccess } from './roleAccess.js';
 import { startInstanceTag } from './instanceTag.js';
 import { installFieldTools } from './fieldTools.js';
 import { installNavSlash } from './navSlash.js';
@@ -494,7 +495,11 @@ async function init() {
   let welcome = null;
   let guide = null;
   const popover = createPopover({ shadow, toast });
+  const roleAccess = createRoleAccess({ getSettings });
+  roleAccess.refresh();
+  onSettingsChanged(() => roleAccess.refresh());
   const palette = createCommandPalette({
+    roleAccess,
     showWelcome: () => welcome?.show(),
     showGuide: () => guide?.show(),
     getContext: detectPageContext,
@@ -537,6 +542,7 @@ async function init() {
       popover,
       openEditor,
       tools: { lintScript },
+      roleAccess,
       enabled: settings.inlineEnabled !== false,
     });
     onSettingsChanged((next) => toggleInline(next.inlineEnabled !== false));

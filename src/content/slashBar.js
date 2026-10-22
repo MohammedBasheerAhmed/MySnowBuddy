@@ -16,6 +16,7 @@ import { searchTables } from './tableCatalog.js';
 import { queryTable } from './tableApi.js';
 import { similarKeywords, similarQuery, rankSimilar } from '../lib/similar.js';
 import { listCustomCommands } from './stores.js';
+import { canUseSlash, slashTier } from '../lib/roleTier.js';
 import { findCommand, buildFindQuery, escapeQueryValue, expandTemplate, slashHelpRows, SPECIAL_VERBS } from '../lib/slashCommands.js';
 
 const GROUP = 'Shortcuts';
@@ -28,10 +29,10 @@ const SPECIAL_SET = new Set(SPECIAL_VERBS.map(([verb]) => verb));
  * @param {{ctx: object, sidebar: object, reopen: (text: string) => void}} deps
  * @returns {(query: string) => Promise<object[]>}
  */
-export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, startFileSync, toggleFieldNames, toast, getCsrfToken }) {
+export function slashNavProvider({ roleAccess = null, ctx = {}, sidebar, reopen, openScriptEditor, startFileSync, toggleFieldNames, toast, getCsrfToken }) {
   const helpRows = (prefix, custom = []) =>
     slashHelpRows(custom)
-      .filter(([verb]) => verb.startsWith(prefix))
+      .filter(([verb]) => verb.startsWith(prefix) && canUseSlash(roleAccess?.tier() ?? null, findCommand(verb)?.verb || verb))
       .map(([verb, args, meaning], index) => ({
         id: `slashhelp.${verb}`,
         title: `/${verb}${args ? ` ${args}` : ''}`,
@@ -126,6 +127,11 @@ export function slashNavProvider({ ctx = {}, sidebar, reopen, openScriptEditor, 
     const finder = findCommand(verb);
 
     if (!SPECIAL_SET.has(verb) && !finder && !userCommand) return helpRows(verb, custom);
+    const mainVerb = finder?.verb || verb;
+    if (!userCommand && !canUseSlash(roleAccess?.tier() ?? null, mainVerb)) {
+      const need = slashTier(mainVerb);
+      return [{ id: 'slash.role', title: `/${verb} needs the ${need} role`, hint: 'Your ServiceNow roles do not include it (Options > Show tools by role)', group: GROUP, score: 1100, run: () => {} }];
+    }
     if (!arg && (verb === 'tn' || verb === 'tnn' || verb === 'sys' || verb === 'props' || verb === 'search' || verb === 'tables')) {
       return helpRows(verb, custom).slice(0, 1);
     }

@@ -55,6 +55,7 @@ import {
   columnMenuModel,
   toolbarModel,
   toolbarKey,
+  breadcrumbQuery,
   dictionaryQuery,
   fieldAclQuery,
   auditQuery,
@@ -66,6 +67,7 @@ import {
   sysIdFromSelection,
   truncate,
 } from '../lib/inline.js';
+import { visibleTo } from '../lib/roleTier.js';
 
 const ATTR = 'data-msb-inline';
 const STYLE_ID = 'msb-inline-style';
@@ -351,7 +353,7 @@ function openFieldMenu(anchor, { doc, table, field }) {
     ask: async () => askAboutScript({ table, label: field, body: await readField(field).catch(() => '') }),
   };
 
-  const actions = fieldMenuModel({ table, field, script }).map((item) => ({
+  const actions = visibleTo(state.deps.roleAccess?.tier() ?? null, fieldMenuModel({ table, field, script })).map((item) => ({
     label: item.label,
     primary: item.id === 'copyName',
     onClick: () => {
@@ -393,7 +395,7 @@ function openColumnMenu(anchor, { doc, table, column }) {
     title: column,
     subtitle: `${table} column`,
     tone: 'info',
-    actions: columnMenuModel({ table, column }).map((item) => ({
+    actions: visibleTo(state.deps.roleAccess?.tier() ?? null, columnMenuModel({ table, column })).map((item) => ({
       label: item.label,
       primary: item.id === 'copyName',
       onClick: () => {
@@ -496,6 +498,26 @@ function annotateList(doc) {
   });
 }
 
+/** A "Copy query" button beside each list's filter breadcrumb, so the encoded query is one click away. */
+function annotateBreadcrumbs(doc) {
+  doc.querySelectorAll('span.breadcrumb_container[table]').forEach((crumbs) => {
+    if (crumbs.nextElementSibling?.hasAttribute(ATTR)) return;
+    const query = breadcrumbQuery({
+      fixedQuery: crumbs.getAttribute('fixed_query') || '',
+      filters: [...crumbs.querySelectorAll('a.breadcrumb_link')].map((a) => a.getAttribute('filter') || ''),
+    });
+    const wrap = doc.createElement('span');
+    wrap.setAttribute(ATTR, 'wrap');
+    wrap.className = 'msb-inl-wrap';
+    wrap.appendChild(
+      makeButton(doc, { text: 'Copy query', title: 'Copy the encoded query of this filter' }, () =>
+        copyWithToast(query, query ? 'encoded query' : 'an empty query (the list has no filter)')
+      )
+    );
+    crumbs.after(wrap);
+  });
+}
+
 // --- sys_id peek -------------------------------------------------------------------------------------
 
 function selectedText(doc) {
@@ -587,6 +609,7 @@ function scan() {
       attachPeek(doc);
       annotateForm(doc);
       annotateList(doc);
+      annotateBreadcrumbs(doc);
     } catch {
       // The frame navigated away mid-scan.
     }
@@ -807,7 +830,7 @@ function refreshContext() {
     return; // mid-navigation
   }
   state.ctx = ctx;
-  const model = toolbarModel({ table: ctx.table || '', sysId: ctx.sysId || '', isList: Boolean(ctx.isList), hasScript: Boolean(ctx.scriptBody) && isScriptLabel(ctx.scriptFieldLabel) });
+  const model = visibleTo(state.deps.roleAccess?.tier() ?? null, toolbarModel({ table: ctx.table || '', sysId: ctx.sysId || '', isList: Boolean(ctx.isList), hasScript: Boolean(ctx.scriptBody) && isScriptLabel(ctx.scriptFieldLabel) }));
   const key = toolbarKey(model);
   if (key === state.barKey) return;
   state.barKey = key;
@@ -874,10 +897,15 @@ export function inlineStatus() {
  * Top frame only. `enabled` is the user's setting; the toolbar and listeners stay dormant when off,
  * and toggleInline() can switch them on later.
  */
-export function installInline({ shadow, toast, sidebar, popover, openEditor, tools = {}, enabled = true }) {
+export function installInline({ shadow, toast, sidebar, popover, openEditor, tools = {}, roleAccess = null, enabled = true }) {
   if (state.installed) return;
   state.installed = true;
-  state.deps = { toast, sidebar, popover, openEditor, tools: { lintScript, ...tools } };
+  state.deps = { toast, sidebar, popover, openEditor, roleAccess, tools: { lintScript, ...tools } };
+  // The roles arrive after the first paint: rebuild the toolbar when the tier is known or changes.
+  roleAccess?.onChange(() => {
+    state.barKey = '';
+    refreshContext();
+  });
   state.bar = buildToolbar(shadow);
   getUiState()
     .then((ui) => {

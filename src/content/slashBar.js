@@ -17,6 +17,7 @@ import { queryTable } from './tableApi.js';
 import { similarKeywords, similarQuery, rankSimilar } from '../lib/similar.js';
 import { listCustomCommands } from './stores.js';
 import { canUseSlash, slashTier } from '../lib/roleTier.js';
+import { panelForSlash } from '../sidebar/panelRegistry.js';
 import { findCommand, buildFindQuery, escapeQueryValue, expandTemplate, slashHelpRows, SPECIAL_VERBS } from '../lib/slashCommands.js';
 
 const GROUP = 'Shortcuts';
@@ -126,7 +127,13 @@ export function slashNavProvider({ roleAccess = null, ctx = {}, sidebar, reopen,
     const userCommand = custom.find((c) => c.verb === verb);
     const finder = findCommand(verb);
 
-    if (!SPECIAL_SET.has(verb) && !finder && !userCommand) return helpRows(verb, custom);
+    if (!SPECIAL_SET.has(verb) && !finder && !userCommand) {
+      // A tool's own command (/prop, /flows, /map ...) is not a half-typed reserved verb: without this, /prop offered the older
+      // /props row first and Enter took it (found live). Typed arguments also mean the verb is final. The palette's own
+      // "open this tool" row (slashCommand in commands.js) handles these.
+      if (arg || panelForSlash(`/${verb}`)) return [];
+      return helpRows(verb, custom);
+    }
     const mainVerb = finder?.verb || verb;
     if (!userCommand && !canUseSlash(roleAccess?.tier() ?? null, mainVerb)) {
       const need = slashTier(mainVerb);

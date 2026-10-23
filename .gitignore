@@ -9,3 +9,5 @@ dist/
 .build-tmp-*/
 mcp/generated/
 preview/.out/
+preview/.out-*/
+docs/screenshots/.tmp/

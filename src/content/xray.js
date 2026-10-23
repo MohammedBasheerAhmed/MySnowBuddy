@@ -328,7 +328,7 @@ async function fetchClientScripts(list, notes, capped) {
     'sys_script_client',
     ['table'],
     `tableIN${list}${active}^ORDERBYname`,
-    ['sys_id', 'name', 'type', 'field', 'table', 'script', 'ui_type', 'active', 'inherited', 'global', 'view', 'view.name', 'sys_class_name'],
+    ['sys_id', 'name', 'type', 'field', 'table', 'script', 'ui_type', 'active', 'applies_extended', 'global', 'view', 'view.name', 'sys_class_name'],
     { limit: LIMITS.clientScripts },
     notes
   );
@@ -343,7 +343,8 @@ async function fetchClientScripts(list, notes, capped) {
       field: flat(r.field),
       table: flat(r.table),
       script: flat(r.script),
-      inherited: bool(r.inherited),
+      // The column is applies_extended ("Inherited" on the form); there is no `inherited` column on sys_script_client (checked live).
+      inherited: bool(r.applies_extended),
       ...runsWhere(r, cols),
       recordTable: flat(r.sys_class_name) || 'sys_script_client',
     }));
@@ -1148,6 +1149,14 @@ function attachPortal(doc, portal) {
     more.textContent = 'Details';
     more.addEventListener('click', () => openPanel(widgetId ? `widget:${widgetId}` : ''));
     tag.append(more);
+    // The Portal inspector shows this widget's c.data, options and code; the instance id narrows it to this one on the page.
+    const inspect = doc.createElement('button');
+    inspect.type = 'button';
+    inspect.textContent = 'Inspect';
+    inspect.title = 'Inspect in Portal inspector: c.data, options and code of this widget';
+    inspect.setAttribute('aria-label', 'Inspect in Portal inspector');
+    inspect.addEventListener('click', () => openPortalInspector(shown.instanceId || widgetId));
+    tag.append(inspect);
   }
 
   function rectOf(el) {
@@ -1330,6 +1339,14 @@ function openPanel(args) {
     return;
   }
   state.sidebar.openPanel('xray', { args });
+}
+
+function openPortalInspector(args) {
+  if (!state.sidebar?.openPanel) {
+    state.toast?.info('Turn on the sidebar in Options to see the Portal inspector.');
+    return;
+  }
+  state.sidebar.openPanel('portal', { args });
 }
 
 function isXrayHotkey(event) {

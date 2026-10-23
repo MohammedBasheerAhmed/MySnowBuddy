@@ -8,7 +8,7 @@
 // caret wins) and the string argument the caret is in. Anything it cannot resolve yields nothing.
 import { analyze, masked, rangeAt, lineStartAt, STRING, COMMENT, KEYWORDS } from './editorText.js';
 import { getApi, findMethod, apiNames, GLOBAL_TYPE_ALIASES, INHERITS } from './apiCatalog/index.js';
-import { SNIPPETS } from './snippets.js';
+import { SNIPPETS, parseTemplate } from './snippets.js';
 
 // Catalog entries that document conventions rather than objects you can call.
 const PSEUDO = new Set(['ClientScriptTypes', 'globals', 'ServerRuntime', 'ScriptIncludePatterns', 'answer', 'parm1', 'parm2', 'email']);
@@ -711,10 +711,10 @@ function snippetItems(env, from) {
   const lineStart = lineStartAt(env.text, from);
   const indent = /^[ \t]*/.exec(env.text.slice(lineStart, from))[0];
   return Object.entries(SNIPPETS).map(([key, body]) => {
-    const indented = body.split('\n').join(`\n${indent}`);
-    const marker = indented.indexOf('$0');
-    const insert = indented.replace('$0', '');
-    return { label: key, kind: 'snippet', detail: body.split('\n')[0].replace('$0', '').slice(0, 48), doc: insert, insert, caret: marker === -1 ? insert.length : marker };
+    // The suggestion goes in as plain code with its blanks filled in; the editor starts a Tab-through session for a snippet.
+    const parsed = parseTemplate(body, indent);
+    const plain = parseTemplate(body, '');
+    return { label: key, kind: 'snippet', detail: plain.text.split('\n')[0].slice(0, 48), doc: plain.text, insert: parsed.text, caret: parsed.stops[0].ranges[0].start };
   });
 }
 
@@ -1041,7 +1041,7 @@ function hoverFor(env, index) {
     }
     case 'properties': {
       const p = (ctx.properties || []).find((x) => x.name === sym.name);
-      return { ...base, kind: 'propertyName', title: `System property ${sym.name}`, summary: p?.description || '', signature: p?.type || '' };
+      return { ...base, kind: 'propertyName', name: sym.name, title: `System property ${sym.name}`, summary: p?.description || '', signature: p?.type || '' };
     }
     case 'roles': {
       const r = (ctx.roles || []).find((x) => x.name === sym.name);

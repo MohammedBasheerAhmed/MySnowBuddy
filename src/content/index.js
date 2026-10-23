@@ -2,6 +2,7 @@ import { createCommandPalette } from './commandPalette.js';
 import { createToastHost } from './toast.js';
 import { createWelcome } from './welcome.js';
 import { createGuide } from './guide.js';
+import { createWhatsNew } from './whatsNew.js';
 import { getInstanceInfo, getCurrentUpdateSet, formDocuments, recordUrl } from './quickActions.js';
 import { createAgentTools } from './agentTools.js';
 import { createControlDeps } from './controlSession.js';
@@ -57,6 +58,7 @@ import { extractScriptOutput } from '../lib/logTail.js';
 import { startFileSync, stopFileSync, isFileSyncActive } from './fileSync.js';
 import { createAutomation } from './automation.js';
 import { FEATURE_SERVICES } from './featureServices.js';
+import { installFeatures } from './featureStartup.js';
 import { attachUiRoot, UI_HOST_ID } from './uiRoot.js';
 import { matchesPaletteHotkey, matchesChatHotkey, matchesEditorHotkey, frameHotkeyRelay, sendFrameHotkey } from '../lib/hotkeyRelay.js';
 
@@ -409,6 +411,8 @@ async function init() {
     console.error('[NowBuddy] page X-ray failed', err);
   }
 
+  installFeatures({ shadow, toast, sidebar: sidebarApi });
+
   if (settings.instanceTagEnabled !== false) {
     startInstanceTag(shadow).catch((err) => console.error('[NowBuddy] instance tag failed', err));
   }
@@ -471,6 +475,9 @@ async function init() {
     findDefinition: (name) => findDefinitionUrl(name),
     openFieldUsage: (table, field) => sidebarApi.openPanel?.('fieldusage', { args: `${table}.${field}` }),
     findReferences: (target, opts) => findReferences(target, opts),
+    // The editor hands a system property name to the System properties panel and reads its value for the hover (read-only).
+    openPanel: (name, params) => Boolean(sidebarApi.openPanel?.(name, params)),
+    propertyValue: (name) => FEATURE_SERVICES.propertyExplorerGet({ name }),
     beforeSave: () => checkBeforeSave({ toast }),
     isProd: () => getInstanceInfo().env === 'prod',
   };
@@ -494,6 +501,7 @@ async function init() {
 
   let welcome = null;
   let guide = null;
+  let whatsNew = null;
   const popover = createPopover({ shadow, toast });
   const roleAccess = createRoleAccess({ getSettings });
   roleAccess.refresh();
@@ -502,6 +510,7 @@ async function init() {
     roleAccess,
     showWelcome: () => welcome?.show(),
     showGuide: () => guide?.show(),
+    showWhatsNew: () => whatsNew?.show(),
     getContext: detectPageContext,
     sidebar: sidebarApi,
     toast,
@@ -531,6 +540,19 @@ async function init() {
   welcome = createWelcome({ shadow, openPalette: () => palette.open(), openGuide: () => guide?.show() });
   guide = createGuide({ shadow, openPalette: (text) => palette.open(text), getContext: detectPageContext, showTour: () => welcome?.show() });
   welcome.maybeShow();
+  // "What's new": once per version, only for people who already dismissed the first-run card; "What's new" in the palette brings it back.
+  whatsNew = createWhatsNew({
+    shadow,
+    openPalette: (text) => palette.open(text),
+    openPanel: (name) => {
+      sidebarApi.openForTool();
+      sidebarApi.openPanel?.(name);
+    },
+    openEditor: () => openEditor(),
+    isPaletteOpen: () => palette.isOpen(),
+    getVersion: () => chrome.runtime.getManifest().version,
+  });
+  whatsNew.maybeShow();
 
   // On-page tools (page toolbar, field and column menus, sys_id peek). Installed always, dormant when
   // switched off in Options, so the setting (or the palette command) can turn them on without a reload.

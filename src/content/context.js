@@ -2,6 +2,7 @@ import { callPage } from './pageBridge.js';
 import { getSessionToken } from './sessionToken.js';
 import { formDocuments } from './quickActions.js';
 import { extractListFromUrl, parseTablePage } from '../lib/urlTarget.js';
+import { isPortalUrl } from '../lib/xray.js';
 
 // Content scripts run in an isolated world and cannot see window.g_ck, so the
 // token comes through the page bridge (an extension-hosted script that survives
@@ -145,6 +146,19 @@ export function getSelectedText() {
   return Date.now() - lastSelection.at < SELECTION_TTL_MS ? lastSelection.text : '';
 }
 
+/**
+ * True on a Service Portal page: the address of the top page says so, or its markup holds the portal's page rows or
+ * Angular app. The portal is a single-page app in the top window, never in the classic content frame.
+ */
+function onPortalPage() {
+  try {
+    if (isPortalUrl(window.location.href)) return true;
+    return Boolean(document.querySelector('sp-page-row, [ng-app*="$sp"], [data-ng-app*="$sp"]'));
+  } catch {
+    return false;
+  }
+}
+
 export function detectPageContext() {
   const href = currentPageHref();
   const url = new URL(href);
@@ -167,6 +181,7 @@ export function detectPageContext() {
     table,
     sysId,
     isList: page.isList,
+    isPortal: onPortalPage(),
     selection: getSelectedText(),
     scriptBody: scriptField ? scriptField.value : bridged?.body || null,
     scriptFieldLabel: scriptField

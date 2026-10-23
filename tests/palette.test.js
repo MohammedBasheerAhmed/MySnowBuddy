@@ -51,10 +51,11 @@ test('one word is left to the ordinary matcher, and title words count extra', ()
 test('the page kind decides what the palette suggests', () => {
   assert.equal(pageKind({}), 'other');
   assert.equal(pageKind({ table: 'incident', isList: true }), 'list');
-  assert.equal(pageKind({ table: 'incident', sysId: 'a'.repeat(32) }), 'record');
+  assert.equal(pageKind({ table: 'cmdb_ci_server', sysId: 'a'.repeat(32) }), 'record');
+  assert.equal(pageKind({ table: 'incident', sysId: 'a'.repeat(32) }), 'ticket', 'a task-type record is a ticket (tests/glue.test.js has the rest)');
   assert.equal(pageKind({ table: 'sys_script', sysId: 'a'.repeat(32), scriptBody: 'x = 1;', scriptFieldLabel: 'Script' }), 'script');
   // The longest-text fallback on an incident is not a script.
-  assert.equal(pageKind({ table: 'incident', sysId: 'a'.repeat(32), scriptBody: 'long description text', scriptFieldLabel: 'Description' }), 'record');
+  assert.equal(pageKind({ table: 'incident', sysId: 'a'.repeat(32), scriptBody: 'long description text', scriptFieldLabel: 'Description' }), 'ticket');
   assert.equal(pageKind({ table: 'sys_update_set', sysId: 'a'.repeat(32) }), 'updateset');
   assert.equal(pageKind({ table: 'sys_update_set', isList: true }), 'updateset');
   Object.keys(SUGGESTED).forEach((kind) => assert.ok(SUGGESTED_TITLES[kind], `${kind} has a title`));

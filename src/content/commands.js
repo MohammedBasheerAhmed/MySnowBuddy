@@ -28,12 +28,13 @@ import { restRecordUrl, glideRecordSnippet, recordJson } from '../lib/recordSnip
 import { parseRecordNumber, tablesForNumber } from '../lib/recordNumber.js';
 import { addBookmark } from './stores.js';
 import { currentPageHref, detectListInfo } from './context.js';
+import { queueEditorAction } from './scriptEditor.js'; // used only by the script editor commands block below
 import { makeQueryDynamic, applyListFilter } from './queryTools.js';
 import { copyRows, copyIds, openSelected, copyListLink, copyListRest, listToRunner, compareTicked } from './listTools.js';
 import { resolveTarget } from '../lib/urlTarget.js';
 import { isScriptLabel } from '../lib/inline.js';
 import { formDocuments } from './quickActions.js';
-import { PANELS } from '../sidebar/panelRegistry.js';
+import { PANELS, panelForSlash } from '../sidebar/panelRegistry.js';
 import { toggleXray, xrayServices } from './xray.js';
 import { toggleHiddenFields, toggleHighlights, copyFormValues, duplicateAsNew, openRecordAs } from './formTools.js';
 
@@ -94,6 +95,33 @@ export function buildCommands(deps) {
       run: () => openScriptEditor(),
     });
   }
+
+  // --- Script editor extras (outline, format): start of the block owned by the editor work ---
+  if (hasScript && openScriptEditor) {
+    add({
+      id: 'tools.editor.outline',
+      title: 'Go to a function in the script',
+      hint: 'Opens the editor with the list of functions and methods · Ctrl+Shift+O inside the editor',
+      group: GROUPS.record,
+      keywords: 'outline symbol function method go to jump navigate find in script',
+      run: () => {
+        queueEditorAction('outline');
+        openScriptEditor();
+      },
+    });
+    add({
+      id: 'tools.editor.format',
+      title: 'Format the script',
+      hint: 'Indentation, spacing and trailing blanks, and it refuses if the code itself would change · Shift+Alt+F inside the editor',
+      group: GROUPS.record,
+      keywords: 'format beautify prettify indent tidy clean code style',
+      run: () => {
+        queueEditorAction('format');
+        openScriptEditor();
+      },
+    });
+  }
+  // --- end of the script editor extras block ---
 
   if (hasScript && startFileSync) {
     add({
@@ -744,6 +772,19 @@ export function buildCommands(deps) {
     });
   }
 
+  // --- What's new card (src/content/whatsNew.js): start of the block owned by the release-notes work ---
+  if (deps.showWhatsNew) {
+    add({
+      id: 'tools.whatsNew',
+      title: "What's new",
+      hint: 'The tools added in this version, by the job you are doing. Click one to open it',
+      group: GROUPS.tools,
+      keywords: "what's new whats new what is new changelog new features added updated version latest recently added tools",
+      run: () => deps.showWhatsNew(),
+    });
+  }
+  // --- end of the What's new block ---
+
   // A JSON blob, Base64, a token, a timestamp, a table name ... that is selected on the page: say what it is.
   // A name selected anywhere on the page (a method, a field, a property): one step to every place it is used.
   const picked = String(ctx.selection || '').trim();
@@ -1169,12 +1210,14 @@ export function buildProviders(deps) {
 export function slashCommand(query, sidebar) {
   const term = query.trim();
   if (!term.startsWith('/')) return null;
+  // A command that belongs to a tool panel says so and ranks first: Enter opens that tool.
+  const panel = panelForSlash(term.split(/\s+/)[0].toLowerCase());
   return {
     id: `slash.${term}`,
-    title: `Run ${term}`,
-    hint: 'Sends the command to the AI chat sidebar',
-    group: GROUPS.ai,
-    score: 1000,
+    title: panel ? `Open ${panel.title}` : `Run ${term}`,
+    hint: panel ? term : 'Sends the command to the AI chat sidebar',
+    group: panel ? GROUPS[panel.group] || GROUPS.ai : GROUPS.ai,
+    score: panel ? 1090 : 1000,
     run: () => {
       sidebar.runCommand(term);
     },

@@ -44,6 +44,13 @@ const builds = [
     format: 'iife',
   },
   {
+    // Client trace recorder: a manifest content script with "world": "MAIN" (document_start, all frames), so it runs in the
+    // page's own JS world and sees g_form / GlideAjax. A self-contained IIFE, like pagebridge.js.
+    entryPoints: [path.join(rootDir, 'src/page/recorder.js')],
+    outfile: path.join(outdir, 'recorder.js'),
+    format: 'iife',
+  },
+  {
     // Sandboxed page (manifest "sandbox"): the only place script text is evaluated.
     entryPoints: [path.join(rootDir, 'src/sandbox/sandbox.js')],
     outfile: path.join(outdir, 'sandbox.bundle.js'),
@@ -73,6 +80,7 @@ function copyStatic() {
     fs.readFileSync(path.join(rootDir, 'src/content/inline.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/welcome.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/guide.css'), 'utf8'),
+    fs.readFileSync(path.join(rootDir, 'src/content/whatsNew.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/editor.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/content/confirm.css'), 'utf8'),
     fs.readFileSync(path.join(rootDir, 'src/sidebar/sidebar.css'), 'utf8'),

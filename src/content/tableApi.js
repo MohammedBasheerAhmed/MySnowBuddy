@@ -63,8 +63,26 @@ async function instanceFetch(path, init = {}) {
     const response = await fetch(path, { credentials: 'same-origin', ...init });
     if (method !== 'GET' || !RETRY_STATUSES.has(response.status) || attempt >= RETRY_DELAYS_MS.length) return response;
     // eslint-disable-next-line no-await-in-loop
-    await new Promise((resolve) => setTimeout(resolve, retryDelay(response, attempt)));
+    await waitUnlessAborted(retryDelay(response, attempt), init.signal);
   }
+}
+
+// The wait before a retry ends early when the caller aborts (the next fetch then rejects with the AbortError at once),
+// so a cancelled search does not sit out a Retry-After of several seconds.
+function waitUnlessAborted(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', done);
+      resolve();
+    }
+    signal?.addEventListener?.('abort', done, { once: true });
+  });
 }
 
 /**
@@ -73,7 +91,11 @@ async function instanceFetch(path, init = {}) {
  * error.message / error.detail in any other failure. Returns null for an empty body.
  */
 async function readJson(response, what) {
-  const text = await response.text().catch(() => '');
+  // An abort while the body is read is the caller's own cancel: it must not turn into an empty (and cacheable) answer.
+  const text = await response.text().catch((err) => {
+    if (err?.name === 'AbortError') throw err;
+    return '';
+  });
   if (isSessionExpired(response, text)) throw sessionExpiredError();
   if (!response.ok) {
     const detail = serviceNowErrorText(text);
@@ -93,7 +115,7 @@ async function readJson(response, what) {
 }
 
 export async function queryTable(table, query, fields = [], options = {}) {
-  const { limit = 50, displayValue = false, offset = 0 } = options;
+  const { limit = 50, displayValue = false, offset = 0, signal } = options;
 
   const params = new URLSearchParams();
   if (query) params.set('sysparm_query', query);
@@ -107,6 +129,7 @@ export async function queryTable(table, query, fields = [], options = {}) {
     method: 'GET',
     credentials: 'same-origin',
     headers: await sessionHeaders(),
+    ...(signal ? { signal } : {}),
   });
   const data = await readJson(response, `Table API query on "${table}"`);
   return data?.result || [];

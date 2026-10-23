@@ -38,6 +38,14 @@ import ReleaseNotesPanel from './ReleaseNotesPanel.jsx';
 import TestDataPanel from './TestDataPanel.jsx';
 import InsightPanel from './InsightPanel.jsx';
 import RefGraphPanel from './RefGraphPanel.jsx';
+import ClientTracePanel from './ClientTracePanel.jsx';
+import NotifyPanel from './NotifyPanel.jsx';
+import ProcessPanel from './ProcessPanel.jsx';
+import PropertiesPanel from './PropertiesPanel.jsx';
+import DataModelPanel from './DataModelPanel.jsx';
+import PortalPanel from './PortalPanel.jsx';
+import PreviewProblemsPanel from './PreviewProblemsPanel.jsx';
+import DoctorPanel from './DoctorPanel.jsx';
 
 export const PANELS = [
   {
@@ -327,6 +335,144 @@ PANELS.push({
   withContext: true,
   launcher: true,
   component: TestKitPanel,
+});
+
+// ---- Batch added 2026-10-23. Each entry is owned by one feature; edit your own only. ----
+
+// Client trace (/watch): what the page's scripts did to the form, in order: src/sidebar/ClientTracePanel.jsx,
+// src/content/clientTrace.js, src/lib/clientTrace.js, src/page/recorder.js.
+PANELS.push({
+  name: 'clienttrace',
+  title: 'Client trace',
+  hint: 'Record what client scripts do to the form: every field change, GlideAjax call, error and delay, in order, with the script behind it',
+  launcherHint: 'What the page scripts did',
+  icon: 'record',
+  slash: ['/watch', '/clienttrace'],
+  help: 'record g_form changes, GlideAjax calls and errors on the form (arm it, reload the form, read the timeline)',
+  keywords: 'client trace watch recorder flight recorder who changed this field on the form g_form setvalue setmandatory glideajax client script onchange onload slow form console error javascript error what set this value why did the field change',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: ClientTracePanel,
+});
+
+// Why wasn't the email sent? (/notify): notifications that match the record, the events and emails it produced:
+// src/sidebar/NotifyPanel.jsx, src/content/notifyTrace.js, src/lib/notifyTrace.js.
+PANELS.push({
+  name: 'notify',
+  title: "Why wasn't the email sent?",
+  hint: 'For the record on screen: which notifications could fire, what stops each one, the events and emails it produced and their recipients',
+  launcherHint: 'Why an email did not go out',
+  icon: 'mail',
+  slash: ['/notify', '/whymail'],
+  help: 'why an email was or was not sent for this record (also /notify <notification name>)',
+  keywords: 'notification email not sent why did nobody get the email notification did not fire event not fired recipients subscription condition advanced condition sys_email outbox ignored send ready failed mail trace email log digest',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: NotifyPanel,
+});
+
+// Flows, approvals and SLAs (/flows): everything running or run against the record on screen:
+// src/sidebar/ProcessPanel.jsx, src/content/processView.js, src/lib/processView.js.
+PANELS.push({
+  name: 'process',
+  title: 'Flows, approvals and SLAs',
+  hint: 'Every flow, workflow, approval, SLA and task attached to the record on screen: state, timing, errors and who it is waiting on',
+  launcherHint: 'What is running on this record',
+  icon: 'flow',
+  slash: ['/flows', '/process'],
+  help: 'flows, workflows, approvals and SLAs on this record, with errors and who is blocking',
+  keywords: 'flow designer flow execution workflow context approval waiting sla breached task process stuck waiting for approval flow error what is running on this record why is this ticket stuck who has to approve workflow history',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: ProcessPanel,
+});
+
+// System properties (/prop): find, read, change and trace a property: src/sidebar/PropertiesPanel.jsx,
+// src/content/properties.js, src/lib/properties.js.
+PANELS.push({
+  name: 'properties',
+  title: 'System properties',
+  hint: 'Find a property, see its value and where scripts read it, change it with an undo, and compare it with the defaults',
+  launcherHint: 'Find, read, change a property',
+  icon: 'sliders',
+  slash: ['/prop', '/property'],
+  help: 'look up a system property, who reads it, change it with undo (also /prop glide.ui.session_timeout)',
+  keywords: 'system property sys_properties glide property value setting config gs getproperty who reads this property where is this property used change a property debug property glide ui timeout switch flag',
+  group: 'tools',
+  withContext: false,
+  launcher: true,
+  component: PropertiesPanel,
+});
+
+// Data model map (/map): how tables extend and reference each other, and the dot-walk path between two:
+// src/sidebar/DataModelPanel.jsx, src/content/dataModel.js, src/lib/dataModel.js.
+PANELS.push({
+  name: 'datamodel',
+  title: 'Data model map',
+  hint: 'How a table connects to the others: parents, children, what it references and what references it. Find the dot-walk path between two tables',
+  launcherHint: 'Tables and how they connect',
+  icon: 'graph',
+  slash: ['/map', '/dotwalk', '/path', '/schema'],
+  help: "map a table's relationships (also /map incident, /path incident sys_user for a dot-walk path)",
+  keywords: 'data model schema map er diagram entity relationship table relationships extends parent child reference fields dot walk dotwalk path how do i get from incident to department join tables many to many cmdb hierarchy table tree',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: DataModelPanel,
+});
+
+// Portal inspector (/sp): widgets on a Service Portal page with their data, options and code:
+// src/sidebar/PortalPanel.jsx, src/content/portalInspector.js, src/lib/portalInspector.js.
+PANELS.push({
+  name: 'portal',
+  title: 'Portal inspector',
+  hint: 'Widgets on this Service Portal page: name, instance options, the data each one holds, and a link to its code',
+  launcherHint: 'Widgets, data and options',
+  icon: 'window',
+  slash: ['/sp', '/portal', '/widgets'],
+  help: 'widgets on this portal page with their c.data, options and code (also /sp <widget name>)',
+  keywords: 'service portal widget inspector sp widget c.data options angular scope widget editor server script client controller portal page widget instance which widget is this debug widget data json employee center esc',
+  group: 'analyze',
+  withContext: false,
+  launcher: true,
+  component: PortalPanel,
+});
+
+// Update set preview problems (/preview): what blocks a commit, in plain words, and what to do about each:
+// src/sidebar/PreviewProblemsPanel.jsx, src/content/previewProblems.js, src/lib/previewProblems.js.
+PANELS.push({
+  name: 'previewfix',
+  title: 'Update set preview problems',
+  hint: 'A retrieved update set that will not commit: each preview problem in plain words, the local record behind it, and the safe way out',
+  launcherHint: 'Why an update set will not commit',
+  icon: 'alert',
+  slash: ['/preview', '/problems'],
+  help: 'explain the preview problems of an update set before you commit it (also /preview <update set name>)',
+  keywords: 'update set preview problems commit blocked missing reference collision skipped remote update newer local version accept remote skip remote update set problem cannot commit retrieved update set preview',
+  group: 'analyze',
+  withContext: true,
+  launcher: true,
+  component: PreviewProblemsPanel,
+});
+
+// Self-check (/doctor): which NowBuddy tools will work on this instance, from what it can read: src/sidebar/DoctorPanel.jsx,
+// src/content/doctor.js, src/lib/requirements/.
+PANELS.push({
+  name: 'doctor',
+  title: 'Self-check',
+  hint: 'Which NowBuddy tools work on this instance: your session, the tables and columns each one reads, and what to do about a gap',
+  launcherHint: 'Which tools work here',
+  icon: 'stethoscope',
+  slash: ['/doctor', '/selfcheck'],
+  help: 'check that NowBuddy can reach this instance and which tools have what they need (copyable report)',
+  keywords: 'doctor self check diagnose troubleshoot not working extension broken why does this tool show nothing missing table missing column permission session expired version release compatibility report support',
+  group: 'tools',
+  withContext: false,
+  launcher: false,
+  component: DoctorPanel,
 });
 
 export function panelByName(name) {

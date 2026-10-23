@@ -319,13 +319,14 @@ test('applyCompletion adds parentheses, keeps an existing one, and fills new Gli
   assert.equal(applyCompletion('current.sh', field, field.items[0]).insert, 'short_description');
 });
 
-test('snippet items keep the line indentation and place the caret at $0', () => {
+test('snippet items keep the line indentation and place the caret at the first blank', () => {
   const src = '  if (x) {\n    gr';
   const r = getCompletions(src, src.length, SERVER, { explicit: true });
   const snippet = r.items.find((i) => i.kind === 'snippet' && i.label === 'gr');
   const edit = applyCompletion(src, r, snippet);
   assert.ok(edit.insert.includes('\n    gr.query();'));
   assert.equal(src.slice(0, r.from) + edit.insert.slice(0, edit.caret - r.from), `${src.slice(0, r.from)}var gr = new GlideRecord('`);
+  assert.equal(edit.insert.slice(edit.caret - r.from, edit.caret - r.from + 5), 'table');
 });
 
 // ---- Script Include parsing ---------------------------------------------------------------------

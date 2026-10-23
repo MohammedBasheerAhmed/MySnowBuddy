@@ -68,6 +68,7 @@ import {
   truncate,
 } from '../lib/inline.js';
 import { visibleTo } from '../lib/roleTier.js';
+import { whyMenuModel } from '../lib/panelLinks.js';
 
 const ATTR = 'data-msb-inline';
 const STYLE_ID = 'msb-inline-style';
@@ -700,6 +701,8 @@ function toolbarAction(id, anchor) {
     case 'copyQuery':
     case 'copyGlide':
       return listAction(id, anchor);
+    case 'why':
+      return openWhyMenu(anchor, table);
     case 'insight':
     case 'refs':
       sidebar.openForTool?.();
@@ -711,6 +714,24 @@ function toolbarAction(id, anchor) {
     default:
       return toast.info('That action is not available here.');
   }
+}
+
+/** The ticket toolbar's Why? menu: each entry opens a panel on the record on screen. The role filter applies to the entries. */
+function openWhyMenu(anchor, table) {
+  const { popover, sidebar, toast, roleAccess } = state.deps;
+  const entries = visibleTo(roleAccess?.tier() ?? null, whyMenuModel());
+  const open = (panel) => () => {
+    popover.hide();
+    sidebar.openForTool?.();
+    if (!sidebar.openPanel?.(panel)) toast.info('Turn on the sidebar in Options to see this panel.');
+  };
+  showMessage({
+    anchor,
+    title: 'Why?',
+    subtitle: `Ask about this ${table || 'record'}`,
+    tone: 'info',
+    actions: entries.map((entry, i) => ({ label: entry.label, primary: i === 0, onClick: open(entry.panel) })),
+  });
 }
 
 async function listAction(id, anchor) {

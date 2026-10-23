@@ -347,9 +347,9 @@ test('expandSnippet expands a trigger word and places the caret', () => {
   const src = '  gr';
   const out = expandSnippet(src, src.length);
   assert.equal(out.start, 2);
-  assert.ok(out.text.startsWith("var gr = new GlideRecord('');"));
+  assert.ok(out.text.startsWith("var gr = new GlideRecord('table');"));
   assert.ok(out.text.includes('\n  gr.query();'), 'continuation lines keep the indent');
-  assert.equal(out.text.slice(out.caret - out.start - 1, out.caret - out.start + 1), "''");
+  assert.equal(out.text.slice(out.caret - out.start, out.caret - out.start + 5), 'table', 'the first blank is where the caret goes');
 });
 
 test('expandSnippet ignores unknown words and member access', () => {

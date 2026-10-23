@@ -609,4 +609,12 @@ test('annotations: reads are read-only, navigate and writes are not; the generat
   const names = snapshot.map((t) => t.name);
   for (const n of ['read_page', 'navigate', 'click_ui_action', 'update_record', 'screenshot', 'list_tabs']) assert.ok(names.includes(n), n);
   assert.ok(snapshot.find((t) => t.name === 'read_page').inputSchema.properties.tab_id, 'tab routing is advertised');
+  // The read-only analysis tools an MCP client can call (why was no email sent, what is stuck, ...) are observe tier, so a
+  // "Read only" ceiling keeps them and the client sees them as read-only.
+  for (const n of ['explain_access', 'explain_field', 'check_update_set', 'scan_instance_health', 'explain_email', 'explain_process', 'map_table', 'find_dotwalk_path', 'explain_preview_problems', 'find_artifact', 'run_selfcheck', 'find_property', 'read_client_trace']) {
+    const entry = snapshot.find((t) => t.name === n);
+    assert.ok(entry, `${n} is in the snapshot`);
+    assert.equal(entry.tier, 'observe', n);
+    assert.ok(entry.inputSchema.properties.tab_id && entry.inputSchema.properties.instance, `${n} can be pointed at a tab`);
+  }
 });

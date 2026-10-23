@@ -1,0 +1,87 @@
+/* "Go to anything" in the command palette (src/content/commandPalette.js, src/lib/goTo.js): the kind badge, the
+   inactive marker, notes such as "Business Rules cannot be read here", and the actions menu under a result.
+   This file sits in src/sidebar because build.js adds every stylesheet from that folder to content.css. */
+
+.msb-palette__badge--kind {
+  color: var(--msb-fg-muted);
+}
+
+/* An inactive record is shown, but plainly second: dashed badge, muted title (the highlighted row keeps its own colours). */
+.msb-palette__badge--inactive {
+  font-style: italic;
+  border-style: dashed;
+  color: var(--msb-fg-muted);
+}
+
+.msb-palette__item--inactive:not(.msb-palette__item--active) .msb-palette__title {
+  color: var(--msb-fg-muted);
+}
+
+/* A note (searching, nothing found, cannot be read) is not an action. */
+.msb-palette__item--status {
+  cursor: default;
+}
+
+.msb-palette__item--status .msb-palette__title {
+  font-weight: 400;
+}
+
+.msb-palette__item--status:not(.msb-palette__item--active) .msb-palette__title {
+  color: var(--msb-fg-muted);
+}
+
+.msb-palette__item--status.msb-palette__item--active::after {
+  content: none;
+}
+
+/* The footer hint for the actions menu only shows while a result found by name is highlighted. */
+.msb-palette__hintGroup--actions[hidden] {
+  display: none;
+}
+
+/* The actions of the highlighted result, opened with Tab or Right Arrow: a short list right under the row. */
+.msb-palette__menu {
+  margin: 2px 8px 8px 54px;
+  padding: 4px;
+  border: 1px solid var(--msb-accent-line);
+  border-radius: var(--msb-radius);
+  background: var(--msb-bg-raised);
+  box-shadow: var(--msb-shadow);
+}
+
+.msb-palette__menuItem {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 6px 10px;
+  border-radius: var(--msb-radius-sm);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-md);
+  cursor: pointer;
+}
+
+.msb-palette__menuItem--active {
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+  font-weight: 600;
+}
+
+.msb-palette__menuLabel {
+  flex: none;
+}
+
+.msb-palette__menuHint {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.msb-palette__menuItem--active .msb-palette__menuHint {
+  color: var(--msb-active-fg);
+}

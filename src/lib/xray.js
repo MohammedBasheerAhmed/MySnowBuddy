@@ -91,6 +91,19 @@ export function portalFromUrl(href) {
   };
 }
 
+// Portal URL suffixes that are portals even without an id= (the home page of the default portals).
+const PORTAL_SUFFIXES = new Set(['sp', 'esc', 'csm', 'hrsd', 'ec']);
+
+/**
+ * True when the address is a Service Portal page: one path segment that is not a platform path, with a page id
+ * (/sp?id=index, /mycompany?id=form) or one of the default portal suffixes (/sp, /esc). The portal inspector and
+ * X-ray read the page markup as well; this is the address-only half, for places that have no document to look at.
+ */
+export function isPortalUrl(href) {
+  const portal = portalFromUrl(href);
+  return Boolean(portal && (portal.pageId || PORTAL_SUFFIXES.has(portal.suffix.toLowerCase())));
+}
+
 /** Next Experience workspace pages: { kind: 'record' | 'list' | 'workspace', table, sysId }, or null. */
 export function parseWorkspaceUrl(href) {
   let url;

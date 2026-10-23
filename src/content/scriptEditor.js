@@ -11,13 +11,15 @@ import { syntaxAsk, prodApplySaveAsk, runScriptAsk, discardAsk } from '../lib/co
 import { trustedDom } from '../sidebar/trusted.js';
 import { verifyScript, formatVerification, KIND_INFO } from '../lib/verify.js';
 import { checkSyntax } from '../lib/syntax.js';
-import { expandSnippet, SNIPPETS } from '../lib/snippets.js';
+import { expandSnippet, expandKey, SNIPPETS } from '../lib/snippets.js';
+import * as snip from '../lib/editorSnippetSession.js';
 import { analyzeScriptRisk, formatRiskSummary } from '../lib/scriptSafety.js';
 import {
   analyze,
   lineTokens,
   lineOfOffset,
   lineEndAt,
+  lineStartAt,
   rangeAt,
   matchBracket,
   toggleLineComment,
@@ -39,10 +41,16 @@ import {
   findAll,
   replacementAt,
   replaceAllMatches,
-  reindent,
   diffRange,
+  joinLines,
+  selectLines,
 } from '../lib/editorText.js';
+import { outline, symbolAt, filterSymbols, symbolLabel } from '../lib/editorOutline.js';
+import { formatCode, mapOffset } from '../lib/editorFormat.js';
+import { lineHunks, hunkKind, hunkLines, hunkTitle, revertEdit, nextHunkLine } from '../lib/editorChanges.js';
+import * as multi from '../lib/editorMulti.js';
 import { referenceTarget } from '../lib/scriptApi.js';
+import { createValueLookup, canLookUpProperty } from '../lib/panelLinks.js';
 import { getCompletions, applyCompletion, getHoverInfo, getSignatureHelp, getDefinitionTarget, collectNeeds, guessSide } from '../lib/completion.js';
 import { diagnose, countProblems, quickFixEdit, editorKind, sideOfKind } from '../lib/editorDiagnostics.js';
 import {
@@ -55,6 +63,7 @@ import {
   readScriptRecord,
   fetchCatalogVariables,
   definitionUrl,
+  readSavedFieldValue,
 } from './editorData.js';
 
 const INDENT = '  ';
@@ -75,6 +84,13 @@ const QUICK_CHECK_CHARS = 40000;
 const SLOW_CHECK_MS = 350;
 const HOVER_DELAY = 400;
 const SYNC_DELAY = 350;
+const MAX_OUTLINE_CHARS = 300000;
+// The browser's own editing slows down sharply with the size of one replacement (a few seconds for 40,000 characters on a long
+// script), so bigger single replacements are refused or split instead of freezing the page.
+const MAX_NATIVE_EDIT = 40000;
+const MAX_SPLIT_EDITS = 120;
+const MAX_CHANGE_CHARS = 300000;
+const OUTLINE_ICON = { class: ['C', 'class'], method: ['m', 'method'], function: ['F', 'function'], handler: ['F', 'function'], marker: ['#', 'propertyName'] };
 const DATA_DELAY = 150;
 const AI_ACTIONS = [
   ['explain', 'Explain this script'],
@@ -94,28 +110,53 @@ const SHORTCUTS = [
   ['Enter or Tab', 'Accept a suggestion (Esc closes the list)'],
   ['Ctrl+Shift+Space', 'Parameter hints'],
   ['F12 or Ctrl+click', 'Go to definition: Script Include, table, field, local function'],
-  ['Shift+F12', 'Find all references: every script that uses the Script Include, method or table at the caret; on a field it opens Where is this field used?'],
+  ['Shift+F12', 'Find all references: every script that uses the Script Include, method or table at the caret. On a field it opens Where is this field used, on a system property name the System properties panel'],
   ['Ctrl+.', 'Quick fix for the problem on this line'],
   ['F8 / Shift+F8', 'Next / previous problem'],
   ['Ctrl+Shift+M', 'Show or hide the problems list'],
   ['Ctrl+F / Ctrl+H', 'Find / replace (regex, match case, whole word)'],
   ['F3 / Shift+F3', 'Find next / previous'],
   ['Ctrl+G', 'Go to line (line or line:column)'],
+  ['Ctrl+Shift+O', 'Go to symbol: functions, Script Include methods and handlers, filtered as you type'],
+  ['Ctrl+D', 'Select the word, then add the next occurrence; typing, Backspace, Enter and Tab then act on every cursor'],
+  ['Ctrl+Shift+L', 'Select every occurrence of the word or selection (rename a variable by typing)'],
+  ['Alt+click', 'Add a cursor (Esc goes back to one)'],
   ['Ctrl+/', 'Comment or uncomment lines'],
   ['Alt+Up / Alt+Down', 'Move lines up / down'],
   ['Shift+Alt+Up / Down', 'Duplicate lines'],
   ['Ctrl+Shift+K', 'Delete lines'],
+  ['Ctrl+L', 'Select the line (again for the next line)'],
+  ['Ctrl+J', 'Join the line with the next one (or the selected lines)'],
   ['Tab / Shift+Tab', 'Indent / outdent'],
+  ['Ctrl+M', 'Tab moves the focus to the buttons and lists instead of indenting (Ctrl+M again to switch back)'],
   ['Ctrl+] / Ctrl+[', 'Indent / outdent lines'],
-  ['Tab after a snippet name', `Expand it: ${Object.keys(SNIPPETS).join(', ')}`],
-  ['Shift+Alt+F', 'Re-indent the whole script (whitespace only)'],
+  ['Tab after a snippet name', `Expand it and jump between its blanks with Tab: ${Object.keys(SNIPPETS).join(', ')}`],
+  ['Shift+Alt+F', 'Format the script, or the selected lines (indentation, spacing, trailing blanks; refuses if the code itself would change)'],
+  ['Alt+F3 / Shift+Alt+F3', 'Next / previous change since the record was loaded (the Changes button lists them and can revert one)'],
+  ['Ctrl+Shift+Enter', 'Dry run the script, or the selection (writes are intercepted; output shows below)'],
   ['Home', 'First character of the line, then column 1'],
   ['Ctrl+S', 'Apply to the form'],
   ['Ctrl+Shift+S', 'Apply and save the record'],
   ['Ctrl+Enter', 'Apply and close'],
   ['F1', 'This list'],
-  ['Esc', 'Close a popup, then the editor'],
+  ['Esc', 'Close a popup, extra cursors, then the editor'],
 ];
+
+let pendingAction = null;
+
+/**
+ * Ask the editor that is about to open (or is already open) to do something once it is ready: 'outline' or 'format'.
+ * The command palette uses this; the request lapses after five seconds so a failed open cannot fire it later.
+ */
+export function queueEditorAction(name) {
+  pendingAction = { name, at: Date.now() };
+}
+
+function takeQueuedAction() {
+  const action = pendingAction;
+  pendingAction = null;
+  return action && Date.now() - action.at < 5000 ? action.name : '';
+}
 
 /** The field most likely to be "the" script: `script`, then script-like names, then the longest. */
 export function bestScriptField(fields) {
@@ -160,6 +201,8 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
  *   openCompare?: () => void,
  *   getUpdateSet?: () => Promise<{name: string} | null>,
  *   findDefinition?: (name: string) => Promise<string | null>,
+ *   openPanel?: (name: string, params?: object) => boolean,
+ *   propertyValue?: (name: string) => Promise<object>,
  *   isProd?: () => boolean,
  *   field?: string,
  *   place?: { rect: () => (object | null) },
@@ -252,15 +295,18 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   const gutter = h('div', 'msb-ed__gutter');
   const gutterInner = h('pre', 'msb-ed__gutter-inner');
   const marks = h('div', 'msb-ed__marks');
-  gutter.append(gutterInner, marks);
+  const changeBars = h('div', 'msb-ed__changebars');
+  gutter.append(gutterInner, marks, changeBars);
   const surface = h('div', 'msb-ed__surface');
   const hl = h('div', 'msb-ed__hl');
   const bands = h('div', 'msb-ed__bands');
   const deco = h('div', 'msb-ed__deco');
   const findLayer = h('div');
   const bracketLayer = h('div');
+  const snipLayer = h('div');
+  const multiLayer = h('div');
   const squiggleLayer = h('div');
-  deco.append(findLayer, bracketLayer, squiggleLayer);
+  deco.append(findLayer, bracketLayer, snipLayer, multiLayer, squiggleLayer);
   const code = h('pre', 'msb-ed__code');
   hl.append(bands, deco, code);
   const ta = document.createElement('textarea');
@@ -293,8 +339,23 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   const problemList = h('div', 'msb-ed__plist');
   problemList.hidden = true;
   problemList.setAttribute('aria-label', 'Problems');
-  const lintBox = h('pre', 'msb-ed__lint');
+  // The output of Report, Dry run and Run: a drawer that can be copied from and closed.
+  const lintBox = h('div', 'msb-ed__lint');
   lintBox.hidden = true;
+  lintBox.setAttribute('role', 'region');
+  lintBox.setAttribute('aria-label', 'Output');
+  const lintTitle = h('span', 'msb-ed__lint-title', 'Output');
+  const lintBody = h('pre', 'msb-ed__lint-body');
+  lintBody.tabIndex = 0;
+  const lintHead = h('div', 'msb-ed__lint-head');
+  lintHead.append(lintTitle, button('Copy', 'msb-ed__pfix', () => copyOutput()), button('Close', 'msb-ed__pfix', () => closeOutput()));
+  lintBox.append(lintHead, lintBody);
+
+  // What changed since the record was loaded: one row per changed region, each with Show and Revert.
+  const changesList = h('div', 'msb-ed__plist msb-ed__changes-list');
+  changesList.hidden = true;
+  changesList.setAttribute('role', 'region');
+  changesList.setAttribute('aria-label', 'Changes since the record was loaded');
 
   const refList = h('div', 'msb-ed__plist');
   refList.hidden = true;
@@ -306,8 +367,30 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   problemsButton.title = 'Show problems (Ctrl+Shift+M)';
   const refsButton = button('References', 'msb-ed__problems msb-ed__problems--ok', () => findAllReferences());
   refsButton.title = 'Find every script that uses the name at the caret (Shift+F12)';
-  const hints = h('span', 'msb-ed__hints', 'Ctrl+Space suggestions · F12 definition · Ctrl+S apply · F1 all shortcuts · Esc close');
-  footer.append(position, problemsButton, refsButton, hints);
+  const hints = h('span', 'msb-ed__hints', 'Ctrl+Space suggestions · F12 definition · Ctrl+Shift+O symbols · Ctrl+S apply · F1 all shortcuts · Esc close');
+  const symbolButton = button('Outline', 'msb-ed__problems msb-ed__symbol', () => showOutline());
+  symbolButton.title = 'Go to symbol (Ctrl+Shift+O)';
+  const changesButton = button('', 'msb-ed__problems msb-ed__problems--ok', () => toggleChanges());
+  changesButton.hidden = true;
+  footer.append(position, symbolButton, problemsButton, changesButton, refsButton, hints);
+
+  // --- Go to symbol ---
+  const outlineBox = h('div', 'msb-ed__outline');
+  outlineBox.hidden = true;
+  outlineBox.setAttribute('role', 'dialog');
+  outlineBox.setAttribute('aria-label', 'Go to symbol');
+  const outlineInput = document.createElement('input');
+  outlineInput.placeholder = 'Go to symbol: type part of a name';
+  outlineInput.setAttribute('aria-label', 'Go to symbol');
+  outlineInput.setAttribute('role', 'combobox');
+  outlineInput.setAttribute('aria-controls', 'msb-ed-outline-list');
+  outlineInput.setAttribute('aria-expanded', 'true');
+  outlineInput.setAttribute('autocomplete', 'off');
+  const outlineList = h('div', 'msb-ed__outline-list');
+  outlineList.id = 'msb-ed-outline-list';
+  outlineList.setAttribute('role', 'listbox');
+  outlineList.setAttribute('aria-label', 'Symbols');
+  outlineBox.append(outlineInput, outlineList);
 
   // --- Shortcut help ---
   const help = h('div', 'msb-ed__help');
@@ -340,9 +423,30 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   let findTimer = 0;
   let hoverTimer = 0;
   let hoverAt = -1;
+  // What a system property is set to, for the hover over its name: one read per name per editor session.
+  const propertyValues = createValueLookup(tools.propertyValue ? (name) => tools.propertyValue(name) : null);
   let dataTimer = 0;
   let frame = 0;
   const ac = { open: false, explicit: false, result: null, active: 0, loading: false };
+  // Extra cursors (Ctrl+D, Ctrl+Shift+L, Alt+click). The textarea keeps the primary one; these are plain {start, end}.
+  let extras = [];
+  let multiWord = false;
+  // A snippet that was just expanded: its blanks, which one Tab goes to next, and the text they were read from.
+  let snippet = null;
+  let snippetText = '';
+  let snippetBusy = false;
+  // Ctrl+M: Tab moves the focus out of the text instead of indenting (as in VS Code), so every button is keyboard reachable.
+  let tabMovesFocus = false;
+  let resizeWatch = null;
+  // What was loaded from the record, to show what changed (the Changes button and the bars beside the line numbers).
+  let savedText = '';
+  let hunks = [];
+  // The outline of the script, for the footer breadcrumb and Go to symbol.
+  let outlineSymbols = [];
+  let outlineText = null;
+  let outlineTimer = 0;
+  let outlineShown = [];
+  let outlineActive = 0;
 
   const isDirty = () => ta.value !== baseline;
   const intelCtx = () => ({ side, table: rec.target || null, scoped: rec.scoped, formFields, ...editorDataContext() });
@@ -427,6 +531,7 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     deco.style.transform = `translate(${x}px, ${y}px)`;
     gutterInner.style.transform = `translateY(${y}px)`;
     marks.style.transform = `translateY(${y}px)`;
+    changeBars.style.transform = `translateY(${y}px)`;
     bands.style.transform = `translateY(${y}px)`;
   }
 
@@ -483,6 +588,8 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
 
   function refresh() {
     paint();
+    updateChanges();
+    if (extras.length) paintMulti();
     // Lines were added or removed since the last check: the markers would sit on the wrong lines
     // until the next check (a moment later), so hide them meanwhile.
     if (problems.length && analyze(ta.value).starts.length !== problemsLineCount) {
@@ -505,7 +612,8 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     const line = lineOfOffset(info.starts, caret);
     const sel = ta.selectionEnd - ta.selectionStart;
     if (charsLabel[1] !== ta.value.length || !charsLabel[0]) charsLabel = [ta.value.length.toLocaleString(), ta.value.length];
-    position.textContent = `Ln ${line + 1}, Col ${caret - info.starts[line] + 1}${sel ? ` (${sel} selected)` : ''} · ${charsLabel[0]} chars`;
+    position.textContent = `Ln ${line + 1}, Col ${caret - info.starts[line] + 1}${sel ? ` (${sel} selected)` : ''}${extras.length ? ` · ${extras.length + 1} cursors` : ''} · ${charsLabel[0]} chars`;
+    updateCrumb();
   }
 
   // --- Problems (verifier + lint + syntax), debounced ---
@@ -793,13 +901,12 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     const s = ta.selectionStart;
     const e = ta.selectionEnd;
     const text = ta.value;
+    if (snippet && snippetTab(shift ? -1 : 1)) return true;
     if (shift) return applyEdit(outdentLines(text, s, e, unit));
     if (s === e) {
-      const snippet = expandSnippet(text, s);
-      if (snippet) {
-        replaceRange(snippet.start, snippet.end, snippet.text);
-        ta.setSelectionRange(snippet.caret, snippet.caret);
-        afterEdit();
+      const expansion = expandSnippet(text, s); // never inside a comment or a string
+      if (expansion) {
+        startSnippet(expansion);
         return true;
       }
       return applyEdit(insertIndent(text, s, unit));
@@ -807,29 +914,582 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     return applyEdit(indentLines(text, s, e, unit));
   }
 
+  // --- Snippet blanks ---
+  function paintSnippet() {
+    snipLayer.replaceChildren();
+    if (!snippet) return;
+    const info = analyze(ta.value);
+    snippet.stops.forEach((stop, si) => {
+      if (si === snippet.stops.length - 1) return; // the last stop is only where the caret ends up
+      stop.ranges.forEach((r, ri) => {
+        const line = lineOfOffset(info.starts, r.start);
+        const lineEnd = line + 1 < info.starts.length ? info.starts[line + 1] - 1 : ta.value.length;
+        const node = box(`msb-ed__snip${si === snippet.active ? ' msb-ed__snip--active' : ''}${ri ? ' msb-ed__snip--copy' : ''}`, line, r.start, Math.max(r.start, Math.min(r.end, lineEnd)));
+        if (r.start === r.end) node.style.width = '3px';
+        snipLayer.appendChild(node);
+      });
+    });
+  }
+
+  function endSnippet() {
+    if (!snippet) return;
+    snippet = null;
+    paintSnippet();
+  }
+
+  /** Put an expanded snippet in (replacing the word that triggered it) and select its first blank. */
+  function startSnippet(expansion) {
+    clearExtras();
+    snippetBusy = true;
+    try {
+      replaceRange(expansion.start, expansion.end, expansion.text);
+    } finally {
+      snippetBusy = false;
+    }
+    const session = snip.startSession(expansion);
+    if (!session) {
+      ta.setSelectionRange(expansion.caret, expansion.caret);
+      snippet = null;
+      afterEdit();
+      return;
+    }
+    snippet = snip.withText(session, ta.value);
+    snippetText = ta.value;
+    const first = snip.activeRange(snippet);
+    ta.setSelectionRange(first.start, first.end);
+    afterEdit();
+    paintSnippet();
+  }
+
+  /** Tab or Shift+Tab inside a snippet: on to the next blank. False when the caret is not in a blank (then Tab is just Tab). */
+  function snippetTab(dir) {
+    if (!snippet || !snip.selectionInBlank(snippet, ta.selectionStart, ta.selectionEnd)) {
+      endSnippet();
+      return false;
+    }
+    const jump = snip.jump(snippet, ta.value, dir);
+    snippet = jump.session;
+    ta.setSelectionRange(jump.select.start, jump.select.end);
+    closeCompletion();
+    hideSignature();
+    updatePosition();
+    revealCaret();
+    paintSnippet();
+    return true;
+  }
+
+  /** After every edit while a snippet is open: move the blanks, and make the copies of the blank being typed in follow it. */
+  function trackSnippet() {
+    if (!snippet) {
+      snippetText = ta.value;
+      return;
+    }
+    const edit = snip.locateEdit(snippetText, ta.value, ta.selectionStart);
+    const tracked = snip.trackEdit(snippet, edit);
+    const synced = tracked && snip.syncCopies(ta.value, tracked);
+    if (!synced) {
+      endSnippet(); // an edit somewhere else: stop following rather than guess
+      snippetText = ta.value;
+      return;
+    }
+    snippet = synced.session;
+    if (synced.text !== ta.value) {
+      const from = ta.selectionStart;
+      const to = ta.selectionEnd;
+      const d = diffRange(ta.value, synced.text);
+      snippetBusy = true;
+      try {
+        replaceRange(d.from, d.to, d.insert);
+      } finally {
+        snippetBusy = false;
+      }
+      ta.setSelectionRange(from, to); // the copies come after the blank being typed in, so the caret has not moved
+    }
+    snippetText = ta.value;
+    paintSnippet();
+  }
+
+  // --- Format ---
+  /** Shift+Alt+F: format the selected lines, or the whole script when nothing is selected. Refuses rather than guess. */
   function format() {
+    if (ta.readOnly) {
+      toast.error('This field is read-only.');
+      return;
+    }
+    clearExtras();
     const text = ta.value;
-    const result = reindent(text, unit);
+    const s = ta.selectionStart;
+    const e = ta.selectionEnd;
+    let range = {};
+    if (s !== e) {
+      const starts = analyze(text).starts;
+      const last = text[e - 1] === '\n' ? e - 1 : e; // a selection that ends at column 0 does not include that line
+      range = { fromLine: lineOfOffset(starts, s), toLine: lineOfOffset(starts, Math.max(last, s)) };
+    }
+    const part = range.fromLine !== undefined;
+    const result = formatCode(text, { unit, ...range });
     if (result.error) {
       toast.error(result.error);
       return;
     }
     if (!result.changed) {
-      toast.success('The indentation is already consistent.');
+      toast.success(part ? 'The selected lines are already formatted.' : 'The script is already formatted.');
       return;
     }
-    const info = analyze(text);
-    const line = lineOfOffset(info.starts, ta.selectionStart);
-    const oldLine = text.slice(info.starts[line], lineEndAt(text, info.starts[line]));
-    const col = ta.selectionStart - info.starts[line];
-    const nextLines = result.text.split('\n');
-    const newLine = nextLines[line] || '';
-    const delta = /^[ \t]*/.exec(newLine)[0].length - /^[ \t]*/.exec(oldLine)[0].length;
-    let caret = nextLines.slice(0, line).reduce((sum, l) => sum + l.length + 1, 0) + Math.max(0, Math.min(newLine.length, col + delta));
-    caret = Math.min(caret, result.text.length);
-    replaceText(result.text, caret);
-    toast.success('Re-indented (whitespace only).');
+    const next = result.text;
+    const d = diffRange(text, next);
+    if (d.insert.length > MAX_NATIVE_EDIT) {
+      toast.error('Formatting this much at once would freeze the page for several seconds. Select the part you want formatted and press Shift+Alt+F again.');
+      return;
+    }
+    replaceRange(d.from, d.to, d.insert);
+    ta.setSelectionRange(mapOffset(text, next, s), mapOffset(text, next, e));
+    afterEdit();
+    toast.success(part ? 'Formatted the selected lines. Ctrl+Z undoes it.' : 'Formatted the script. Ctrl+Z undoes it.');
   }
+
+  // --- Lines: join, select ---
+  function joinSelectedLines() {
+    const edit = joinLines(ta.value, ta.selectionStart, ta.selectionEnd);
+    if (!edit) {
+      toast.info('There is no next line to join.');
+      return;
+    }
+    if (edit.error) {
+      toast.error(edit.error);
+      return;
+    }
+    applyEdit(edit);
+  }
+
+  function selectWholeLines() {
+    const r = selectLines(ta.value, ta.selectionStart, ta.selectionEnd);
+    ta.setSelectionRange(r.selStart, r.selEnd);
+    updatePosition();
+    paintBrackets();
+  }
+
+  // --- Go to symbol (outline) ---
+  function currentOutline() {
+    if (outlineText !== ta.value) {
+      outlineSymbols = ta.value.length > MAX_OUTLINE_CHARS ? [] : outline(ta.value);
+      outlineText = ta.value;
+    }
+    return outlineSymbols;
+  }
+
+  /** The footer shows where the caret is ("IncidentUtils › getOpen"); the outline is re-read when typing pauses. */
+  function updateCrumb() {
+    if (outlineText !== ta.value) {
+      clearTimeout(outlineTimer);
+      outlineTimer = setTimeout(() => {
+        currentOutline();
+        paintCrumb();
+      }, 250);
+    }
+    paintCrumb();
+  }
+
+  function paintCrumb() {
+    const sym = symbolAt(outlineSymbols, ta.selectionStart);
+    const label = sym ? sym.path : 'Outline';
+    if (symbolButton.textContent !== label) symbolButton.textContent = label;
+    symbolButton.title = sym ? `In ${sym.path}. Go to symbol (Ctrl+Shift+O)` : 'Go to symbol (Ctrl+Shift+O)';
+  }
+
+  function highlighted(parent, label, positions) {
+    const hits = new Set(positions || []);
+    let run = '';
+    let runHit = false;
+    const flush = () => {
+      if (!run) return;
+      parent.appendChild(runHit ? h('span', 'msb-ed__ac-hit', run) : document.createTextNode(run));
+      run = '';
+    };
+    [...label].forEach((ch, i) => {
+      const hit = hits.has(i);
+      if (hit !== runHit) flush();
+      runHit = hit;
+      run += ch;
+    });
+    flush();
+  }
+
+  function showOutline() {
+    clearTimeout(outlineTimer);
+    const symbols = currentOutline();
+    if (!symbols.length) {
+      toast.info(ta.value.length > MAX_OUTLINE_CHARS ? 'This script is too long for the outline.' : 'No functions or methods were found in this script.');
+      return;
+    }
+    const here = symbolAt(symbols, ta.selectionStart);
+    outlineInput.value = '';
+    outlineActive = here ? Math.max(0, symbols.indexOf(here)) : 0;
+    outlineBox.hidden = false;
+    renderOutline(true);
+    outlineInput.focus();
+  }
+
+  function closeOutline(focusEditor = true) {
+    if (outlineBox.hidden) return;
+    outlineBox.hidden = true;
+    outlineList.replaceChildren();
+    if (focusEditor) ta.focus();
+  }
+
+  function renderOutline(keepActive = false) {
+    const query = outlineInput.value;
+    outlineShown = filterSymbols(currentOutline(), query);
+    if (!keepActive) outlineActive = 0;
+    outlineActive = Math.min(outlineActive, Math.max(0, Math.min(outlineShown.length, 300) - 1));
+    outlineList.replaceChildren();
+    if (!outlineShown.length) {
+      outlineList.appendChild(h('div', 'msb-ed__ac-empty', 'No symbol matches'));
+      outlineInput.removeAttribute('aria-activedescendant');
+      return;
+    }
+    outlineShown.slice(0, 300).forEach(({ sym, positions }, index) => {
+      const row = h('div', `msb-ed__ac-item${index === outlineActive ? ' msb-ed__ac-item--active' : ''}`);
+      row.id = `msb-ed-ol-${index}`;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-selected', index === outlineActive ? 'true' : 'false');
+      const [letter, cls] = OUTLINE_ICON[sym.kind] || ['?', 'function'];
+      const icon = h('span', `msb-ed__ac-icon msb-ed__ac-icon--${cls}`, letter);
+      icon.title = sym.kind;
+      const label = h('span', 'msb-ed__ol-label');
+      if (!query.trim()) label.style.paddingLeft = `${Math.min(sym.depth, 6) * 14}px`;
+      highlighted(label, sym.name, positions);
+      const detail = h('span', 'msb-ed__ac-detail', sym.kind === 'class' || sym.kind === 'marker' ? '' : `(${sym.params})`);
+      const where = h('span', 'msb-ed__pline', `Ln ${sym.line}`);
+      row.append(icon, label, detail, where);
+      row.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        jumpToSymbol(sym);
+      });
+      outlineList.appendChild(row);
+    });
+    if (outlineShown.length > 300) outlineList.appendChild(h('div', 'msb-ed__ac-empty', `${outlineShown.length - 300} more. Type to narrow the list.`));
+    outlineInput.setAttribute('aria-activedescendant', `msb-ed-ol-${outlineActive}`);
+    outlineList.children[outlineActive]?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  function moveOutline(delta) {
+    const count = Math.min(outlineShown.length, 300);
+    if (!count) return;
+    outlineActive = (outlineActive + delta + count) % count;
+    [...outlineList.children].slice(0, count).forEach((row, i) => {
+      row.classList.toggle('msb-ed__ac-item--active', i === outlineActive);
+      row.setAttribute('aria-selected', i === outlineActive ? 'true' : 'false');
+    });
+    outlineInput.setAttribute('aria-activedescendant', `msb-ed-ol-${outlineActive}`);
+    outlineList.children[outlineActive]?.scrollIntoView?.({ block: 'nearest' });
+  }
+
+  function jumpToSymbol(sym) {
+    closeOutline(false);
+    clearExtras();
+    goToOffset(sym.offset);
+  }
+
+  // --- Changes since the record was loaded ---
+  let changesFor = null;
+  let changesBase = null;
+
+  function updateChanges() {
+    if (changesFor === ta.value && changesBase === savedText) return;
+    changesFor = ta.value;
+    changesBase = savedText;
+    hunks = ta.value.length > MAX_CHANGE_CHARS || savedText.length > MAX_CHANGE_CHARS ? [] : lineHunks(savedText, ta.value);
+    renderChangeBars();
+    const n = hunks.length;
+    changesButton.hidden = n === 0 && changesList.hidden;
+    changesButton.textContent = n ? plural(n, 'change') : 'No changes';
+    changesButton.title = n ? 'Show what changed since the record was loaded, and revert parts of it (Alt+F3 jumps to the next change)' : 'Nothing differs from the record as it was loaded';
+    if (!changesList.hidden) renderChangesList();
+  }
+
+  function renderChangeBars() {
+    changeBars.replaceChildren();
+    const lines = analyze(ta.value).starts.length;
+    hunks.slice(0, MAX_MARKS).forEach((hunk, index) => {
+      const kind = hunkKind(hunk);
+      const bar = h('div', `msb-ed__chg msb-ed__chg--${kind}`);
+      if (kind === 'removed') bar.style.top = `${TOP_PAD + Math.min(hunk.newStart, lines) * LINE_HEIGHT - 3}px`;
+      else {
+        bar.style.top = `${TOP_PAD + hunk.newStart * LINE_HEIGHT}px`;
+        bar.style.height = `${(hunk.newEnd - hunk.newStart) * LINE_HEIGHT}px`;
+      }
+      bar.title = `${hunkTitle(hunk)}. Click to review it.`;
+      bar.addEventListener('click', () => toggleChanges(true, index));
+      changeBars.appendChild(bar);
+    });
+  }
+
+  function toggleChanges(open = changesList.hidden, focusIndex = -1) {
+    changesList.hidden = !open;
+    if (open) {
+      closeOutline(false);
+      renderChangesList(focusIndex);
+    }
+    changesFor = null;
+    updateChanges();
+  }
+
+  function renderChangesList(focusIndex = -1) {
+    changesList.replaceChildren();
+    const head = h('div', 'msb-ed__pempty', hunks.length ? `${plural(hunks.length, 'change')} since the record was loaded.` : 'No changes since the record was loaded.');
+    if (hunks.length && !ta.readOnly) head.appendChild(button('Revert all', 'msb-ed__pfix', () => revertAll()));
+    head.appendChild(button('Close', 'msb-ed__pfix', () => toggleChanges(false)));
+    changesList.appendChild(head);
+    hunks.slice(0, 80).forEach((hunk, index) => {
+      const row = h('div', 'msb-ed__crow');
+      const top = h('div', 'msb-ed__crow-head');
+      top.append(h('span', 'msb-ed__pmsg', hunkTitle(hunk)), button('Show', 'msb-ed__pfix', () => goToLine(Math.min(hunk.newStart + 1, analyze(ta.value).starts.length))));
+      if (!ta.readOnly) top.appendChild(button('Revert', 'msb-ed__pfix', () => revertChange(hunk)));
+      row.appendChild(top);
+      const { oldLines, newLines } = hunkLines(savedText, ta.value, hunk);
+      const diff = h('div', 'msb-ed__diff');
+      const addLines = (lines, cls, sign) => {
+        lines.slice(0, 6).forEach((line) => diff.appendChild(h('pre', `msb-ed__diff-line msb-ed__diff-line--${cls}`, `${sign} ${line}`)));
+        if (lines.length > 6) diff.appendChild(h('pre', 'msb-ed__diff-line', `  … ${lines.length - 6} more`));
+      };
+      addLines(oldLines, 'del', '-');
+      addLines(newLines, 'add', '+');
+      row.appendChild(diff);
+      changesList.appendChild(row);
+      if (index === focusIndex) row.scrollIntoView?.({ block: 'nearest' });
+    });
+    if (hunks.length > 80) changesList.appendChild(h('div', 'msb-ed__pempty', `… and ${hunks.length - 80} more. Use Revert all, or work through these first.`));
+  }
+
+  function revertChange(hunk) {
+    if (ta.readOnly) return;
+    // The row was drawn from an earlier comparison: only revert it while it still describes the text (line numbers move).
+    changesFor = null;
+    updateChanges();
+    if (!hunks.some((x) => x.oldStart === hunk.oldStart && x.oldEnd === hunk.oldEnd && x.newStart === hunk.newStart && x.newEnd === hunk.newEnd)) {
+      toast.info('The script changed since that list was drawn; it is up to date now. Pick the change again.');
+      return;
+    }
+    const edit = revertEdit(savedText, ta.value, hunk);
+    if (!edit) return;
+    clearExtras();
+    replaceRange(edit.from, edit.to, edit.insert);
+    const caretAt = edit.from + edit.insert.length;
+    ta.setSelectionRange(caretAt, caretAt);
+    afterEdit();
+    changesFor = null;
+    updateChanges();
+    toast.success('Change reverted. Ctrl+Z puts it back.');
+  }
+
+  function revertAll() {
+    if (ta.readOnly) return;
+    const d = diffRange(ta.value, savedText);
+    if (!d) return;
+    if (d.insert.length > MAX_NATIVE_EDIT) {
+      toast.error('That is too much to revert at once in a long script. Revert the changes one at a time from this list.');
+      return;
+    }
+    clearExtras();
+    replaceRange(d.from, d.to, d.insert);
+    ta.setSelectionRange(0, 0);
+    afterEdit();
+    changesFor = null;
+    updateChanges();
+    toast.success('Everything is back as it was loaded. Ctrl+Z puts it back.');
+  }
+
+  function jumpChange(dir) {
+    if (!hunks.length) {
+      toast.info('No changes since the record was loaded.');
+      return;
+    }
+    const starts = analyze(ta.value).starts;
+    const line = nextHunkLine(hunks, lineOfOffset(starts, ta.selectionStart), dir, starts.length);
+    if (line >= 0) goToLine(line + 1);
+  }
+
+  // --- Extra cursors ---
+  function allSelections() {
+    return [...extras.map((x) => ({ start: x.start, end: x.end, primary: false })), { start: ta.selectionStart, end: ta.selectionEnd, primary: true }];
+  }
+
+  function paintMulti() {
+    multiLayer.replaceChildren();
+    if (!extras.length) return;
+    const text = ta.value;
+    const info = analyze(text);
+    let drawn = 0;
+    for (const sel of extras) {
+      if (drawn >= MAX_FIND_BOXES) break;
+      if (sel.start === sel.end) {
+        const node = box('msb-ed__multi-caret', lineOfOffset(info.starts, sel.start), sel.start, sel.start + 1);
+        node.style.width = '2px';
+        multiLayer.appendChild(node);
+        drawn += 1;
+        continue;
+      }
+      const first = lineOfOffset(info.starts, sel.start);
+      const last = lineOfOffset(info.starts, sel.end);
+      for (let li = first; li <= last && drawn < MAX_FIND_BOXES; li += 1) {
+        const from = Math.max(sel.start, info.starts[li]);
+        const to = Math.min(sel.end, li + 1 < info.starts.length ? info.starts[li + 1] - 1 : text.length);
+        multiLayer.appendChild(box('msb-ed__multi-sel', li, from, Math.max(from, to)));
+        drawn += 1;
+      }
+    }
+  }
+
+  function clearExtras() {
+    if (!extras.length) return;
+    extras = [];
+    multiWord = false;
+    paintMulti();
+    updatePosition();
+  }
+
+  /** Make `sels` (any order, exactly one primary) the cursors: the primary goes to the textarea, the rest are drawn. */
+  function setSelections(sels) {
+    const list = multi.normalize(sels);
+    if (!list.length) return;
+    const primary = list.find((x) => x.primary) || list[list.length - 1];
+    extras = list.filter((x) => x !== primary).map(({ start, end }) => ({ start, end }));
+    closeCompletion();
+    hideSignature();
+    ta.setSelectionRange(primary.start, primary.end);
+    paintMulti();
+    updatePosition();
+    paintBrackets();
+  }
+
+  function showPrimary() {
+    const p = caretPoint(ta.selectionEnd);
+    if (p.y < 0 || p.y + LINE_HEIGHT * 2 > ta.clientHeight) goToOffset(ta.selectionStart, ta.selectionEnd);
+  }
+
+  function selectNextOccurrence() {
+    const r = multi.nextOccurrence(ta.value, allSelections(), multiWord);
+    if (!r) {
+      toast.info(extras.length ? 'No more matches.' : 'Put the caret in a word first.');
+      return;
+    }
+    multiWord = r.wholeWord;
+    setSelections(r.sels);
+    showPrimary();
+  }
+
+  function selectAllOccurrences() {
+    const r = multi.allOccurrences(ta.value, { start: ta.selectionStart, end: ta.selectionEnd }, { wholeWord: multiWord || null });
+    if (!r) {
+      toast.info('There is only one of it, or nothing is selected.');
+      return;
+    }
+    multiWord = r.wholeWord;
+    setSelections(r.sels);
+    toast.info(`${r.sels.length} cursors. Type to change them all; Esc goes back to one.`);
+  }
+
+  /** Apply the outcome of a multi-cursor edit as one replacement, so one Ctrl+Z undoes it. */
+  function applyMulti(result) {
+    if (ta.readOnly) return;
+    const d = diffRange(ta.value, result.text);
+    if (d && d.insert.length > MAX_NATIVE_EDIT) {
+      // Cursors far apart in a long script: one replacement from the first to the last would be huge, so change each spot on its own.
+      if (!result.edits || result.edits.length > MAX_SPLIT_EDITS) {
+        toast.error('That is too many cursors across a long script to edit at once. Use fewer cursors, or Find and replace.');
+        return;
+      }
+      for (let i = result.edits.length - 1; i >= 0; i -= 1) {
+        const edit = result.edits[i];
+        if (edit.from !== edit.to || edit.insert) replaceRange(edit.from, edit.to, edit.insert);
+      }
+      if (ta.value !== result.text) {
+        ta.value = result.text;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      toast.info('This is a long script, so Ctrl+Z undoes these one cursor at a time.');
+    } else if (d) {
+      replaceRange(d.from, d.to, d.insert);
+      if (ta.value !== result.text) {
+        // The browser did not take the edit as asked: make the text what it should be rather than leave a mix.
+        ta.value = result.text;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    setSelections(result.sels);
+    afterEdit();
+  }
+
+  /** What a key does while there are extra cursors: 'done' (handled here), 'native' (typing and deleting, see beforeinput), 'keep' (carry on, keep the cursors) or 'normal' (back to one cursor). */
+  function multiKeydown(event) {
+    const key = event.key;
+    if (key === 'Control' || key === 'Shift' || key === 'Alt' || key === 'Meta') return 'keep';
+    if (ta.readOnly) return 'normal';
+    const mod = event.ctrlKey || event.metaKey;
+    const lower = key.length === 1 ? key.toLowerCase() : key;
+    const plain = !mod && !event.altKey && !event.shiftKey;
+    if (key === 'Escape') {
+      clearExtras();
+      return 'done';
+    }
+    if (mod && !event.altKey && (lower === 'd' || (event.shiftKey && lower === 'l'))) return 'keep';
+    if (plain && (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Home' || key === 'End')) {
+      setSelections(multi.moveAll(ta.value, allSelections(), key).sels);
+      showPrimary();
+      return 'done';
+    }
+    if (plain && key === 'Enter') {
+      applyMulti(multi.newline(ta.value, allSelections()));
+      return 'done';
+    }
+    if (plain && key === 'Tab' && !tabMovesFocus) {
+      applyMulti(multi.tabAll(ta.value, allSelections(), unit));
+      return 'done';
+    }
+    if (!mod && !event.altKey && (key.length === 1 || key === 'Backspace' || key === 'Delete')) return 'native';
+    if (key.length === 1 && event.getModifierState && event.getModifierState('AltGraph')) return 'native';
+    if (mod && !event.altKey && !event.shiftKey && (lower === 'c' || lower === 'v')) return 'native';
+    return 'normal';
+  }
+
+  ta.addEventListener('beforeinput', (event) => {
+    if (!extras.length || programmatic || composing || event.isComposing) return;
+    const type = event.inputType;
+    const sels = allSelections();
+    let result = null;
+    if (type === 'insertText' && event.data) result = multi.typeText(ta.value, sels, event.data);
+    else if (type === 'deleteContentBackward') result = multi.backspace(ta.value, sels);
+    else if (type === 'deleteContentForward') result = multi.deleteForward(ta.value, sels);
+    else if (type === 'insertLineBreak' || type === 'insertParagraph') result = multi.newline(ta.value, sels);
+    else if (type === 'insertFromPaste' || type === 'insertFromPasteAsQuotation') {
+      // In a textarea Chrome passes the pasted text as `data`; `dataTransfer` is there in other editing hosts.
+      const clip = event.dataTransfer ? event.dataTransfer.getData('text/plain') : event.data || '';
+      if (clip) result = multi.pasteText(ta.value, sels, clip);
+    }
+    if (!result) {
+      clearExtras(); // anything else (cut, drop, undo, word delete) acts on the primary cursor only
+      return;
+    }
+    event.preventDefault();
+    applyMulti(result);
+  });
+
+  ta.addEventListener('mousedown', (event) => {
+    if (event.button !== 0) return;
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !ta.readOnly) {
+      event.preventDefault();
+      ta.focus();
+      const rect = ta.getBoundingClientRect();
+      const info = analyze(ta.value);
+      const line = Math.max(0, Math.min(info.starts.length - 1, Math.floor((event.clientY - rect.top + ta.scrollTop - TOP_PAD) / LINE_HEIGHT)));
+      const x = Math.max(0, event.clientX - rect.left + ta.scrollLeft - LEFT_PAD);
+      const at = multi.snapToChar(ta.value, offsetAtVisualColumn(ta.value, info.starts[line], Math.floor(x / charWidth), TAB_SIZE));
+      setSelections([...allSelections().map((sel) => ({ ...sel, primary: false })), { start: at, end: at, primary: true }]);
+      return;
+    }
+    clearExtras();
+  });
 
   // --- Completion popup ---
   function closeCompletion() {
@@ -979,6 +1639,14 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     }
     const edit = applyCompletion(ta.value, result, item);
     closeCompletion();
+    if (item.kind === 'snippet') {
+      const lead = /^[ \t]*/.exec(ta.value.slice(lineStartAt(ta.value, edit.from), edit.from))[0];
+      const expansion = expandKey(item.label, edit.from, edit.to, lead);
+      if (expansion) {
+        startSnippet(expansion);
+        return;
+      }
+    }
     replaceRange(edit.from, edit.to, edit.insert);
     ta.setSelectionRange(edit.caret, edit.caret);
     updatePosition();
@@ -1063,6 +1731,21 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     placeBox(hoverBox, caretPoint(anchorOffset), { below: false });
   }
 
+  // The hover over a property name also says what the property is set to here. Read-only; never for a name that looks like a
+  // secret (canLookUpProperty), and nothing is shown when the read fails or the value is hidden.
+  function showPropertyValue(info, offset) {
+    if (!tools.propertyValue || !info.name || !canLookUpProperty(info.name)) return;
+    const paint = (line) => {
+      if (!line || hoverAt !== offset || hoverBox.hidden || hoverBox.firstChild?.textContent !== info.title) return;
+      hoverBox.querySelector('.msb-ed__doc-value')?.remove();
+      hoverBox.appendChild(h('div', 'msb-ed__doc-text msb-ed__doc-value', line));
+      placeBox(hoverBox, caretPoint(info.from), { below: false });
+    };
+    const cached = propertyValues.peek(info.name);
+    if (cached !== undefined) paint(cached);
+    else propertyValues.load(info.name).then(paint);
+  }
+
   function hoverOffset(offset, attempt = 0) {
     let info = null;
     try {
@@ -1083,6 +1766,7 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
       return;
     }
     showDoc(info, info.from);
+    if (info.kind === 'propertyName') showPropertyValue(info, offset);
   }
 
   ta.addEventListener('mousemove', (event) => {
@@ -1193,6 +1877,11 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
       if (def?.type === 'field' && tools.openFieldUsage) {
         tools.openFieldUsage(def.table, def.name);
         toast.info(`Where ${def.table}.${def.name} is used is open in the sidebar.`);
+        return;
+      }
+      // A system property name opens the System properties panel (its value, who reads and sets it), not a text search.
+      if (def?.type === 'property' && tools.openPanel && /^[A-Za-z0-9_.-]+$/.test(def.name) && tools.openPanel('properties', { args: def.name })) {
+        toast.info(`The system property ${def.name} is open in the sidebar.`);
         return;
       }
       if (def?.type === 'table' && /^[a-z][a-z0-9_]*$/.test(def.name)) target = { kind: 'table', name: def.name };
@@ -1357,7 +2046,19 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     }
   }
 
-  async function apply({ save = false } = {}) {
+  // One apply (and one save) at a time: a held Ctrl+S or a double click must not submit the form twice.
+  let applying = false;
+  async function apply(options) {
+    if (applying) return false;
+    applying = true;
+    try {
+      return await applyNow(options);
+    } finally {
+      applying = false;
+    }
+  }
+
+  async function applyNow({ save = false } = {}) {
     const syntax = checkSyntax(ta.value);
     if (syntax && !(await ask(syntaxAsk('apply', syntax)))) {
       goToLine(syntax.line);
@@ -1377,6 +2078,9 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
           return false;
         }
         await callPage('saveForm');
+        savedRead += 1; // a read of the record that is still on its way holds the text from before this save
+        savedText = ta.value;
+        updateChanges();
         toast.success('Applied and saved.');
       } else {
         toast.success('Applied to the form. Save the record to keep it.');
@@ -1388,22 +2092,37 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     }
   }
 
-  function showPanel(text) {
-    lintBox.textContent = text;
+  function showPanel(text, title = 'Output') {
+    lintTitle.textContent = title;
+    lintBody.textContent = text;
     lintBox.hidden = false;
+  }
+
+  function closeOutput() {
+    lintBox.hidden = true;
+    ta.focus();
+  }
+
+  async function copyOutput() {
+    try {
+      await navigator.clipboard.writeText(lintBody.textContent);
+      toast.success('Output copied.');
+    } catch {
+      toast.error('The browser blocked copying here. Select the text and press Ctrl+C.');
+    }
   }
 
   function runCheck() {
     if (ta.value.length > MAX_LINT_CHARS) {
       const syntax = checkSyntax(ta.value);
-      showPanel(syntax ? `Syntax error on line ${syntax.line}: ${syntax.message}` : 'The script is too long for the full check; the syntax looks fine.');
+      showPanel(syntax ? `Syntax error on line ${syntax.line}: ${syntax.message}` : 'The script is too long for the full check; the syntax looks fine.', 'Report');
       return;
     }
-    showPanel('Checking…');
+    showPanel('Checking…', 'Report');
     // Let the panel paint first: the full check can take a moment on a long script.
     setTimeout(() => {
       const result = verifyScript({ code: ta.value, kind, when: rec.when, clientType: rec.clientType, scoped: rec.scoped === true, table: rec.target, fields: loadedFieldNames(rec.target) });
-      showPanel(formatVerification(result, { maxFindings: 60 }));
+      showPanel(formatVerification(result, { maxFindings: 60 }), 'Report');
     }, 30);
   }
 
@@ -1411,7 +2130,22 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     return ta.value.slice(ta.selectionStart, ta.selectionEnd);
   }
 
+  // One run at a time: a held key or a second click must not start the script again while it runs.
+  let running = false;
   async function run(dryRun) {
+    if (running) {
+      toast.info('The script is still running. Wait for its output first.');
+      return;
+    }
+    running = true;
+    try {
+      await runNow(dryRun);
+    } finally {
+      running = false;
+    }
+  }
+
+  async function runNow(dryRun) {
     const part = selectedText().trim();
     const script = part || ta.value;
     if (!script.trim()) return;
@@ -1421,14 +2155,37 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
       const risk = analyzeScriptRisk(script);
       const wanted = runScriptAsk({ part: Boolean(part), hostname: window.location.hostname, riskSummary: risk.hasWrites ? formatRiskSummary(risk) : '', prod: Boolean(tools.isProd?.()) });
       if (!(await ask(wanted))) return;
+    } else {
+      // A dry run only intercepts GlideRecord writes. Say so before running something it cannot hold back.
+      const loose = analyzeScriptRisk(script).writes.filter((w) => w.unintercepted);
+      if (loose.length) {
+        const sure = await ask({
+          title: 'A dry run cannot hold these back',
+          message: 'A dry run only intercepts GlideRecord writes. This script also does the things below, and those would really happen.',
+          details: loose.slice(0, 8).map((w) => `line ${w.line}: ${w.label}`).join('\n'),
+          confirmLabel: 'Dry run anyway',
+          danger: true,
+        });
+        if (!sure) return;
+      }
     }
-    showPanel(dryRun ? 'Dry run in progress...' : 'Running...');
+    const heading = `${dryRun ? 'Dry run' : 'Run'}: ${part ? 'selection' : 'script'}`;
+    showPanel(dryRun ? 'Dry run in progress...' : 'Running...', heading);
     try {
       const output = await tools.runScript(script, { dryRun });
-      showPanel(`${dryRun ? '[Dry run] ' : ''}${part ? 'Selection' : 'Script'} output:\n\n${output || '(no output)'}`);
+      showPanel(`${dryRun ? '[Dry run: GlideRecord writes are intercepted and listed below. Anything else the script does still happens.]\n\n' : ''}${output || '(no output)'}`, heading);
     } catch (err) {
-      showPanel(`Run failed: ${err.message || err}`);
+      showPanel(`Run failed: ${err.message || err}`, heading);
     }
+  }
+
+  /** Ctrl+Shift+Enter: a dry run from the keyboard. It never runs for real, so no key press can change data. */
+  function dryRunFromKeyboard() {
+    if (!tools.runScript) {
+      toast.error('Running scripts is not available here.');
+      return;
+    }
+    run(true);
   }
 
   function askAi(which) {
@@ -1514,6 +2271,11 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   }
 
   function follow() {
+    // Hidden (Ask AI, Compare) or closed: stop following; showing it again calls setPlace, which starts it again.
+    if (overlay.hidden || !overlay.isConnected) {
+      followFrame = 0;
+      return;
+    }
     layoutInPlace();
     followFrame = requestAnimationFrame(follow);
   }
@@ -1541,7 +2303,7 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     placeButton.title = place ? 'Open the editor full screen' : 'Put the editor back over the field';
     hints.textContent = place
       ? 'Synced to the form as you type · Ctrl+S saves the record · F1 shortcuts · Esc close'
-      : 'Ctrl+Space suggestions · F12 definition · Ctrl+S apply · F1 all shortcuts · Esc close';
+      : 'Ctrl+Space suggestions · F12 definition · Ctrl+Shift+O symbols · Ctrl+S apply · F1 all shortcuts · Esc close';
     if (place) {
       layoutInPlace();
       follow();
@@ -1563,17 +2325,47 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     clearTimeout(hoverTimer);
     clearTimeout(dataTimer);
     clearTimeout(syncTimer);
+    clearTimeout(outlineTimer);
     cancelAnimationFrame(frame);
     cancelAnimationFrame(followFrame);
+    resizeWatch?.disconnect();
     overlay.remove();
+  }
+
+  // "Changes since the record was loaded" compare with the record as saved on the instance, read once per load: the
+  // form's own text may already hold edits (typed on the form, or synced from this editor before it was closed).
+  let savedRead = 0;
+  function readSavedBaseline(type) {
+    const ask = (savedRead += 1);
+    const name = field.name;
+    callPage('getFormMeta')
+      .catch(() => null)
+      .then((now) => (now && now.table === table && !now.isNewRecord ? readSavedFieldValue({ table, sysId: now.sysId, field: name, type }) : null))
+      .then((saved) => {
+        if (saved === null || ask !== savedRead || field.name !== name || saved === savedText) return;
+        savedText = saved;
+        changesFor = null;
+        updateChanges();
+      })
+      .catch(() => {});
   }
 
   async function loadField(name) {
     const state = await callPage('getFieldState', [name]);
     field = fields.find((f) => f.name === name) || field;
-    baseline = String(state?.value ?? '');
+    // A textarea holds \n line breaks only; a value with \r\n would otherwise look edited the moment it loads (and in
+    // place be written back to the form unasked).
+    baseline = String(state?.value ?? '').replace(/\r\n?/g, '\n');
+    savedText = baseline;
+    readSavedBaseline(state?.type);
+    extras = [];
+    multiWord = false;
+    multiLayer.replaceChildren();
+    snippet = null;
+    snipLayer.replaceChildren();
     ta.value = baseline;
     ta.readOnly = !!state?.readOnly;
+    formatButton.disabled = ta.readOnly;
     unit = detectIndentUnit(baseline) || INDENT;
     title.textContent = `${table ? `${table} · ` : ''}${field.label || field.name}${state?.readOnly ? ' (read-only)' : ''}`;
     ta.scrollTop = 0;
@@ -1612,15 +2404,26 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     }
   }
 
+  function runQueuedAction() {
+    const action = takeQueuedAction();
+    if (!action) return;
+    setTimeout(() => {
+      if (action === 'outline') showOutline();
+      else if (action === 'format') format();
+    }, 200);
+  }
+
   // --- Wiring ---
   const problemsToggle = button('Problems', 'msb-ed__btn', () => toggleProblems());
   problemsToggle.title = 'Problems found by the syntax, lint, API catalog and field checks (Ctrl+Shift+M)';
   const checkButton = button('Report', 'msb-ed__btn', runCheck);
   checkButton.title = 'Full verification report';
-  actions.append(button('Find', 'msb-ed__btn', () => showFind(findBar.hidden)), problemsToggle, checkButton);
+  const formatButton = button('Format', 'msb-ed__btn', () => format());
+  formatButton.title = 'Format the script, or the selected lines: indentation, spacing, trailing blanks (Shift+Alt+F)';
+  actions.append(button('Find', 'msb-ed__btn', () => showFind(findBar.hidden)), formatButton, problemsToggle, checkButton);
   if (tools.runScript) {
     const dry = button('Dry run', 'msb-ed__btn', trustedDom(() => run(true)));
-    dry.title = 'Run the script (or the selection) with writes intercepted';
+    dry.title = 'Run the script (or the selection) with GlideRecord writes intercepted (Ctrl+Shift+Enter)';
     const live = button('Run', 'msb-ed__btn', trustedDom(() => run(false)));
     live.title = 'Run the script (or the selection) as a background script';
     actions.append(dry, live);
@@ -1683,6 +2486,8 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
   });
 
   ta.addEventListener('input', (event) => {
+    if (!programmatic && extras.length) clearExtras(); // an edit the extra cursors did not take part in (cut, undo, drop)
+    if (!snippetBusy) trackSnippet();
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(refresh);
     scheduleSync();
@@ -1734,8 +2539,23 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     const code = event.code || '';
     if (key !== 'Control' && key !== 'Shift' && key !== 'Alt' && key !== 'Meta') hideHover();
 
+    if (extras.length) {
+      const verdict = multiKeydown(event);
+      if (verdict === 'done') {
+        event.preventDefault();
+        return;
+      }
+      if (verdict === 'native') return; // typing and deleting: see the beforeinput handler
+      if (verdict === 'normal') clearExtras();
+    }
+
     if (ac.open && handlePopupKey(event)) {
       event.preventDefault();
+      return;
+    }
+    if (key === 'Escape' && snippet) {
+      event.preventDefault();
+      endSnippet();
       return;
     }
     if (key === 'Escape' && !sigBox.hidden) {
@@ -1752,27 +2572,43 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     if (key === 'F1') return handled(() => toggleHelp(true));
     if (key === 'F12') return handled(() => (event.shiftKey ? findAllReferences() : goToDefinition()));
     if (key === 'F8') return handled(() => nextProblem(event.shiftKey ? -1 : 1));
+    if (key === 'F3' && event.altKey) return handled(() => jumpChange(event.shiftKey ? -1 : 1));
     if (key === 'F3') return handled(() => findNext(event.shiftKey));
     if (mod && key === '.') return handled(quickFixAtCaret);
     if (mod && event.shiftKey && (lower === 'm' || code === 'KeyM')) return handled(() => toggleProblems());
+    if (mod && event.shiftKey && !event.altKey && (lower === 'o' || code === 'KeyO')) return handled(showOutline);
     if (mod && !event.shiftKey && (lower === 'g' || code === 'KeyG')) return handled(() => showGoto(true));
     if (mod && !event.shiftKey && (lower === 'f' || code === 'KeyF')) return handled(() => showFind(true));
     if (mod && !event.shiftKey && (lower === 'h' || code === 'KeyH')) return handled(() => showFind(true, true));
     // Apply / save only on a real keystroke, never on a page script's synthetic keydown.
     // In place the editor IS the field, so Ctrl+S saves the record like it would from the field itself.
-    if (mod && (lower === 's' || code === 'KeyS')) return handled(() => event.isTrusted && apply({ save: place ? true : event.shiftKey }));
+    // A held key repeats: only the first press counts for apply, save and dry run.
+    if (mod && (lower === 's' || code === 'KeyS')) return handled(() => !event.repeat && event.isTrusted && apply({ save: place ? true : event.shiftKey }));
+    if (mod && event.shiftKey && key === 'Enter') return handled(() => event.isTrusted && !event.repeat && dryRunFromKeyboard());
     if (mod && key === 'Enter') {
       return handled(
         () =>
           event.isTrusted &&
+          !event.repeat &&
           apply().then((ok) => {
             if (ok && !isDirty()) close();
           })
       );
     }
+    // Tab indents, so from the keyboard there would be no way out to the buttons and lists: Ctrl+M switches Tab to moving the focus.
+    if (mod && !event.shiftKey && !event.altKey && (lower === 'm' || code === 'KeyM')) {
+      return handled(() => {
+        tabMovesFocus = !tabMovesFocus;
+        toast.info(tabMovesFocus ? 'Tab now moves the focus to the buttons. Ctrl+M again to indent with Tab.' : 'Tab indents again.');
+      });
+    }
     if (ta.readOnly) return undefined;
 
-    if (key === 'Tab' && !mod && !event.altKey) return handled(() => tab(event.shiftKey));
+    if (mod && !event.shiftKey && !event.altKey && (lower === 'd' || code === 'KeyD')) return handled(selectNextOccurrence);
+    if (mod && event.shiftKey && !event.altKey && (lower === 'l' || code === 'KeyL')) return handled(selectAllOccurrences);
+    if (mod && !event.shiftKey && !event.altKey && (lower === 'l' || code === 'KeyL')) return handled(selectWholeLines);
+    if (mod && !event.shiftKey && !event.altKey && (lower === 'j' || code === 'KeyJ')) return handled(joinSelectedLines);
+    if (key === 'Tab' && !mod && !event.altKey && !tabMovesFocus) return handled(() => tab(event.shiftKey));
     if (mod && (key === '/' || code === 'Slash')) return handled(() => applyEdit(toggleLineComment(ta.value, ta.selectionStart, ta.selectionEnd)));
     if (mod && !event.shiftKey && (key === ']' || key === '[')) {
       return handled(() => applyEdit((key === ']' ? indentLines : outdentLines)(ta.value, ta.selectionStart, ta.selectionEnd, unit)));
@@ -1822,6 +2658,27 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     }
   });
 
+  outlineInput.addEventListener('input', () => renderOutline());
+  outlineInput.addEventListener('keydown', (event) => {
+    const key = event.key;
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      event.preventDefault();
+      moveOutline(key === 'ArrowDown' ? 1 : -1);
+    } else if (key === 'PageDown' || key === 'PageUp') {
+      event.preventDefault();
+      moveOutline(key === 'PageDown' ? 8 : -8);
+    } else if (key === 'Enter') {
+      event.preventDefault();
+      const hit = outlineShown[outlineActive];
+      if (hit) jumpToSymbol(hit.sym);
+    }
+  });
+  outlineBox.addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (!outlineBox.hidden && !outlineBox.contains(shadow.activeElement)) closeOutline(false);
+    }, 0);
+  });
+
   overlay.addEventListener('keydown', (event) => {
     // The page has its own shortcuts; keep keystrokes inside the editor.
     event.stopPropagation();
@@ -1833,6 +2690,8 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     event.preventDefault();
     if (!help.hidden) toggleHelp(false);
+    else if (!outlineBox.hidden) closeOutline();
+    else if (!lintBox.hidden) closeOutput();
     else if (!gotoBar.hidden) showGoto(false);
     else if (!findBar.hidden) showFind(false);
     else if (!hoverBox.hidden) hideHover();
@@ -1846,10 +2705,12 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
       fieldSelect.value = other.name;
       field = other;
     }
-    if (!isDirty()) loadField(field.name).catch(() => {});
-    else if (other) toast.info(`Apply or discard your changes to ${field.label || field.name} before editing ${other.label || other.name}.`);
+    // A queued Format or Go to symbol (from the palette) waits for the field's text, or it would act on the old one.
+    const loaded = !isDirty() ? loadField(field.name).catch(() => {}) : Promise.resolve();
+    if (isDirty() && other) toast.info(`Apply or discard your changes to ${field.label || field.name} before editing ${other.label || other.name}.`);
     setPlace(want.place || null);
     updateChip();
+    loaded.then(runQueuedAction);
     requestAnimationFrame(() => {
       measureChar();
       paint(true);
@@ -1858,7 +2719,7 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     });
   });
 
-  dialog.append(header, findBar, gotoBar, body, problemList, refList, lintBox, footer, help);
+  dialog.append(header, findBar, gotoBar, body, problemList, refList, changesList, lintBox, footer, help, outlineBox);
   overlay.appendChild(dialog);
   shadow.appendChild(overlay);
   measureChar();
@@ -1866,7 +2727,10 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
 
   await loadField(field.name);
   setPlace(place);
-  if (typeof ResizeObserver === 'function') new ResizeObserver(() => { if (place) { measureChar(); paint(true); } }).observe(surface);
+  if (typeof ResizeObserver === 'function') {
+    resizeWatch = new ResizeObserver(() => { if (place) { measureChar(); paint(true); } });
+    resizeWatch.observe(surface);
+  }
   loadContext();
   updateChip();
   requestAnimationFrame(() => {
@@ -1875,4 +2739,5 @@ export async function openScriptEditor({ shadow, toast, tools = {}, field: wantF
     paintSquiggles();
     ta.focus();
   });
+  runQueuedAction();
 }

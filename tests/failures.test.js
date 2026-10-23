@@ -83,6 +83,22 @@ test('a failed or cancelled flow names the flow and the likely reason', () => {
   assert.match(F.normaliseFlow({ sys_id: ID, name: 'X', state: 'error', error_message: 'Insufficient permission to read' }).hint, /may not touch/);
 });
 
+test('a flow whose name could not be looked up is named by its record, never by a bare sys_id', () => {
+  // Seen on a real instance: sys_flow_context.flow is a plain string holding the flow sys_id and `name` is empty.
+  const lost = F.normaliseFlow({
+    sys_id: ID,
+    state: 'ERROR',
+    name: '',
+    flow: ID2,
+    source_record: { value: ID, display_value: 'Task SLA: Priority 4 resolution (2 day)' },
+    error_message: 'Failed to serialize plan data',
+  });
+  assert.equal(lost.title, 'Flow run for "Task SLA: Priority 4 resolution (2 day)" failed');
+  assert.equal(F.normaliseFlow({ sys_id: ID, state: 'cancelled', flow: ID2 }).title, 'Flow run (name not available) was cancelled');
+  assert.equal(F.normaliseFlow({ sys_id: ID, state: 'ERROR', name: '', flow: 'Onboard new hire' }).title, 'Flow "Onboard new hire" failed', 'a readable flow value is still a name');
+  assert.equal(F.normaliseFlow({ sys_id: ID, state: 'ERROR', name: 'Looked up', flow: ID2 }).title, 'Flow "Looked up" failed', 'a name found by the lookup wins');
+});
+
 test('an overdue job says how late it is', () => {
   const trigger = F.normaliseTrigger({ sys_id: ID, name: 'Daily cleanup', state: 'Ready', next_action: '2026-10-20 13:30:00' }, NOW);
   assert.equal(trigger.title, 'Scheduled job "Daily cleanup" is overdue');
@@ -300,4 +316,19 @@ test('every source describes real, well-formed probes', () => {
   });
   F.SOURCES.forEach((s) => s.probes.filter((p) => p.fallbackFor).forEach((p) => assert.ok(s.probes.some((o) => o.id === p.fallbackFor), `${p.id} falls back for a probe that exists`)));
   assert.ok(probe('email', 'email').query('1h').startsWith('sys_created_on>=javascript:gs.minutesAgoStart(60)^'), 'the window comes first so the ORs below only widen the type');
+});
+
+// Found live on a PDI (2026-10-23): syslog_transaction keeps the HTTP status in http_response_code (there is no
+// response_status), and sys_import_set_run has set / errors / sys_transform_map (no error_message or transform_map).
+test('an inbound API failure reads the status from http_response_code', () => {
+  const f = require('../src/lib/failures.js').normaliseInbound({ sys_id: 'a'.repeat(32), url: '/api/x_acme/orders', http_response_code: '503', sys_created_by: 'svc' });
+  assert.equal(f.meta.status, 503);
+  assert.match(f.title, /503/);
+});
+
+test('an import run with errors names its set, transform map and error count', () => {
+  const f = require('../src/lib/failures.js').normaliseImportRun({ sys_id: 'b'.repeat(32), set: 'ISET0010001', state: 'complete', errors: '4', sys_transform_map: 'Users map' });
+  assert.match(f.title, /ISET0010001/);
+  assert.match(f.message, /4 rows in error/);
+  assert.equal(f.meta.map, 'Users map');
 });

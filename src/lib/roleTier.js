@@ -35,10 +35,12 @@ export function tierFromSession(info, developerRoles = DEFAULT_DEVELOPER_ROLES) 
 /** The least tier that may see each tool. A tool that is not listed is for everyone. */
 const DEVELOPER_TOOLS = [
   // palette commands
-  'tools.editor', 'tools.fileSync', 'tools.fileSyncStop', 'record.versions', 'record.versionDiff', 'record.remote',
+  'tools.editor', 'tools.editor.outline', 'tools.editor.format', 'tools.fileSync', 'tools.fileSyncStop', 'record.versions', 'record.versionDiff', 'record.remote',
   'analyze.search', 'analyze.updateset', 'analyze.conflict', 'ai.review', 'ai.atf', 'ai.document',
   'tools.newUpdateSet', 'tools.atf', 'tools.rest', 'tools.testbench', 'tools.verify', 'tools.automate',
   'analyze.xrayToggle', 'savetrace.arm', 'tools.switchUpdateSet',
+  // panels that read configuration (notifications, events, the dictionary, widgets, client scripts, retrieved update sets)
+  'panel.notify', 'panel.clienttrace', 'panel.datamodel', 'panel.portal', 'panel.previewfix',
   // page toolbar and menus
   'versions', 'refs', 'edit', 'dictionary', 'acls', 'xray', 'editHere', 'xml',
 ];
@@ -46,6 +48,8 @@ const ADMIN_TOOLS = [
   'record.history', 'record.updateEntry', 'analyze.logTail', 'analyze.audit', 'analyze.compare', 'ai.logs',
   'tools.background', 'tools.scopeExport', 'tools.impersonate', 'testdata.cleanup',
   'instance.cache', 'instance.stats', 'instance.nodeInfo', 'instance.xmlstats', 'instance.threads',
+  // system properties: reading and changing them is an admin job (the /props finder is admin too)
+  'panel.properties',
 ];
 
 const REQUIRED = new Map([...DEVELOPER_TOOLS.map((id) => [id, 'developer']), ...ADMIN_TOOLS.map((id) => [id, 'admin'])]);

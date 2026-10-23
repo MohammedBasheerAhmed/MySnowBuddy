@@ -361,6 +361,39 @@ function harness(over = {}) {
       ),
       runHealthScan: async (opts, _onProgress, signal) => (ctl.insights.calls.push(['health', opts, signal instanceof AbortSignal]), ctl.insights.report),
       report: null,
+      // Email tracer, Flows and approvals, Data model, Preview problems, Go to anything (src/lib/agent/insights.js shapes them).
+      notifyReport: async (a) => (ctl.insights.calls.push(['email', a]), ctl.insights.emailReport),
+      processLoad: async (a) => (ctl.insights.calls.push(['process', a]), ctl.insights.processReport),
+      dataModelLoad: async (a) => (ctl.insights.calls.push(['map', a]), ctl.insights.mapModel),
+      dataModelFindPaths: async (a) => (ctl.insights.calls.push(['path', { ...a, isCancelled: typeof a.isCancelled }]), ctl.insights.pathResult),
+      previewProblemSets: async (a) => (ctl.insights.calls.push(['sets', a]), { sets: ctl.insights.sets, note: '' }),
+      previewProblemLoad: async (a) => (ctl.insights.calls.push(['preview', a]), ctl.insights.analysis),
+      findArtifacts: async (a) => (ctl.insights.calls.push(['find', a]), ctl.insights.found),
+      emailReport: { mode: 'record', subject: { table: 'incident', sysId: SYS, label: 'INC0001', chain: ['incident', 'task'] }, candidates: [], selectedId: '', switches: { findings: [] }, sections: {}, notes: [] },
+      processReport: { table: 'incident', sysId: SYS, record: { label: 'INC0001' }, summary: { level: 'clear', headline: 'Nothing is running on this record', blockers: [], running: [], unreadable: [] }, sections: [] },
+      mapModel: { table: 'incident', label: 'Incident', chain: ['incident', 'task'], labels: {}, children: [], descendantCount: 0, outgoing: [{ name: 'caller_id', kind: 'reference', target: 'sys_user', definedOn: 'incident', inherited: false }], incoming: [], linkTables: [], notes: [] },
+      pathResult: { from: 'incident', to: 'cmn_department', maxDepth: 4, paths: [], routes: [], list: [], generic: [], reverse: null, notes: [] },
+      sets: [
+        { sysId: '1'.repeat(32), name: 'Payroll release 4', stateLabel: 'Previewed', problemCount: 3 },
+        { sysId: '2'.repeat(32), name: 'Payroll release 5', stateLabel: 'Loaded', problemCount: 0 },
+      ],
+      analysis: { set: { sysId: '1'.repeat(32), name: 'Payroll release 4', stateLabel: 'Previewed' }, problems: [], counts: { total: 0 }, verdict: { level: 'ready', headline: 'Ready to commit', detail: '' }, limits: [] },
+      found: { term: 'x', results: [], searchedKinds: [] },
+      // Self-check, system properties, Client trace (read only: there is no arm, disarm or clear here, on purpose).
+      doctorRun: async (o) => (ctl.insights.calls.push(['doctor', { ...o, isCancelled: typeof o?.isCancelled }]), ctl.insights.doctorResult),
+      propertySearch: async (q) => (ctl.insights.calls.push(['propSearch', q]), ctl.insights.propSearch),
+      propertyGet: async (t) => (ctl.insights.calls.push(['propGet', t]), ctl.insights.propGet),
+      propertyUsage: async (n) => (ctl.insights.calls.push(['propUsage', n]), ctl.insights.propUsage),
+      clientTraceStatus: async () => (ctl.insights.calls.push(['traceStatus']), ctl.insights.traceStatus),
+      clientTraceLoad: async () => (ctl.insights.calls.push(['traceLoad']), ctl.insights.traceLoad),
+      clientTraceResolve: async (refs) => (ctl.insights.calls.push(['traceResolve', refs]), ctl.insights.traceResolved()),
+      traceResolved: () => ({ ids: {}, names: {}, classes: {}, notes: [] }),
+      doctorResult: require('../src/lib/doctor.js').assembleResult({ startedAt: 0, finishedAt: 5, checks: [], tools: [] }),
+      propSearch: { query: 'x', rows: [], total: 0, capped: false, notes: [] },
+      propGet: { property: null, others: 0, notes: [] },
+      propUsage: { name: 'x.y', hits: [], summary: 'No active script uses x.y. 20 script tables searched, active records only.', commentOnly: 0, capped: [], errors: [] },
+      traceStatus: { armed: false, recorder: 'running', frames: [] },
+      traceLoad: { state: { armed: false, recorder: 'running', frames: [] }, events: [], version: 1 },
     },
   };
   const form = { previous: 'old value', context: { table: 'incident' } };
@@ -1013,6 +1046,390 @@ test('explain_access refuses query syntax in the user argument (no javascript:, 
   await h.tools.execute('explain_access', { table: 'incident', user: "José O'Brien-Smith" });
   await h.tools.execute('explain_access', { table: 'incident', user: 'abel.tuter@example.com' });
   assert.equal(h.ctl.insights.calls.length, before + 2, 'ordinary names and emails still work');
+});
+
+// ---- read-only analysis, second set: email, flows, data model, dot-walk, preview problems, find by name ------------
+
+const NEW_ANALYSIS_TOOLS = ['explain_email', 'explain_process', 'map_table', 'find_dotwalk_path', 'explain_preview_problems', 'find_artifact', 'run_selfcheck', 'find_property', 'read_client_trace'];
+
+test('the new analysis tools are observe tier, labelled, summarised, taught in the prompt and allowed under a read-only external ceiling', () => {
+  const args = { table: 'incident', notification: 'Incident commented', updateSet: 'Payroll release 4', from: 'incident', to: 'sys_user', term: 'AjaxUtil', kind: 'si', query: 'glide.ui.session_timeout', mode: 'get', field: 'priority' };
+  for (const name of NEW_ANALYSIS_TOOLS) {
+    assert.equal(toolTier(name), 'observe', name);
+    assert.equal(policy.effectiveTier(name, args), 'observe', name);
+    assert.equal(policy.approvalMode({ tool: name, args, autonomy: 'readonly' }), 'auto', `${name} runs even in Read only mode`);
+    assert.equal(mcpGate({ tool: name, args, settings: { mcpCeiling: 'observe' } }), null, `${name} passes the "Read only" external-agent ceiling`);
+    assert.notEqual(toolIcon(name), toolIcon('no_such_tool'), `${name} has its own icon`);
+    assert.ok(toolLabel(name, args).length > 15 && toolLabel(name, args) !== name, `${name} has a label`);
+    assert.ok(toolLabel(name, {}).length > 5, `${name} has a label even without arguments`);
+    assert.ok(mcpToolList().find((t) => t.name === name && t.tier === 'observe'), `${name} is in the MCP tool list as observe`);
+  }
+  const prompt = buildSystemPrompt({}).text;
+  for (const name of NEW_ANALYSIS_TOOLS) assert.match(prompt, new RegExp(name), `${name} is in the system prompt`);
+  assert.equal(summarizeResult('explain_email', { summary: 'Stopped at "Email created": only the creator is a recipient.' }), 'Stopped at "Email created": only the creator is a recipient.');
+  assert.equal(summarizeResult('explain_process', { headline: 'Waiting on: an approval' }), 'Waiting on: an approval');
+  assert.equal(summarizeResult('map_table', { counts: { tablesPointingHere: 12, tablesPointedAt: 5 } }), '12 tables point here, 5 referenced');
+  assert.equal(summarizeResult('find_dotwalk_path', { summary: 'No dot-walk path of up to 4 steps from a to b.' }), 'No dot-walk path of up to 4 steps from a to b.');
+  assert.equal(summarizeResult('explain_preview_problems', { verdict: { headline: 'Blocked by 3 problems' } }), 'Blocked by 3 problems');
+  assert.equal(summarizeResult('explain_preview_problems', { retrievedUpdateSets: [{}, {}] }), '2 retrieved update sets');
+  assert.equal(summarizeResult('find_artifact', { results: [{}], moreMatches: 4 }), '1 match (4 more)');
+  assert.equal(summarizeResult('find_artifact', { results: [{}, {}] }), '2 matches');
+  assert.equal(summarizeResult('explain_email', null), '');
+});
+
+test('explain_email defaults to the open record, validates every argument first, and never reads a credential table', async () => {
+  const h = harness();
+  const before = () => h.ctl.insights.calls.length;
+  for (const [args, re] of [
+    [{ table: 'incident; drop' }, /table name/],
+    [{ table: 'incident', sysId: 'nope' }, /32-character sys_id/],
+    [{ notification: 'javascript:gs.log(1)' }, /notification must be a name/],
+    [{ notification: 'a^ORactive=true' }, /notification must be a name/],
+    [{ notification: 'x'.repeat(81) }, /notification must be a name/],
+    [{ table: 'oauth_credential', sysId: SYS }, /holds credentials/],
+    [{ table: 'sys_email', sysId: '' }, /No saved record is open/],
+  ]) {
+    await assert.rejects(h.tools.execute('explain_email', args), re, JSON.stringify(args));
+  }
+  assert.equal(before(), 0, 'nothing was read for a rejected call');
+
+  const r = await h.tools.execute('explain_email', {});
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['email', { context: { table: 'incident', sysId: SYS, isList: false }, args: '', notificationId: '' }]);
+  assert.equal(r.mode, 'record');
+  assert.equal(r.verdict.status, 'no-notification');
+
+  await h.tools.execute('explain_email', { table: 'Incident', sysId: SYS.toUpperCase(), notification: 'Incident commented' });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['email', { context: { table: 'incident', sysId: SYS, isList: false }, args: 'Incident commented', notificationId: '' }], 'table and sys_id are lower-cased');
+  await h.tools.execute('explain_email', { notification: 'c'.repeat(32) });
+  assert.equal(h.ctl.insights.calls.at(-1)[1].notificationId, 'c'.repeat(32), 'a notification sys_id is passed as an id, not a name');
+  assert.equal(h.ctl.insights.calls.at(-1)[1].args, '');
+
+  // One of the two given: the open record completes it only when it is the same table / record.
+  await assert.rejects(h.tools.execute('explain_email', { table: 'change_request' }), /No saved record is open/);
+  await assert.rejects(h.tools.execute('explain_email', { sysId: OTHER }), /No saved record is open/);
+  await h.tools.execute('explain_email', { sysId: SYS });
+  assert.equal(h.ctl.insights.calls.at(-1)[1].context.table, 'incident');
+});
+
+test('explain_email refuses a new unsaved record, notes unsaved edits, and masks addresses in what it returns', async () => {
+  const h = harness();
+  h.status.isNewRecord = true;
+  await assert.rejects(h.tools.execute('explain_email', {}), /not saved yet/);
+  h.status.isNewRecord = false;
+  h.status.dirty = true;
+  h.ctl.insights.emailReport = {
+    ...h.ctl.insights.emailReport,
+    switches: { findings: [{ level: 'warn', text: 'All outbound email is redirected to qa-inbox@acme.example (glide.email.test.user).' }] },
+  };
+  const r = await h.tools.execute('explain_email', {});
+  assert.match(r.note, /unsaved changes/);
+  assert.match(JSON.stringify(r), /q\*\*\*@acme\.example/);
+  assert.ok(!JSON.stringify(r).includes('qa-inbox@'));
+});
+
+test('explain_process defaults to the open record, validates its input and says when the check was cancelled', async () => {
+  const h = harness();
+  await assert.rejects(h.tools.execute('explain_process', { table: 'incident;x', sysId: SYS }), /table name/);
+  await assert.rejects(h.tools.execute('explain_process', { table: 'incident', sysId: 'zzz' }), /sys_id/);
+  await assert.rejects(h.tools.execute('explain_process', { table: 'sys_auth_key', sysId: SYS }), /holds credentials/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+  const r = await h.tools.execute('explain_process', {});
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['process', { table: 'incident', sysId: SYS }]);
+  assert.equal(r.headline, 'Nothing is running on this record');
+  h.ctl.insights.processReport = null;
+  await assert.rejects(h.tools.execute('explain_process', {}), /cancelled/);
+});
+
+test('map_table defaults to the open table, accepts only a table name, and returns the compact map', async () => {
+  const h = harness();
+  await assert.rejects(h.tools.execute('map_table', { table: 'incident^x' }), /table name/);
+  await assert.rejects(h.tools.execute('map_table', { table: '1incident' }), /table name/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+  const r = await h.tools.execute('map_table', {});
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['map', { table: 'incident' }]);
+  assert.deepEqual(r.extends, ['task']);
+  assert.deepEqual(JSON.parse(JSON.stringify(r.pointsAt)), [{ table: 'sys_user', fields: ['caller_id'] }]);
+  assert.equal(r.labels, undefined, 'the raw model is not returned');
+  await h.tools.execute('map_table', { table: 'CMDB_CI', showSystem: true });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['map', { table: 'cmdb_ci' }]);
+  h.ctl.insights.mapModel = { cancelled: true };
+  await assert.rejects(h.tools.execute('map_table', { table: 'incident' }), /cancelled/);
+});
+
+test('find_dotwalk_path needs the target table, clamps the depth, passes a time limit and reports a search that ran out of time', async () => {
+  const h = harness();
+  await assert.rejects(h.tools.execute('find_dotwalk_path', { from: 'incident' }), /needs "to"/);
+  await assert.rejects(h.tools.execute('find_dotwalk_path', { from: 'incident', to: 'sys_user; drop' }), /to must be a table name/);
+  await assert.rejects(h.tools.execute('find_dotwalk_path', { from: 'inc ident', to: 'sys_user' }), /from must be a table name/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+  h.ctl.insights.pathResult = {
+    from: 'incident',
+    to: 'cmn_department',
+    maxDepth: 4,
+    paths: [{ dotWalk: 'caller_id.department', viaChild: false }],
+    routes: [{ tables: ['incident', 'sys_user', 'cmn_department'], length: 2, variants: [{ dotWalk: 'caller_id.department', viaChild: false }] }],
+    list: [],
+    generic: [],
+    reverse: null,
+    notes: [],
+  };
+  const r = await h.tools.execute('find_dotwalk_path', { to: 'cmn_department', maxDepth: 9 });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['path', { from: 'incident', to: 'cmn_department', maxDepth: 4, isCancelled: 'function' }], 'from defaults to the open table; depth is clamped');
+  assert.equal(r.routes[0].dotWalk[0], 'caller_id.department');
+  await h.tools.execute('find_dotwalk_path', { from: 'incident', to: 'sys_user', maxDepth: 0 });
+  assert.equal(h.ctl.insights.calls.at(-1)[1].maxDepth, 1);
+  h.ctl.insights.pathResult = { cancelled: true };
+  await assert.rejects(h.tools.execute('find_dotwalk_path', { to: 'sys_user' }), /ran past 90 seconds/);
+});
+
+test('explain_preview_problems lists the retrieved sets, takes a sys_id as is, resolves a name, and refuses an ambiguous or unknown one', async () => {
+  const h = harness();
+  await assert.rejects(h.tools.execute('explain_preview_problems', { updateSet: 'Payroll^x' }), /updateSet must be a name/);
+  await assert.rejects(h.tools.execute('explain_preview_problems', { updateSet: 'a=b' }), /updateSet must be a name/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+
+  const listed = await h.tools.execute('explain_preview_problems', {});
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['sets', { limit: 15 }]);
+  assert.deepEqual(listed.retrievedUpdateSets.map((s) => [s.name, s.problemsRecorded]), [['Payroll release 4', 3], ['Payroll release 5', 0]]);
+
+  const byId = await h.tools.execute('explain_preview_problems', { updateSet: '1'.repeat(32).toUpperCase() });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['preview', { setId: '1'.repeat(32) }]);
+  assert.equal(byId.verdict.headline, 'Ready to commit');
+
+  // A name: exact match wins over a longer name; two matches without an exact one are refused with their ids.
+  await h.tools.execute('explain_preview_problems', { updateSet: 'payroll release 5' });
+  assert.deepEqual(h.ctl.insights.calls.slice(-2).map((c) => c[0]), ['sets', 'preview']);
+  assert.deepEqual(h.ctl.insights.calls.at(-2), ['sets', { search: 'payroll release 5', limit: 10 }]);
+  assert.equal(h.ctl.insights.calls.at(-1)[1].setId, '2'.repeat(32));
+  await assert.rejects(h.tools.execute('explain_preview_problems', { updateSet: 'Payroll' }), /2 retrieved update sets match "Payroll".*Use the sys_id/);
+  h.ctl.insights.sets = [];
+  await assert.rejects(h.tools.execute('explain_preview_problems', { updateSet: 'Nope' }), /No retrieved update set has "Nope"/);
+  h.ctl.insights.analysis = null;
+  await assert.rejects(h.tools.execute('explain_preview_problems', { updateSet: '3'.repeat(32) }), /cancelled/);
+});
+
+test('find_artifact validates term and kind first, passes the role tier and the page table, and clamps the limit', async () => {
+  const h = harness();
+  for (const [args, re] of [
+    [{ term: 'javascript:gs.getUserID()' }, /term must be a name/],
+    [{ term: 'a^ORb' }, /term must be a name/],
+    [{ term: 'x=1' }, /term must be a name/],
+    [{ term: '' }, /term is empty/],
+    [{ term: 'incident', kind: 'banana' }, /kind must be one of/],
+  ]) {
+    await assert.rejects(h.tools.execute('find_artifact', args), re, JSON.stringify(args));
+  }
+  await assert.rejects(h.tools.execute('find_artifact', {}), /needs "term"/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+  const r = await h.tools.execute('find_artifact', { term: '  Ajax   Util ', kind: 'si', limit: 500 });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['find', { term: 'Ajax Util', kind: 'si', limit: 25, tier: 'admin', exclude: [], ctx: { table: 'incident' } }]);
+  assert.deepEqual(r.searchedKinds, []);
+  await h.tools.execute('find_artifact', { term: 'closed', limit: 0 });
+  assert.equal(h.ctl.insights.calls.at(-1)[1].limit, 1);
+  await h.tools.execute('find_artifact', { term: 'closed' });
+  assert.equal(h.ctl.insights.calls.at(-1)[1].limit, 15);
+});
+
+test('the analysis tools honour the denied-tables list (Options > Agent safety) as query_table does: no record read, no row count', async () => {
+  const h = harness({ getSettings: async () => ({ deniedTables: 'sn_hr_core_*, sys_properties, sys_user' }) });
+  const HR = 'b'.repeat(32);
+  // Records on a denied table: refused before anything is read.
+  await assert.rejects(h.tools.execute('explain_process', { table: 'sn_hr_core_case', sysId: HR }), /denied-tables list/);
+  await assert.rejects(h.tools.execute('explain_email', { table: 'sn_hr_core_case', sysId: HR }), /denied-tables list/);
+  await assert.rejects(h.tools.execute('find_property', { query: 'glide.ui.title', mode: 'get' }), /sys_properties is on your denied-tables list/);
+  await assert.rejects(h.tools.execute('find_artifact', { term: 'abel', kind: 'u' }), /sys_user is on your denied-tables list/);
+  assert.equal(h.ctl.insights.calls.length, 0, 'nothing was read');
+  // query_table says the same about the same tables.
+  await assert.rejects(h.tools.execute('query_table', { table: 'sn_hr_core_case' }), /denied-tables list/);
+
+  // An email whose record is on a denied table: the trace is read in the browser but never handed to the agent.
+  h.ctl.insights.emailReport = { mode: 'email', subject: { table: 'sn_hr_core_case', sysId: HR, label: 'HRC0001', chain: ['sn_hr_core_case'] }, candidates: [], selectedId: '', email: { subject: 'Your case' }, recipientsExplained: [], switches: { findings: [] }, sections: {}, notes: [] };
+  await assert.rejects(h.tools.execute('explain_email', { table: 'sys_email', sysId: SYS }), /belongs to a record on sn_hr_core_case: .*denied-tables list/);
+  h.ctl.insights.emailReport.subject = { table: 'oauth_credential', sysId: HR, label: 'x', chain: ['oauth_credential'] };
+  await assert.rejects(h.tools.execute('explain_email', { table: 'sys_email', sysId: SYS }), /holds credentials/);
+
+  // Searching by name leaves those kinds out instead of reading them.
+  await h.tools.execute('find_artifact', { term: 'abel' });
+  assert.deepEqual([...h.ctl.insights.calls.at(-1)[1].exclude].sort(), ['prop', 'u']);
+
+  // The map of a denied or credential table is dictionary facts only: its row count (a read of the table) is left out.
+  h.ctl.insights.mapModel = { ...h.ctl.insights.mapModel, table: 'sn_hr_core_case', rowCount: 1234 };
+  const map = await h.tools.execute('map_table', { table: 'sn_hr_core_case' });
+  assert.equal(map.rowCount, undefined);
+  assert.match(map.rowCountLeftOut, /denied-tables list/);
+  h.ctl.insights.mapModel = { ...h.ctl.insights.mapModel, table: 'oauth_credential' };
+  assert.equal((await h.tools.execute('map_table', { table: 'oauth_credential' })).rowCount, undefined);
+  h.ctl.insights.mapModel = { ...h.ctl.insights.mapModel, table: 'incident' };
+  assert.equal((await h.tools.execute('map_table', { table: 'incident' })).rowCount, 1234, 'an ordinary table keeps its row count');
+});
+
+test('explain_email says when the notification asked for by sys_id is not the one it traced', async () => {
+  const h = harness();
+  const WANTED = 'c'.repeat(32);
+  h.ctl.insights.emailReport = { ...h.ctl.insights.emailReport, selectedId: 'd'.repeat(32) };
+  const r = await h.tools.execute('explain_email', { notification: WANTED });
+  assert.equal(r.requestedNotification.sysId, WANTED);
+  assert.equal(r.requestedNotification.traced, false);
+  h.ctl.insights.emailReport = { ...h.ctl.insights.emailReport, selectedId: WANTED };
+  assert.equal((await h.tools.execute('explain_email', { notification: WANTED })).requestedNotification, undefined);
+  assert.equal((await h.tools.execute('explain_email', {})).requestedNotification, undefined, 'nothing asked, nothing said');
+});
+
+test('run_selfcheck never runs the script probe, stops itself, and returns the verdict, the API results and the exact table.column lists', async () => {
+  const D = require('../src/lib/doctor.js');
+  const h = harness();
+  const tools = [
+    D.evaluateTools([{ feature: 'Tool Gamma', table: 'sn_hr_core_case', columns: ['number'] }, { feature: 'Tool Beta', table: 'sys_script', columns: ['name'], optionalColumns: ['filter_condition'] }], {
+      schema: D.makeSchema({ parents: new Map([['sys_script', '']]), columns: new Map([['sys_script', new Set(['name'])]]), dbObject: 'ok', dictionary: 'ok' }),
+      probes: { sys_script: { kind: 'ok', status: 200, sampleKeys: ['sys_id', 'name'], requestedKeys: ['sys_id', 'name', 'filter_condition'] } },
+    }),
+  ].flat();
+  h.ctl.insights.doctorResult = D.assembleResult({
+    startedAt: 0,
+    finishedAt: 5000,
+    instance: { host: 'dev1.service-now.com', env: 'dev' },
+    checks: [D.makeCheck('api.table', 'api', 'Table API (read)', 'ok', 'A read answered in 40 ms.', { ms: 40 }), D.makeCheck('api.script', 'api', 'Background script endpoint', 'skip', 'Left out on request.')],
+    tools,
+  });
+  const r = await h.tools.execute('run_selfcheck', {});
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['doctor', { scriptProbe: 'never', isCancelled: 'function' }], 'the background script probe is always off for an observe tool');
+  assert.equal(r.verdict.status, 'warn');
+  assert.deepEqual(r.apiReach.map((c) => [c.check, c.status]), [['Table API (read)', 'ok'], ['Background script endpoint', 'skip']]);
+  const gamma = r.toolsNeedingAttention.find((t) => t.tool === 'Tool Gamma');
+  assert.equal(gamma.status, 'broken');
+  assert.deepEqual(gamma.needs, ['sn_hr_core_case (table is not on this instance)']);
+  assert.deepEqual(r.toolsNeedingAttention.find((t) => t.tool === 'Tool Beta').optionalMissing, ['sys_script.filter_condition']);
+  assert.match(r.scriptCheck, /never runs a script/);
+  h.ctl.insights.doctorResult = null;
+  await assert.rejects(h.tools.execute('run_selfcheck', {}), /cancelled/);
+});
+
+test('find_property validates its input, and never returns the value of a password-type or secret-looking property', async () => {
+  const P = require('../src/lib/properties.js');
+  const h = harness();
+  await assert.rejects(h.tools.execute('find_property', {}), /needs "query"/);
+  await assert.rejects(h.tools.execute('find_property', { query: 'x', mode: 'drop' }), /mode must be one of search, get, usage/);
+  for (const query of ['a^ORb', 'name=x', 'javascript:gs.log(1)', 'x;y']) await assert.rejects(h.tools.execute('find_property', { query }), /query must be a name or part of one/, query);
+  for (const mode of ['get', 'usage']) {
+    for (const query of ['glide ui', 'ab', 'x'.repeat(101), 'a^b.c', 'glide.ui;x', 'glide.ui.*']) await assert.rejects(h.tools.execute('find_property', { query, mode }), /exact property name/, `${mode} ${query}`);
+  }
+  assert.equal(h.ctl.insights.calls.length, 0, 'nothing is read for a rejected call');
+
+  const row = (name, value, type = 'string') => ({ sys_id: { value: id32(name) }, name: { value: name }, value: { value }, type: { value: type } });
+  const id32 = (s) => Buffer.from(s).toString('hex').padEnd(32, '0').slice(0, 32);
+  const rows = [row('glide.ui.session_timeout', '30'), row('x_acme.api_key', 'sk_live_abcdef1234567890'), row('x_acme.vault', 'hunter2hunter2', 'password2'), row('x_acme.note', 'password=hunter3hunter3'), row('glide.ui.keyboard_shortcuts', 'true')].map((r) => P.toProperty(r));
+  h.ctl.insights.propSearch = { query: 'x_acme', rows, total: 5, capped: false, notes: [] };
+  const found = await h.tools.execute('find_property', { query: 'x_acme' });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['propSearch', 'x_acme']);
+  const text = JSON.stringify(found);
+  for (const secret of ['sk_live_abcdef1234567890', 'hunter2hunter2', 'hunter3hunter3']) assert.ok(!text.includes(secret), `${secret} must not be returned`);
+  const byName = Object.fromEntries(found.results.map((x) => [x.name, x]));
+  assert.equal(byName['glide.ui.session_timeout'].value, '30');
+  assert.equal(byName['glide.ui.keyboard_shortcuts'].value, 'true', 'a "key" inside "keyboard" is not a secret');
+  for (const name of ['x_acme.api_key', 'x_acme.vault', 'x_acme.note']) {
+    assert.equal(byName[name].hidden, true, name);
+    assert.match(byName[name].value, /^\(hidden: /, name);
+  }
+
+  // Even if the service handed over a property it had not marked hidden, a secret-looking name is checked again here.
+  h.ctl.insights.propGet = { property: { sysId: id32('x'), name: 'x_acme.client_secret', type: 'string', typeLabel: 'string', hidden: false, hiddenReason: '', value: 'topsecretvalue99', unreadable: false, description: '', choices: [] }, others: 0, notes: [] };
+  const got = await h.tools.execute('find_property', { query: 'x_acme.client_secret', mode: 'get' });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['propGet', { name: 'x_acme.client_secret' }]);
+  assert.ok(!JSON.stringify(got).includes('topsecretvalue99'));
+  assert.equal(got.property.hidden, true);
+  assert.equal(summarizeResult('find_property', got), 'found (value hidden)');
+  h.ctl.insights.propGet = { property: null, others: 0, notes: [] };
+  assert.equal((await h.tools.execute('find_property', { query: 'no.such.property', mode: 'get' })).found, false);
+});
+
+test('find_property usage reports who reads a property, without the default of a secret one', async () => {
+  const P = require('../src/lib/properties.js');
+  const h = harness();
+  const source = ["var k = gs.getProperty('x_acme.api_key', 'fallbackSecret123');", "gs.setProperty('x_acme.api_key', 'rotated');", "// gs.getProperty('x_acme.api_key')"].join('\n');
+  const { hits, commentOnly } = P.classifyUsage([{ table: 'sys_script_include', label: 'Script Include', sysId: 'a'.repeat(32), name: 'KeyUtil', field: 'script', source, url: `/sys_script_include.do?sys_id=${'a'.repeat(32)}` }], 'x_acme.api_key');
+  h.ctl.insights.propUsage = { name: 'x_acme.api_key', hits, commentOnly, capped: [], errors: [], summary: P.usageSummary({ name: 'x_acme.api_key', hits, searched: 20, capped: [], errors: [], commentOnly }) };
+  const r = await h.tools.execute('find_property', { query: 'x_acme.api_key', mode: 'usage' });
+  assert.deepEqual(h.ctl.insights.calls.at(-1), ['propUsage', 'x_acme.api_key']);
+  assert.equal(r.hits[0].kind, 'write');
+  assert.equal(r.hits[0].link, `/sys_script_include.do?sys_id=${'a'.repeat(32)}`);
+  assert.ok(r.hits[0].lines.length >= 2);
+  assert.ok(!JSON.stringify(r).includes('fallbackSecret123'), 'the default value of a secret property is not returned');
+  assert.ok(r.hits[0].lines.every((l) => l.arg === undefined));
+  assert.match(r.limits, /cannot be found by searching/);
+  assert.match(summarizeResult('find_property', r), /x_acme\.api_key is /);
+  // An ordinary property keeps the default argument, which is useful to see.
+  h.ctl.insights.propUsage = { name: 'glide.ui.x', hits: P.classifyUsage([{ table: 'sys_script', label: 'Business Rule', sysId: 'b'.repeat(32), name: 'BR', field: 'script', source: "gs.getProperty('glide.ui.x', '30');" }], 'glide.ui.x').hits, commentOnly: 0, capped: [], errors: [], summary: 'glide.ui.x is read by 1 script.' };
+  const plain = await h.tools.execute('find_property', { query: 'glide.ui.x', mode: 'usage' });
+  assert.equal(plain.hits[0].lines[0].arg, "'30'");
+});
+
+test('read_client_trace only reads: it checks the state first, never arms or clears, and says how a recording is started', async () => {
+  const h = harness();
+  assert.ok(!('clientTraceArm' in h.ctl.insights) && !('clientTraceDisarm' in h.ctl.insights) && !('clientTraceClear' in h.ctl.insights), 'the recorder cannot be started, stopped or cleared by a tool');
+  await assert.rejects(h.tools.execute('read_client_trace', { scope: 'everything' }), /scope must be/);
+  await assert.rejects(h.tools.execute('read_client_trace', { field: 'priority; drop' }), /column name/);
+  assert.equal(h.ctl.insights.calls.length, 0);
+
+  const none = await h.tools.execute('read_client_trace', {});
+  assert.deepEqual(h.ctl.insights.calls.map((c) => c[0]), ['traceStatus', 'traceLoad'], 'no events, so no lookup on the instance');
+  assert.equal(none.recording.armed, false);
+  assert.equal(none.events, 0);
+  assert.match(none.note, /recording is off.*Reload and record.*never starts or stops/s, 'nothing recorded is not "nothing happened"');
+
+  h.ctl.insights.calls.length = 0;
+  h.ctl.insights.traceStatus = { armed: true, recorder: 'missing', frames: [] };
+  const missing = await h.tools.execute('read_client_trace', {});
+  assert.deepEqual(h.ctl.insights.calls.map((c) => c[0]), ['traceStatus'], 'a page without the recorder is not asked for events');
+  assert.match(missing.note, /recorder is not loaded.*reload/is);
+
+  const frame = (fn) => [{ fn, line: 10, col: 3, url: '/incident.do' }];
+  h.ctl.insights.traceStatus = { armed: true, minutesLeft: 12, recorder: 'running', frames: [{ rid: 'r1', frame: 'gsft_main', count: 3 }] };
+  h.ctl.insights.traceLoad = {
+    state: h.ctl.insights.traceStatus,
+    version: 2,
+    events: [
+      { seq: 1, id: 1, rid: 'r1', kind: 'page', name: 'page load started', t: 5, at: 1000, frame: 'gsft_main', args: ['/incident.do', 'loading'], stack: [] },
+      { seq: 2, id: 2, rid: 'r1', kind: 'field', name: 'g_form.setValue', field: 'priority', args: ['1'], result: { before: '3', after: '1', changed: true }, t: 60, at: 1055, frame: 'gsft_main', stack: frame(`onLoad_${'a'.repeat(32)}`) },
+      { seq: 3, id: 3, rid: 'r1', kind: 'field', name: 'g_form.setValue', field: 'u_password', args: ['[hidden]'], flags: { hidden: true }, t: 61, at: 1056, frame: 'gsft_main', stack: frame('onLoad_x') },
+      { seq: 4, id: 4, rid: 'r1', kind: 'error', name: 'TypeError', args: ['Uncaught TypeError: Cannot read properties of null'], t: 80, at: 1075, frame: 'gsft_main', stack: frame('onSubmit_y'), flags: { exception: true } },
+    ],
+  };
+  const r = await h.tools.execute('read_client_trace', { limit: 10 });
+  assert.equal(r.recording.armed, true);
+  assert.equal(r.events, 4);
+  assert.equal(r.fields.find((f) => f.field === 'priority').steps[0].did, 'changed from "3" to "1"');
+  assert.match(r.fields.find((f) => f.field === 'priority').steps[0].from, new RegExp(`onLoad_${'a'.repeat(32)}`), 'an unnamed script is shown by its stack frame');
+  assert.ok(r.findings.some((f) => f.severity === 'high' && /TypeError/.test(f.title)));
+  assert.ok(r.timeline.some((t) => t.problem && /TypeError/.test(t.what)));
+  const priority = await h.tools.execute('read_client_trace', { field: 'priority' });
+  assert.deepEqual(priority.fields.map((f) => f.field), ['priority']);
+  assert.equal(priority.events, 1);
+  assert.match(summarizeResult('read_client_trace', r), /4 events, 1 finding/);
+
+  // The instance confirms one of the scripts: it is named. The other stays "Unknown script", shown by its stack frame.
+  h.ctl.insights.calls.length = 0;
+  h.ctl.insights.traceResolved = () => ({ ids: { ['a'.repeat(32)]: { table: 'sys_script_client', kind: 'Client script', name: 'Set priority', type: 'onLoad', field: '', tableName: 'incident' } }, names: {}, classes: {}, notes: [] });
+  const named = await h.tools.execute('read_client_trace', {});
+  assert.deepEqual(h.ctl.insights.calls.map((c) => c[0]), ['traceStatus', 'traceLoad', 'traceResolve']);
+  assert.deepEqual(h.ctl.insights.calls.at(-1)[1].ids, ['a'.repeat(32)], 'only the ids that are in the recording are asked about');
+  assert.equal(named.fields.find((f) => f.field === 'priority').steps[0].from, 'Client script: Set priority (onLoad)');
+  assert.equal(named.scriptNames, undefined);
+
+  // The lookup fails: the answer still comes, with the frame instead of a name, and says why.
+  h.ctl.insights.clientTraceResolve = async () => {
+    throw new Error('Your user is not allowed to do this (403).');
+  };
+  const unnamed = await h.tools.execute('read_client_trace', {});
+  assert.match(unnamed.fields.find((f) => f.field === 'priority').steps[0].from, /^onLoad_a{32}/);
+  assert.match(unnamed.scriptNames, /shown by their stack frame.*lookup on the instance failed/);
+
+  // A crowded recording asks about at most 40 ids.
+  h.ctl.insights.clientTraceResolve = async (refs) => (h.ctl.insights.calls.push(['traceResolve', refs]), { ids: {}, names: {}, classes: {}, notes: [] });
+  h.ctl.insights.traceLoad = { ...h.ctl.insights.traceLoad, events: Array.from({ length: 120 }, (_, i) => ({ seq: i + 1, id: i + 1, rid: 'r1', kind: 'field', name: 'g_form.setValue', field: `f${i}`, args: ['x'], t: i, at: 1000 + i, frame: 'gsft_main', stack: frame(`onChange_${i.toString(16).padStart(32, '0')}`) })) };
+  h.ctl.insights.calls.length = 0;
+  await h.tools.execute('read_client_trace', {});
+  assert.equal(h.ctl.insights.calls.find((c) => c[0] === 'traceResolve')[1].ids.length, 40);
+  assert.match(summarizeResult('read_client_trace', none), /recording is off/);
 });
 
 // ---- safety review follow-up ----------------------------------------------------------------------------------

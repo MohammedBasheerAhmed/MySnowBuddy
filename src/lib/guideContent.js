@@ -12,6 +12,9 @@ export const GUIDE_JOBS = [
     items: [
       { say: 'has this happened before', what: 'Records on the same table that share the distinctive words of this one, best match first. Also /similar.', target: 'record.similar' },
       { say: 'what happened when i saved', what: 'Arm it, save, collect: field changes, log lines, the transaction, update set entries, events, emails, flows and SLAs in one timeline, with the errors on top.', target: 'panel.savetrace' },
+      { say: 'why is this ticket stuck', what: 'Every flow, workflow, approval, SLA and child task on the record, and the first thing it is waiting for, with errors and how long it has waited. Also /flows.', target: 'panel.process' },
+      { say: 'why was the email not sent', what: 'Walks the chain for this record: notification matched, event fired, event processed, email created, email sent. Names the first broken link and who would not receive it. Also /notify.', target: 'panel.notify' },
+      { say: 'what did the client scripts do to the form', what: 'Arm the recorder and reload the form: every field change, GlideAjax call, error and delay in order, with the script behind each. Also /watch.', target: 'panel.clienttrace' },
       { say: 'can i delete this record', what: 'Everything that points at it, what a delete would clear, cascade or block, and what it points at.', target: 'panel.refs' },
       { say: 'break this list down', what: 'On a list: counts per state, priority or group, or per day, week and month. Click a bar to filter the list to it.', target: 'panel.insight' },
       { say: 'who changed this', what: 'Who changed a field or script, when, and what the old version said.', target: 'record.versionDiff' },
@@ -32,6 +35,9 @@ export const GUIDE_JOBS = [
       { say: 'why does this one work and that one not', what: 'Type a second record of the same table (/vs INC0010002, a sys_id or a name): every field that differs, with scripts and journals as a line diff. Bookkeeping fields are hidden.', target: 'panel.recordcompare' },
       { say: 'who changed this value', what: 'Name a field (/history state): every change to it on this record from the audit trail, who made it, how long each value stayed, and values that went straight back.', target: 'panel.fieldhistory' },
       { say: 'who sets this field', what: 'Type a table and a field (/usage incident.state): every script that sets, reads or queries it, plus the UI policies, ACLs, data policies and filters that control it, narrowed to that table.', target: 'panel.fieldusage' },
+      { say: 'how are these tables related', what: 'The data model around a table as a diagram and a list: parents, children, what it references and what references it. /path incident sys_user finds the dot-walk path between two tables.', target: 'panel.datamodel' },
+      { say: 'find a system property', what: 'Search properties, see which scripts read one, change it with a confirmation and a one-click restore. Also /prop.', target: 'panel.properties' },
+      { say: 'which widget is on this page', what: 'On a Service Portal page: the widgets with their options and c.data, a snapshot-and-compare of the data, and a link to the code of each widget. Also /sp.', target: 'panel.portal' },
       { say: 'check my script for made up methods', what: 'Syntax, made-up API methods, lint and structure. No AI tokens.', target: 'tools.verify' },
       { say: 'start a new business rule', what: 'Opens a new form already filled in: name, table, timing and a checked script template. /new si, cs, uia, sj, fix and rest do the same for other scripts.', target: 'tools.new' },
       { say: 'edit in a bigger editor', what: 'Highlighting, find and replace and autocomplete. Click Edit beside a script field to edit it right over the field (it saves with the form), or open it full screen.', target: 'tools.editor' },
@@ -59,6 +65,7 @@ export const GUIDE_JOBS = [
       { say: 'start a new update set', what: 'Create one in your current scope and switch to it, so changes stop landing in Default.', target: 'tools.newUpdateSet' },
       { say: 'what did i change', what: 'Your update set, your scope and your recent changes, with what will not ship.', target: 'panel.mywork' },
       { say: 'release notes for my update set', what: 'Turn an update set into notes for the ticket: what changed, what is risky, what to test, how to back out. Copy as Markdown or plain text.', target: 'panel.releasenotes' },
+      { say: 'update set will not commit', what: 'For a retrieved update set: each preview problem in plain words, which other update set provides a missing record, and the safe way out. Also /preview.', target: 'panel.previewfix' },
       { say: 'is my update set safe to move', what: 'Ship check: collisions, missing dependencies, scripts that fail lint, a release checklist.', target: 'panel.shipcheck' },
       { say: 'difference between dev and prod', what: 'Compare two instances, or one record against its twin elsewhere.', target: 'analyze.compare' },
     ],
@@ -69,6 +76,7 @@ export const GUIDE_JOBS = [
       { say: 'what went wrong recently', what: 'Failed email, flows, integrations, import rows, overdue jobs and stuck events in the last hour, day or week, repeats grouped (42x), with a plain-words reason.', target: 'panel.failures' },
       { say: 'what is slow or noisy', what: 'Hot spots: the slowest pages and jobs, SQL-heavy requests, repeating log messages, busy events and records changed again and again. Nothing loads until you open a section.', target: 'panel.hotspots' },
       { say: 'is my instance healthy', what: 'Health scan: code quality, anti-patterns, upgrade risks and security.', target: 'panel.health' },
+      { say: 'is nowbuddy working', what: 'Self-check: your session, which tables and columns each tool needs, and which tools will not work on this instance and why. Copy the report. Also /doctor.', target: 'panel.doctor' },
       { say: 'my change is not showing', what: 'Flush the cache.', target: 'instance.cache' },
       { say: 'test as another user', what: 'Impersonate a user (or type @name), and end it again.', target: 'tools.impersonate' },
     ],
@@ -103,8 +111,10 @@ export function guideShortcuts(paletteKey) {
 export const PAGE_NOUN = {
   script: 'a script',
   record: 'a record',
+  ticket: 'a ticket',
   list: 'a list',
   updateset: 'an update set',
+  portal: 'a portal page',
   other: 'a page',
 };
 
@@ -112,7 +122,9 @@ export const PAGE_NOUN = {
 export const JOB_FOR_PAGE = {
   script: 'Write and check code',
   record: 'Understand a record or a form',
+  ticket: 'Understand a record or a form',
   list: 'Get around fast',
   updateset: 'Ship it',
+  portal: 'Write and check code',
   other: 'Get around fast',
 };

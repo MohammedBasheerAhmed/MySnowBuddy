@@ -394,6 +394,16 @@ function FieldDetail({ table, field, services, onAskAi }) {
             Its history
           </button>
         )}
+        {services.openRegisteredPanel && data.onForm !== null && (
+          <button
+            type="button"
+            className="msb-panel__link"
+            title={`Opens Client trace. Press Reload and record, use the form, then filter by ${field} to see every script call that touched it`}
+            onClick={() => services.openRegisteredPanel('clienttrace', { args: field })}
+          >
+            What does the page do to this field at run time?
+          </button>
+        )}
         {onAskAi && (
           <button type="button" className="msb-panel__link" onClick={() => onAskAi(`X-ray: ${table}.${field}`, askPrompt(data))}>
             Ask AI to explain

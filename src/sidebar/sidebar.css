@@ -1691,12 +1691,14 @@ details[open] > summary.msb-panel__result-toggle::before {
 /* --- Table explorer -------------------------------------------------------- */
 .msb-xp__card { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .msb-xp__tabs { display: flex; align-items: center; gap: 4px; margin-top: 6px; border-bottom: 1px solid var(--msb-border); }
+.msb-xp__tablist { display: flex; gap: 4px; }
 .msb-xp__tab { padding: 5px 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--msb-fg-muted); font-size: var(--msb-text-sm); font-weight: 500; cursor: pointer; }
 .msb-xp__tab:hover { color: var(--msb-fg); }
 .msb-xp__tab--on { color: var(--msb-accent); border-bottom-color: var(--msb-accent); }
 .msb-xp__copyall { margin-left: auto; }
+.msb-xp__copyall + .msb-panel__link { margin-left: 10px; }
 .msb-xp__chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.msb-xp__actions { display: flex; gap: 12px; margin-top: 4px; }
+.msb-xp__actions { display: flex; flex-wrap: wrap; gap: 2px 12px; margin-top: 4px; }
 .msb-xp__detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--msb-border); display: flex; flex-direction: column; gap: 6px; }
 .msb-xp__doc { color: var(--msb-fg-soft); font-size: var(--msb-text-sm); }
 .msb-xp__section { display: flex; flex-direction: column; gap: 4px; }

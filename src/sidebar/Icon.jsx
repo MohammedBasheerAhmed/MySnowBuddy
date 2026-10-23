@@ -149,6 +149,30 @@ const PATHS = {
   dock: <path d="M4 5.5h16v13H4zM14.5 5.5v13" strokeLinecap="round" strokeLinejoin="round" />,
   popout: <path d="M13 4.5h6.5V11M19.5 4.5L11 13M17 14v5.5H4.5V7H10" strokeLinecap="round" strokeLinejoin="round" />,
   xray: <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" strokeLinecap="round" strokeLinejoin="round" />,
+  mail: <path d="M4 6.5h16v11H4zM4.5 7l7.5 6 7.5-6" strokeLinecap="round" strokeLinejoin="round" />,
+  flow: <path d="M5 5h5v5H5zM14 14h5v5h-5zM7.5 10v2.5a2 2 0 0 0 2 2H14" strokeLinecap="round" strokeLinejoin="round" />,
+  sliders: <path d="M5 7h9M18 7h1M5 17h1M10 17h9M14 4.5v5M8 14.5v5" strokeLinecap="round" />,
+  graph: (
+    <>
+      <circle cx="6" cy="12" r="2.2" />
+      <circle cx="18" cy="6" r="2.2" />
+      <circle cx="18" cy="18" r="2.2" />
+      <path d="M8 11l8-4M8 13l8 4" strokeLinecap="round" />
+    </>
+  ),
+  window: <path d="M4 5.5h16v13H4zM4 9.5h16M7 7.5h.01M9.5 7.5h.01" strokeLinecap="round" strokeLinejoin="round" />,
+  stethoscope: (
+    <>
+      <path d="M7 4v5a4 4 0 0 0 8 0V4M11 13v2.5a3.5 3.5 0 0 0 7 0" strokeLinecap="round" />
+      <circle cx="18" cy="11.5" r="1.7" />
+    </>
+  ),
+  record: (
+    <>
+      <circle cx="12" cy="12" r="7.5" />
+      <circle cx="12" cy="12" r="3" fill="currentColor" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 16, className = '' }) {

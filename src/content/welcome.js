@@ -6,6 +6,8 @@
 import { trustedDom } from '../sidebar/trusted.js';
 
 const STORAGE_KEY = 'mysnowbuddy_welcomed';
+/** Read by the "What's new" card (src/content/whatsNew.js): it is only for people who have already dismissed this one. */
+export const WELCOMED_KEY = STORAGE_KEY;
 const SHOW_AFTER_MS = 2500;
 
 const isMac = () => /mac/i.test(navigator.platform || navigator.userAgent || '');

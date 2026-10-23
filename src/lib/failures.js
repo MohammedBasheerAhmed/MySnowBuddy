@@ -172,10 +172,14 @@ export function normaliseEmail(row) {
 export function normaliseFlow(row) {
   const state = raw(row.state).toLowerCase();
   const cancelled = state.startsWith('cancel');
-  const name = clip(disp(row.name) || disp(row.flow), 80) || '(unnamed flow)';
+  // `flow` is a plain string (a sys_id) on a flow context, so a bare id means the name could not be looked up.
+  const known = disp(row.name) || disp(row.flow);
+  const name = clip(/^[0-9a-f]{32}$/i.test(known) ? '' : known, 80);
+  const sourceName = clip(disp(row.source_record), 80);
+  const label = name ? `Flow "${name}"` : sourceName ? `Flow run for "${sourceName}"` : 'Flow run (name not available)';
   const error = clip(disp(row.error_message) || disp(row.error), 500);
   return failure('flow', cancelled ? 'cancelled' : 'error', row, 'sys_flow_context', {
-    title: cancelled ? `Flow "${name}" was cancelled` : `Flow "${name}" failed`,
+    title: cancelled ? `${label} was cancelled` : `${label} failed`,
     message: error || '(no error message recorded; open the execution to see which step stopped)',
     hint: (error && firstMatch(error, FLOW_REASONS)) || 'Open the flow execution to see which step failed and what it was given.',
     severity: cancelled ? 'warn' : 'error',
@@ -260,7 +264,7 @@ export function normaliseOutbound(row) {
 }
 
 export function normaliseInbound(row) {
-  const status = numberOf(row.response_status);
+  const status = numberOf(row.http_response_code ?? row.response_status);
   const path = safeUrl(disp(row.url));
   const method = clip(disp(row.http_method), 10).toUpperCase();
   return failure('integration', 'inbound', row, 'syslog_transaction', {
@@ -285,13 +289,14 @@ export function normaliseImportRow(row) {
 }
 
 export function normaliseImportRun(row) {
-  const set = clip(disp(row.sys_import_set) || disp(row.set), 60);
-  const message = clip(disp(row.error_message) || disp(row.status_message) || disp(row.message), 400);
+  const set = clip(disp(row.set) || disp(row.sys_import_set), 60);
+  const errors = numberOf(row.errors);
+  const message = clip(disp(row.error_message) || disp(row.status_message) || disp(row.message) || (Number.isFinite(errors) && errors > 0 ? `${errors} row${errors === 1 ? '' : 's'} in error` : ''), 400);
   return failure('import', 'run', row, 'sys_import_set_run', {
     title: `Import run ended in error${set ? `: ${set}` : ''}`,
     message: message || `state ${disp(row.state) || 'error'}`,
     hint: firstMatch(message, IMPORT_REASONS) || 'Open the import set run and its transform history.',
-    meta: { importSet: set, map: disp(row.transform_map) || disp(row.map) },
+    meta: { importSet: set, map: disp(row.sys_transform_map) || disp(row.transform_map) || disp(row.map) },
   });
 }
 
@@ -303,7 +308,8 @@ export function normaliseEvent(row) {
     title: `Event "${name}" stopped in error`,
     message: `Event ${name}${table ? ` on ${table}` : ''} could not be processed`,
     hint: 'A handler (a script action or a notification) failed while processing it. Open the event, then look for that event name in the system log at that time.',
-    meta: { event: name, table },
+    // The record the event was queued for (sysevent.instance), when the instance returned it: the email tracer starts there.
+    meta: { event: name, table, record: raw(row.instance) },
   });
 }
 
@@ -413,9 +419,9 @@ export const SOURCES = [
       {
         id: 'inbound',
         table: 'syslog_transaction',
-        fields: ['sys_id', 'sys_created_on', 'url', 'http_method', 'response_status', 'sys_created_by'],
-        query: (w) => `${windowClause(w)}^response_status>=500^urlSTARTSWITH/api/^ORDERBYDESCsys_created_on`,
-        keep: (row) => numberOf(row.response_status) >= 500 && /^\/?api\//i.test(String(raw(row.url)).replace(/^[a-z]+:\/\/[^/]+/i, '').replace(/^\//, '/')),
+        fields: ['sys_id', 'sys_created_on', 'url', 'http_response_code', 'sys_created_by'],
+        query: (w) => `${windowClause(w)}^http_response_code>=500^urlSTARTSWITH/api/^ORDERBYDESCsys_created_on`,
+        keep: (row) => numberOf(row.http_response_code ?? row.response_status) >= 500 && /^\/?api\//i.test(String(raw(row.url)).replace(/^[a-z]+:\/\/[^/]+/i, '').replace(/^\//, '/')),
         normalise: normaliseInbound,
       },
     ],
@@ -437,10 +443,10 @@ export const SOURCES = [
       {
         id: 'importRun',
         table: 'sys_import_set_run',
-        fields: ['sys_id', 'sys_created_on', 'sys_import_set', 'state', 'error_message', 'status_message', 'transform_map'],
-        query: (w) => `${windowClause(w)}^stateINerror,failed,cancelled^ORDERBYDESCsys_created_on`,
+        fields: ['sys_id', 'sys_created_on', 'set', 'state', 'errors', 'sys_transform_map'],
+        query: (w) => `${windowClause(w)}^stateINerror,failed,cancelled^ORerrors>0^ORDERBYDESCsys_created_on`,
         displayValue: true,
-        keep: (row) => /^(error|fail|cancel)/i.test(raw(row.state)),
+        keep: (row) => /^(error|fail|cancel)/i.test(raw(row.state)) || numberOf(row.errors) > 0,
         normalise: normaliseImportRun,
       },
     ],
@@ -453,7 +459,7 @@ export const SOURCES = [
       {
         id: 'event',
         table: 'sysevent',
-        fields: ['sys_id', 'sys_created_on', 'name', 'state', 'table', 'queue'],
+        fields: ['sys_id', 'sys_created_on', 'name', 'state', 'table', 'instance', 'queue'],
         query: (w) => `${windowClause(w)}^state=error^ORDERBYDESCsys_created_on`,
         keep: (row) => raw(row.state).toLowerCase() === 'error',
         normalise: normaliseEvent,
@@ -548,7 +554,7 @@ export function groupFailures(items, { sort = 'recent' } = {}) {
     const key = groupKey(item);
     const group = groups.get(key);
     if (!group) {
-      groups.set(key, { key, source: item.source, kind: item.kind, severity: item.severity, title: item.title, message: item.message, hint: item.hint, target: item.target, count: 1, first: item.when, last: item.when, items: [item] });
+      groups.set(key, { key, source: item.source, kind: item.kind, severity: item.severity, title: item.title, message: item.message, hint: item.hint, target: item.target, meta: item.meta || {}, count: 1, first: item.when, last: item.when, items: [item] });
       return;
     }
     group.count += 1;
@@ -556,6 +562,7 @@ export function groupFailures(items, { sort = 'recent' } = {}) {
     if (String(item.when) > String(group.last)) {
       group.last = item.when;
       group.target = item.target;
+      group.meta = item.meta || {};
       group.message = item.message;
     }
     if (String(item.when) < String(group.first)) group.first = item.when;

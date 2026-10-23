@@ -292,6 +292,27 @@ re-investigating something that's already been decided or flagged here.
 - **Analysis panels as tools**: `explain_access`, `explain_field`, `check_update_set`, `scan_instance_health` are
   observe tier and return compact results (names and ids, never script bodies or the full finding list); the health
   scan stops after 2 minutes and returns a partial report (the MCP call limit is 3 minutes).
+- **More analysis panels as tools** (`src/lib/agent/insights.js`): `explain_email` (Email tracer), `explain_process`
+  (Flows, approvals and SLAs), `map_table` and `find_dotwalk_path` (Data model), `explain_preview_problems`
+  (Preview problems), `find_artifact` (Go to anything), `run_selfcheck` (Self-check), `find_property` (System properties) and
+  `read_client_trace` (Client trace) are observe tier. The panels' reports are reshaped, not
+  copied: verdict and top reasons, lists capped (a dozen items over all sections for a record, eight preview problems,
+  25 table groups...), a `more` count for what was cut, and a second pass with tighter caps if the answer is still over
+  about 9,000 characters (the agent loop cuts a tool result at 14,000). Email addresses are masked as the Email
+  tracer masks them in its Markdown; free text from the instance is redacted; the text of mail that looks like it
+  carries a password or code is not repeated. Names are checked like the access debugger's user term: letters,
+  digits, spaces and `. _ @ + ' ( ) / & , # -` only, so a name can never become query syntax. `find_artifact` runs the
+  palette's search engine with a fresh instance per call (two searches at once never cancel each other) and the
+  role tier of the session. Credential tables and the user's denied-tables list (Options > Agent safety) get the
+  same rules as `query_table`: `explain_email` and `explain_process` refuse a record on one (also when an email or event
+  belongs to one), `find_property` refuses when `sys_properties` is denied, `find_artifact` leaves those kinds out and says
+  so, and `map_table` leaves out the row count (a read of the table) but keeps the dictionary facts. `run_selfcheck` always
+  passes `scriptProbe: "never"` (the Self-check's one background script is not run for an observe tool). `find_property`
+  re-checks every value against the secret rules (password type, secret-looking name, credential in the value) before
+  printing it, and drops the default argument of a read of a secret property from the usage lines. `read_client_trace`
+  calls only `clientTraceStatus`, `clientTraceLoad` and the read-only `clientTraceResolve`: arm, disarm and clear are not
+  wired to any tool. Resolve names the scripts the instance confirms (at most 40 ids, 10 UI script names and 10
+  GlideAjax classes per read); a script it cannot confirm stays "Unknown script" and is shown by its stack frame.
 
 ## Unconfirmed — needs verification against a real ServiceNow instance
 

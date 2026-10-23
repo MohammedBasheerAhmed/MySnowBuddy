@@ -198,15 +198,30 @@
 .msb-ed__t-f { color: var(--msb-ed-func); }
 
 .msb-ed__lint {
-  max-height: 22%;
-  margin: 0;
-  padding: 8px 12px;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  max-height: 30%;
   border-top: 1px solid var(--msb-border);
   background: var(--msb-bg-subtle);
   color: var(--msb-fg-soft);
-  font-family: var(--msb-mono);
   font-size: var(--msb-text-sm);
+}
+
+.msb-ed__lint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--msb-border);
+}
+
+.msb-ed__lint-title { flex: 1; min-width: 0; font-weight: 600; color: var(--msb-fg); }
+
+.msb-ed__lint-body {
+  margin: 0;
+  padding: 8px 12px;
+  overflow: auto;
+  font-family: var(--msb-mono);
   white-space: pre-wrap;
 }
 
@@ -654,3 +669,174 @@ button.msb-ed__problems:hover { text-decoration: underline; }
 }
 
 .msb-ed--inplace .msb-ed__title { font-size: var(--msb-text-md, 13px); }
+
+/* ---------------------------------------------------------------------------
+   Go to symbol, changes since the record was loaded, extra cursors, footer
+   --------------------------------------------------------------------------- */
+.msb-ed__footer { justify-content: flex-start; gap: 14px; }
+.msb-ed__footer > * { flex: none; }
+
+button.msb-ed__symbol {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 34%;
+  overflow: hidden;
+  color: var(--msb-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msb-ed__footer .msb-ed__hints {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.msb-ed__problems[hidden] { display: none; }
+
+.msb-ed__outline {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100% - 32px));
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 1px solid var(--msb-border-strong);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-raised);
+  box-shadow: var(--msb-shadow-lg);
+}
+
+.msb-ed__outline[hidden] { display: none; }
+
+.msb-ed__outline input {
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--msb-border);
+  background: var(--msb-bg-raised);
+  color: var(--msb-fg);
+  font: inherit;
+  font-size: var(--msb-text-md);
+}
+
+.msb-ed__outline input:focus-visible { outline: 2px solid var(--msb-accent); outline-offset: -2px; }
+
+.msb-ed__outline-list {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px 0;
+  font-size: var(--msb-text-md);
+}
+
+.msb-ed__ol-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--msb-mono);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.msb-ed__outline .msb-ed__pline { padding-left: 8px; }
+
+/* Changes since the record was loaded: a bar beside the line numbers, and a list with Revert */
+.msb-ed__changebars {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  will-change: transform;
+}
+
+.msb-ed__chg { position: absolute; right: 0; width: 4px; cursor: pointer; }
+.msb-ed__chg:hover { width: 5px; }
+.msb-ed__chg--added { background: var(--msb-ok); }
+.msb-ed__chg--modified { background: var(--msb-warn); }
+
+.msb-ed__chg--removed {
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 5px;
+  border-color: transparent transparent transparent var(--msb-danger);
+}
+
+.msb-ed__changes-list { max-height: 34%; }
+.msb-ed__crow { padding: 6px 12px 8px; border-top: 1px solid var(--msb-border); }
+.msb-ed__crow-head { display: flex; align-items: center; gap: 8px; }
+.msb-ed__diff { margin-top: 4px; font-family: var(--msb-mono); font-size: 12px; }
+
+.msb-ed__diff-line {
+  tab-size: 2;
+  margin: 0;
+  padding: 0 6px;
+  overflow: hidden;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.msb-ed__diff-line--del { background: var(--msb-danger-soft); color: var(--msb-danger); }
+.msb-ed__diff-line--add { background: var(--msb-ok-soft); color: var(--msb-ok); }
+
+/* The other cursors (Ctrl+D, Ctrl+Shift+L, Alt+click); the primary one is the textarea's own */
+.msb-ed__multi-caret { position: absolute; height: 20px; background: var(--msb-fg); opacity: 0.85; }
+.msb-ed__multi-sel { position: absolute; height: 20px; background: color-mix(in srgb, var(--msb-accent) 28%, transparent); }
+
+/* Narrow editors (in place over a form field): keep button labels on one line and let the header and footer give way. */
+.msb-ed__dialog { container-type: inline-size; }
+.msb-ed__btn { white-space: nowrap; }
+.msb-ed__actions { flex-wrap: wrap; justify-content: flex-end; }
+
+@container (max-width: 720px) {
+  .msb-ed__footer .msb-ed__hints { display: none; }
+  .msb-ed__btn { padding: 0 9px; }
+  .msb-ed__footer { gap: 12px; }
+}
+
+/* The blanks of a snippet that was just expanded; the one Tab is on is stronger */
+.msb-ed__snip {
+  position: absolute;
+  height: 20px;
+  box-sizing: border-box;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--msb-accent-line);
+  background: var(--msb-accent-soft);
+}
+
+.msb-ed__snip--active { box-shadow: inset 0 0 0 1px var(--msb-accent); background: color-mix(in srgb, var(--msb-accent) 22%, transparent); }
+.msb-ed__snip--copy { box-shadow: inset 0 0 0 1px var(--msb-accent-line); }
+
+/* In place the editor is only as tall as the field, so the shortcut list takes the whole editor. */
+.msb-ed--inplace .msb-ed__help { inset: 8px; width: auto; max-height: none; }
+
+/* Code is shown exactly as typed: no programming-font ligatures (Cascadia Code draws != as one "not equal" glyph). Every
+   layer that draws or measures code has this, so the transparent textarea, the highlighted copy, the gutter, the
+   character-width probe and the caret stay aligned. */
+.msb-ed,
+.msb-ed__body,
+.msb-ed__gutter,
+.msb-ed__gutter-inner,
+.msb-ed__hl,
+.msb-ed__code,
+.msb-ed__input,
+.msb-ed__measure,
+.msb-ed__ac,
+.msb-ed__sig,
+.msb-ed__hover,
+.msb-ed__outline,
+.msb-ed__lint-body,
+.msb-ed__diff,
+.msb-ed__diff-line,
+.msb-ed__help-list dt {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}

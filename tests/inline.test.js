@@ -93,7 +93,8 @@ test('the form table is the one most labels belong to', () => {
 
 test('the toolbar shows record actions on a form, filter actions on a list, and nothing without a table', () => {
   const ids = (m) => m.map((i) => i.id);
-  assert.deepEqual(ids(toolbarModel({ table: 'incident', sysId: SYS_ID })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'formtools', 'names']);
+  assert.deepEqual(ids(toolbarModel({ table: 'incident', sysId: SYS_ID })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'why', 'formtools', 'names'], 'a ticket also gets the Why? menu');
+  assert.deepEqual(ids(toolbarModel({ table: 'sys_user', sysId: SYS_ID })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'formtools', 'names']);
   assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: SYS_ID, hasScript: true })), ['copySysId', 'copyLink', 'xml', 'info', 'versions', 'refs', 'edit', 'lint', 'ask', 'formtools', 'names']);
   // A new, unsaved record has no sys_id to copy yet, but its script still gets editing and lint.
   assert.deepEqual(ids(toolbarModel({ table: 'sys_script', sysId: '-1', hasScript: true })), ['edit', 'lint', 'ask', 'formtools', 'names']);

@@ -34,6 +34,15 @@ const TOOLS = {
   explain_field: { icon: 'xray', label: (a) => `Looking at what controls ${a.table ? `${a.table}.` : ''}${a.field}` },
   check_update_set: { icon: 'layers', label: () => 'Checking the update set before commit' },
   scan_instance_health: { icon: 'pulse', label: (a) => `Scanning ${a.mode === 'recent' ? `changes from the last ${a.days} days` : a.mode === 'updateset' ? 'the update set' : a.mode === 'scope' ? 'the application' : 'the instance'} for health issues` },
+  explain_email: { icon: 'mail', label: (a) => `Tracing why the email${a.notification ? ` "${clip(a.notification, 40)}"` : ''} was or was not sent${a.table ? ` for ${a.table}` : ''}` },
+  explain_process: { icon: 'flow', label: (a) => `Checking the flows, approvals and SLAs on ${a.table ? `the ${a.table} record` : 'the open record'}` },
+  map_table: { icon: 'graph', label: (a) => `Mapping how ${a.table || 'the open table'} relates to other tables${a.showSystem ? ' (including system tables)' : ''}` },
+  find_dotwalk_path: { icon: 'braces', label: (a) => `Finding the dot-walk path from ${a.from || 'the open table'} to ${a.to}` },
+  explain_preview_problems: { icon: 'layers', label: (a) => (a.updateSet ? `Explaining the preview problems of ${clip(a.updateSet, 40)}` : 'Listing the retrieved update sets') },
+  find_artifact: { icon: 'search', label: (a) => `Finding ${a.kind ? `${a.kind} records` : 'records'} named "${clip(a.term, 40)}"` },
+  run_selfcheck: { icon: 'stethoscope', label: () => 'Running the Self-check on this instance' },
+  find_property: { icon: 'sliders', label: (a) => (a.mode === 'get' ? `Reading the property ${clip(a.query, 50)}` : a.mode === 'usage' ? `Finding the scripts that use ${clip(a.query, 50)}` : `Searching system properties for "${clip(a.query, 40)}"`) },
+  read_client_trace: { icon: 'clock', label: (a) => `Reading the Client trace recording${a.field ? ` for ${clip(a.field, 40)}` : ''}` },
   run_atf: { icon: 'flask', label: (a) => (a.progressId && !a.suite ? 'Waiting for the test run' : `Running the ATF suite ${clip(a.suite, 40)}`) },
   click_ui_action: { icon: 'cursor', label: (a) => `Clicking "${clip(a.action, 40)}"` },
   create_record: { icon: 'edit', label: (a) => `Creating a ${a.table} record` },
@@ -109,6 +118,24 @@ export function summarizeResult(tool, data) {
         return `${data.verdict}: ${data.counts?.block || 0} blocker(s), ${data.counts?.warn || 0} warning(s)`;
       case 'scan_instance_health':
         return `${data.totals?.high || 0} high, ${data.totals?.medium || 0} medium${data.partial ? ' (partial)' : ''}`;
+      case 'explain_email':
+        return clip(data.summary || data.verdict?.summary || 'traced', 90);
+      case 'explain_process':
+        return clip(data.headline || 'read', 90);
+      case 'map_table':
+        return `${data.counts?.tablesPointingHere ?? 0} tables point here, ${data.counts?.tablesPointedAt ?? 0} referenced`;
+      case 'find_dotwalk_path':
+        return clip(data.summary || data.result || 'searched', 90);
+      case 'explain_preview_problems':
+        return data.retrievedUpdateSets ? `${data.retrievedUpdateSets.length} retrieved update set${data.retrievedUpdateSets.length === 1 ? '' : 's'}` : clip(data.verdict?.headline || 'read', 90);
+      case 'find_artifact':
+        return `${data.results.length} match${data.results.length === 1 ? '' : 'es'}${data.moreMatches ? ` (${data.moreMatches} more)` : ''}`;
+      case 'run_selfcheck':
+        return clip(data.verdict?.headline || 'checked', 90);
+      case 'find_property':
+        return data.results ? `${data.results.length} propert${data.results.length === 1 ? 'y' : 'ies'}${data.moreMatches ? ` (${data.moreMatches} more)` : ''}` : data.hits ? clip(data.summary, 90) : data.found ? (data.property.hidden ? 'found (value hidden)' : 'found') : 'not found';
+      case 'read_client_trace':
+        return data.note ? clip(data.note, 90) : `${data.events} event${data.events === 1 ? '' : 's'}, ${(data.findings || []).length + (data.moreFindings || 0)} finding(s)`;
       case 'click_ui_action':
         return `clicked, ${String(data.outcome || '').replace(/-/g, ' ')}`;
       case 'create_record':

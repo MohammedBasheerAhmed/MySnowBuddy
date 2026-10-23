@@ -24,6 +24,14 @@ import { releaseNotesServices } from './releaseNotes.js';
 import { ruleExplainServices } from './ruleExplain.js';
 import { testDataServices } from './testData.js';
 import { testKitServices } from './testKit.js';
+import { clientTraceServices } from './clientTrace.js';
+import { notifyServices } from './notifyTrace.js';
+import { processServices } from './processView.js';
+import { propertyServices } from './properties.js';
+import { dataModelServices } from './dataModel.js';
+import { portalServices } from './portalInspector.js';
+import { previewProblemServices } from './previewProblems.js';
+import { doctorServices } from './doctor.js';
 
 export const FEATURE_SERVICES = { ...myWorkServices, ...accessServices, ...healthServices, ...xrayServices, ...impactServices, ...queryServices, ...failureServices, ...insightServices };
 
@@ -53,3 +61,7 @@ Object.assign(FEATURE_SERVICES, fieldHistoryServices);
 
 // Test kit: run against a record, unit tests, ATF finder, snapshots, access matrix (src/content/testKit.js).
 Object.assign(FEATURE_SERVICES, testKitServices);
+
+// Batch added 2026-10-23: client trace, email tracer, process view, properties, data model, portal inspector, preview problems, self-check.
+// Service names must start with the feature's own prefix (see each module) so two features never collide.
+Object.assign(FEATURE_SERVICES, clientTraceServices, notifyServices, processServices, propertyServices, dataModelServices, portalServices, previewProblemServices, doctorServices);

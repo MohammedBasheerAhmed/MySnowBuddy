@@ -3,6 +3,7 @@
 // turned into popover rows. No DOM and no network, so it is all unit-tested (tests/inline.test.js).
 
 import { isName, isSysId, parsePrefixedId } from './xray.js';
+import { isTicketTable } from './ticketTables.js';
 
 export const SYS_ID_PATTERN = /^[0-9a-f]{32}$/i;
 
@@ -168,6 +169,8 @@ export function toolbarModel({ table = '', sysId = '', isList = false, hasScript
       { id: 'versions', label: 'Recent versions of this record', short: 'Versions', group: 'record' },
       { id: 'refs', label: 'What points at this record, and what a delete would do', short: 'Used by', group: 'record' }
     );
+    // A ticket is waited on and emailed about: one menu for "what is running on it" and "why was no email sent".
+    if (isTicketTable(table)) items.push({ id: 'why', label: 'Why? What is running on this record, why an email was not sent, who can see it', short: 'Why?', group: 'record' });
   }
   if (hasScript) {
     items.push(

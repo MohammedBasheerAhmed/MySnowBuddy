@@ -1,6 +1,6 @@
 {
   "name": "mysnowbuddy",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "private": true,
   "description": "SNUtils-style toolbar + AI chat sidebar browser extension for ServiceNow developers and admins.",
   "scripts": {

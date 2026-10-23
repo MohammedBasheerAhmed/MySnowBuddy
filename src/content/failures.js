@@ -6,6 +6,7 @@
 // src/sidebar/FailuresPanel.jsx.
 
 import { queryTable, SESSION_EXPIRED_MESSAGE } from './tableApi.js';
+import { withFlowNames } from './flowNames.js';
 import { SOURCES, DEFAULT_WINDOW, MAX_ROWS, runProbeRows, softFail, mergeSource, countsBySource } from '../lib/failures.js';
 
 const CONCURRENCY = 4;
@@ -34,10 +35,11 @@ function limiter(max) {
 
 async function readProbe(probe, windowKey, now, limit) {
   try {
-    const rows = await queryTable(probe.table, probe.query(windowKey), probe.fields, {
+    const found = await queryTable(probe.table, probe.query(windowKey), probe.fields, {
       limit: probe.limit || MAX_ROWS,
       displayValue: Boolean(probe.displayValue),
     });
+    const rows = probe.table === 'sys_flow_context' ? await withFlowNames(found) : found;
     return runProbeRows(probe, rows, now);
   } catch (err) {
     return softFail(err, probe.table);

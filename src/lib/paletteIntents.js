@@ -5,6 +5,15 @@
 // the text a query is matched against. Word matching (wordsScore) lets a few of those words in any order find it.
 
 export const INTENTS = {
+  // Batch added 2026-10-23
+  'panel.clienttrace': 'what did the client scripts do to the form who set this field on the form why did the field change by itself record what happens on page load g_form setvalue watch the form flight recorder slow form glideajax calls javascript errors on the form onload onchange trace',
+  'panel.notify': 'why was the email not sent why did nobody get the notification why did my notification not fire email not received notification not triggered who got the email event not fired recipients missing notification condition email stuck in outbox ignored email',
+  'panel.process': 'what is running on this record is there a flow on this ticket why is this ticket stuck waiting for approval who has to approve flow execution error workflow stuck sla breached what flows ran on this record approvals pending',
+  'panel.properties': 'find a system property what is the value of this property who reads this property where is this property used change a system property turn a feature on or off glide property setting flag switch',
+  'panel.datamodel': 'how are these tables related table relationships what extends what what references this table er diagram how do i get from incident to the caller department dot walk path join two tables table hierarchy map the data model',
+  'panel.portal': 'what widget is this which widget is on this portal page widget data c.data widget options inspect a widget service portal debug angular scope open the widget code employee center widget',
+  'panel.previewfix': 'update set will not commit preview problems missing reference collision skipped remote update what do i do with this preview problem commit blocked retrieved update set problem local version newer than remote',
+  'panel.doctor': 'is nowbuddy working why does a tool show nothing check that the extension can reach the instance missing table or column session expired which tools work on this instance diagnose troubleshoot report for support',
   // Understand a record or a form
   'record.similar': 'find similar tickets related incidents has this happened before duplicates of this record same problem other tickets like this',
   'record.versionDiff': 'who changed this what changed previous version revert undo a change history of changes compare versions before and after',
@@ -58,6 +67,8 @@ export const INTENTS = {
   'analyze.xrayToggle': 'show what controls each field on this form ui policy client script acl overlay annotate fields',
   'instance.xmlstats': 'how big is the database row counts table sizes xml statistics',
   'tools.api': 'how do i use gliderecord method signature what does this method do g_form methods api reference documentation',
+  'tools.editor.outline': 'go to a function method symbol in the script outline jump to a method find in script navigate the code structure',
+  'tools.editor.format': 'format the script beautify prettify indent tidy clean up code whitespace fix indentation',
   'tools.editor': 'edit the script in a bigger editor full screen find and replace in a script edit code',
   'tools.fileSync': 'edit in vs code use my own editor external editor sync to a file',
   'ai.document': 'write docs explain what this script does comment this document the script',
@@ -92,6 +103,7 @@ export const INTENTS = {
   // Helpers
   'help.guide': 'what can this do show me everything list of features cheat sheet shortcuts keys what should i try recipes learn the tools',
   'help.tour': 'how do i use this what can this do getting started tutorial help show me around new here',
+  'tools.whatsNew': 'whats new what is new in this version new features added in the update new tools since last time changelog what did the update add',
   'ai.chat': 'ask a question help assistant talk to the ai',
   'ai.snippets': 'example code how do i write a gliderecord query date example rest snippet template',
   'ai.prompts': 'saved prompts templates for the ai',

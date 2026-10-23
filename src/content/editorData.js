@@ -288,6 +288,28 @@ export async function readScriptRecord(formTable) {
   return out;
 }
 
+/**
+ * The field as it is SAVED on the instance (not as the form holds it now, which may already carry unsaved edits), so
+ * the editor's "changes since the record was loaded" compare with the record. Null when that cannot be told, and the
+ * caller then keeps the form's text: a new record (not saved yet), a field that is not a column of the table (the Table
+ * API silently leaves unknown columns out of its answer, so a missing key means "unknown", never "empty"), a
+ * password-type or secret-looking field (never read), or a failed read. Line breaks come back as \n, like a textarea's.
+ */
+export async function readSavedFieldValue({ table, sysId, field, type = '' } = {}) {
+  if (!TABLE_RE.test(table || '') || !SYS_ID_RE.test(sysId || '') || !/^[a-z0-9_]{1,80}$/i.test(field || '')) return null;
+  if (/password|encrypt/i.test(String(type || '')) || /password|passwd|secret|token|credential|key/i.test(field)) return null;
+  try {
+    const rows = await queryTable(table, `sys_id=${sysId}`, ['sys_id', field], { limit: 1 });
+    const row = rows && rows[0];
+    if (!row || flat(row.sys_id) !== sysId || !Object.prototype.hasOwnProperty.call(row, field)) return null;
+    const v = row[field];
+    const raw = v && typeof v === 'object' ? v.value : v;
+    return raw == null ? null : String(raw).replace(/\r\n?/g, '\n');
+  } catch {
+    return null;
+  }
+}
+
 /** Variables of a catalog item and/or variable set (for g_form completion in catalog client scripts). */
 export async function fetchCatalogVariables({ catItem, variableSet }) {
   const queries = [];

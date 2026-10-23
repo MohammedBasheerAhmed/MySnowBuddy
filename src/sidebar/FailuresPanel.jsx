@@ -13,6 +13,7 @@ import {
   buildFailurePrompt,
   failuresToMarkdown,
 } from '../lib/failures.js';
+import { failureLinks } from '../lib/panelLinks.js';
 import { redactSecrets } from '../providers/redact.js';
 import { downloadText, suggestFilename } from '../lib/report.js';
 
@@ -27,9 +28,11 @@ function copy(text) {
   return navigator.clipboard?.writeText(text).catch(() => {});
 }
 
-function Group({ group, onAsk, onCopied }) {
+function Group({ group, onAsk, onCopied, onOpenPanel }) {
   const href = recordPath(group.target);
   const recent = group.items.slice(0, 5);
+  // The tool that explains this kind of failure, when the row names the record it was about.
+  const links = onOpenPanel ? failureLinks(group) : [];
   return (
     <details className={`msb-fail__group msb-fail__group--${group.severity}`}>
       <summary className="msb-panel__result-toggle msb-fail__summary">
@@ -92,6 +95,11 @@ function Group({ group, onAsk, onCopied }) {
           >
             Copy
           </button>
+          {links.map((link) => (
+            <button key={link.id} className="msb-panel__secondary" title={link.title} onClick={() => onOpenPanel(link)}>
+              {link.label}
+            </button>
+          ))}
           {onAsk && (
             <button className="msb-panel__run" onClick={() => onAsk(group)}>
               Ask AI to explain
@@ -163,6 +171,11 @@ export default function FailuresPanel({ onClose, services, onAskAi }) {
 
   function askAbout(group) {
     onAskAi?.(`Why: ${group.title}`.slice(0, 80), redactSecrets(buildFailurePrompt(group, { instance: report?.instance })));
+  }
+
+  // Hands one failure to the tool that explains it, on the record the row names (not the record on screen).
+  function openTool(link) {
+    if (!services.openRegisteredPanel?.(link.panel, link.params)) flash('That tool is not available here.');
   }
 
   function askAboutAll() {
@@ -249,7 +262,7 @@ export default function FailuresPanel({ onClose, services, onAskAi }) {
 
           <div className="msb-fail__groups">
             {groups.map((group) => (
-              <Group key={group.key} group={group} onAsk={onAskAi ? askAbout : null} onCopied={flash} />
+              <Group key={group.key} group={group} onAsk={onAskAi ? askAbout : null} onCopied={flash} onOpenPanel={services.openRegisteredPanel ? openTool : null} />
             ))}
           </div>
 

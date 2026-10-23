@@ -52,7 +52,8 @@ function injectBridge() {
 /**
  * Call an action exposed by src/page/bridge.js.
  * @param {string} action One of: getCsrfToken, getUserInfo, getFormMeta, getFormValues, getFormModel,
- *   getFormStatus, getSessionInfo, getScriptFields, getFieldState, setFieldValue, saveForm, getListInfo
+ *   getFormStatus, getSessionInfo, getScriptFields, getFieldState, setFieldValue, saveForm, getListInfo,
+ *   portalScan, portalWidgetState, portalReloadWithDebugInfo (Portal inspector: reads a widget's Angular scope; the last one reloads the page)
  * @param {Array} args Arguments forwarded to the action.
  * @param {{timeoutMs?: number}} options
  * @returns {Promise<any>}

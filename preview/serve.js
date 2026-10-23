@@ -6,7 +6,8 @@ const http = require('http');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-const out = path.join(__dirname, '.out');
+// A PORT of its own gets its own output folder, so several previews can run at once.
+const out = path.join(__dirname, process.env.PORT ? '.out-' + process.env.PORT : '.out');
 fs.mkdirSync(out, { recursive: true });
 
 async function build() {

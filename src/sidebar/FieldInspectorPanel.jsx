@@ -264,14 +264,22 @@ export default function FieldInspectorPanel({ context, services, onClose }) {
             </div>
           )}
           {info?.help && <div className="msb-panel__hint">{info.help}</div>}
-          <div className="msb-xp__tabs" role="tablist">
-            <button role="tab" aria-selected={tab === 'columns'} className={tab === 'columns' ? 'msb-xp__tab msb-xp__tab--on' : 'msb-xp__tab'} onClick={() => setTab('columns')}>
-              Columns
-            </button>
-            <button role="tab" aria-selected={tab === 'layouts'} className={tab === 'layouts' ? 'msb-xp__tab msb-xp__tab--on' : 'msb-xp__tab'} onClick={showLayouts}>
-              List layouts
-            </button>
-            <button className="msb-panel__link msb-xp__copyall" onClick={copyAll} title="Copy the table and its columns as JSON">
+          <div className="msb-xp__tabs">
+            {/* Only the tabs sit in the tablist: the buttons beside them are not tabs. */}
+            <div role="tablist" className="msb-xp__tablist" aria-label="Table views">
+              <button role="tab" aria-selected={tab === 'columns'} className={tab === 'columns' ? 'msb-xp__tab msb-xp__tab--on' : 'msb-xp__tab'} onClick={() => setTab('columns')}>
+                Columns
+              </button>
+              <button role="tab" aria-selected={tab === 'layouts'} className={tab === 'layouts' ? 'msb-xp__tab msb-xp__tab--on' : 'msb-xp__tab'} onClick={showLayouts}>
+                List layouts
+              </button>
+            </div>
+            {services.openRegisteredPanel && (
+              <button className="msb-panel__link msb-xp__copyall" onClick={() => services.openRegisteredPanel('datamodel', { args: loaded })} title="Open the data model map: parents, children, what it references and what references it">
+                Map this table
+              </button>
+            )}
+            <button className={services.openRegisteredPanel ? 'msb-panel__link' : 'msb-panel__link msb-xp__copyall'} onClick={copyAll} title="Copy the table and its columns as JSON">
               Copy JSON
             </button>
           </div>
@@ -336,6 +344,11 @@ export default function FieldInspectorPanel({ context, services, onClose }) {
                 {context?.sysId && loaded === context.table && (
                   <button className="msb-panel__link" onClick={() => showLive(f.name)}>
                     Show on the open form
+                  </button>
+                )}
+                {services.openRegisteredPanel && f.reference && f.reference !== loaded && (
+                  <button className="msb-panel__link" onClick={() => services.openRegisteredPanel('datamodel', { args: `${loaded} ${f.reference}` })} title={`How to dot-walk from ${loaded} to ${f.reference}`}>
+                    Path to {f.reference}
                   </button>
                 )}
               </div>

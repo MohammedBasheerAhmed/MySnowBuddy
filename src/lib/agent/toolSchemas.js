@@ -277,6 +277,143 @@ export const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    name: 'explain_email',
+    tier: 'observe',
+    description:
+      'Why an email was or was not sent for a record: walks matched -> event fired -> event processed -> email created -> sent for the ' +
+      'notification that could fire (including those on parent tables and inactive ones), names the first broken link with advice, ' +
+      'and says who would and would not receive it and which instance mail settings switch sending off. Defaults to the open record. ' +
+      'Also works on a sys_email, sysevent or sysevent_email_action record. Addresses are masked. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: str('Table of the record, e.g. "incident". Defaults to the open record.'),
+        sysId: str('sys_id of the record. Defaults to the open record.'),
+        notification: str('Notification name (or part of it) or its sys_id, to trace that one. Defaults to the one most likely meant.'),
+      },
+    },
+  },
+  {
+    name: 'explain_process',
+    tier: 'observe',
+    description:
+      'What is running or stuck on a record: Flow Designer runs (with the error), legacy workflow and its current activity, approvals ' +
+      '(who, for how long), SLAs, child and catalog tasks and queued events, with a plain "waiting on" headline. Defaults to the ' +
+      'open record. Sources that cannot be read are named. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: str('Table of the record, e.g. "incident". Defaults to the open record.'),
+        sysId: str('sys_id of the record. Defaults to the open record.'),
+      },
+    },
+  },
+  {
+    name: 'map_table',
+    tier: 'observe',
+    description:
+      'How a table relates to the rest of the data model: its parents, the tables that extend it, the reference fields it holds ' +
+      '(by target table) and the fields on other tables that point at it. Capped lists; system tables left out of "pointed at by" ' +
+      'unless asked for. Needs read access to the dictionary. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        table: str('Table name, e.g. "incident". Defaults to the open page\'s table.'),
+        showSystem: { type: 'boolean', description: 'Also list fields on sys_* and other platform tables that point at this table.' },
+      },
+    },
+  },
+  {
+    name: 'find_dotwalk_path',
+    tier: 'observe',
+    description:
+      'The shortest dot-walk paths from one table to another (for example incident to the caller\'s manager\'s department), as ' +
+      'dot-walk strings such as "caller_id.manager". Follows reference fields up to 4 steps. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: str('Starting table, e.g. "incident". Defaults to the open page\'s table.'),
+        to: str('Table to reach, e.g. "cmn_department".'),
+        maxDepth: { type: 'integer', minimum: 1, maximum: 4, description: 'Longest path to look for (default 4).' },
+      },
+      required: ['to'],
+    },
+  },
+  {
+    name: 'explain_preview_problems',
+    tier: 'observe',
+    description:
+      'Why a retrieved update set will not commit: reads its preview problems and explains each open one in plain words with the safe ' +
+      'next step, which other retrieved set creates what is missing, collisions with newer local versions, and a commit order. ' +
+      'Without updateSet it lists the retrieved sets with their problem counts. Read-only; never presses Accept or Skip.',
+    inputSchema: {
+      type: 'object',
+      properties: { updateSet: str('Retrieved update set (sys_remote_update_set): its sys_id or name. Omit to list them.') },
+    },
+  },
+  {
+    name: 'find_artifact',
+    tier: 'observe',
+    description:
+      'Find configuration records by name across kinds: business rules, script includes, client scripts, UI actions, ACLs, notifications, ' +
+      'flows, widgets, tables, dictionary fields, properties, roles, users and more. Returns kind, name, table, sys_id, scope, active and ' +
+      'a link, best match first, capped. Use read_artifact to read one. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        term: str('Part of the name (3+ characters; 2 when kind is given), e.g. "incident closed" or "AjaxUtil".'),
+        kind: str('Search one kind only: br business rule, si script include, cl client script, uia UI action, uip UI policy, acl, notif notification, flow, widget, table, dict field, prop property, u user.', {
+          enum: ['br', 'si', 'cl', 'uia', 'uip', 'uis', 'uipg', 'macro', 'job', 'fix', 'acl', 'notif', 'es', 'evt', 'ea', 'flow', 'action', 'wf', 'tm', 'sra', 'widget', 'page', 'prov', 'table', 'dict', 'prop', 'role', 'g', 'u', 'item', 'app', 'us'],
+        }),
+        limit: { type: 'integer', minimum: 1, maximum: 25, description: 'Rows to return (default 15).' },
+      },
+      required: ['term'],
+    },
+  },
+  {
+    name: 'run_selfcheck',
+    tier: 'observe',
+    description:
+      'NowBuddy\'s Self-check on this instance: whether the Table and Stats APIs answer, and whether the tables and columns each ' +
+      'NowBuddy tool reads exist and are readable for this user. Returns a verdict, the API results, and the tools that will not work or ' +
+      'work with gaps with the exact table.column names behind each. Use it when a tool fails or a table/column may not exist on ' +
+      'this release. Takes up to a minute or two. Never runs a script on the instance. Read-only.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'find_property',
+    tier: 'observe',
+    description:
+      'System properties (sys_properties). mode "search" finds properties by words in the name, description or value; "get" reads one by ' +
+      'its exact name (value, type, description, scope); "usage" lists the active scripts that read, set or mention it. The value of a ' +
+      'password-type or secret-looking property is never returned. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: str('Words to search for (mode "search"), or the exact property name such as "glide.ui.session_timeout" (modes "get", "usage").'),
+        mode: str('What to do (default "search").', { enum: ['search', 'get', 'usage'] }),
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_client_trace',
+    tier: 'observe',
+    description:
+      'What the browser did on the open form while the user had Client trace recording: what stands out (errors, slow or synchronous ' +
+      'GlideAjax, repeated calls, fields changed by several scripts), the story of each field (who set it, when, from what), and a ' +
+      'short timeline. It only reads: it never starts, stops or clears the recording; if nothing was recorded it says how the user ' +
+      'starts it. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: str('"current" (default): the latest page load of each frame; "all": every load since recording began.', { enum: ['current', 'all'] }),
+        field: str('Only this field\'s story and events, e.g. "priority".'),
+        limit: { type: 'integer', minimum: 5, maximum: 40, description: 'Timeline rows to return (default 20).' },
+      },
+    },
+  },
 
   // ---- draft -----------------------------------------------------------------
   {

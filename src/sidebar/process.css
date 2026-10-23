@@ -1,0 +1,370 @@
+/* Flows, approvals and SLAs (/flows): src/sidebar/ProcessPanel.jsx */
+
+.msb-proc__bar {
+  display: grid;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.msb-proc__subject {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.msb-proc__summary-text {
+  min-width: 0;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-soft);
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__muted {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__actions {
+  margin: 6px 0 4px;
+}
+
+.msb-proc__busy {
+  margin-top: 12px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+/* State badges: the word is always printed, the colour only backs it up. */
+.msb-proc__badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-pill);
+  background: var(--msb-bg-sunken);
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.msb-proc__badge--danger {
+  border-color: var(--msb-danger-line);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+}
+
+.msb-proc__badge--warn {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-proc__badge--ok {
+  border-color: var(--msb-ok-line);
+  background: var(--msb-ok-soft);
+  color: var(--msb-ok);
+}
+
+.msb-proc__badge--info {
+  border-color: var(--msb-accent-line);
+  background: var(--msb-accent-soft);
+  color: var(--msb-accent);
+}
+
+/* The answer to "why is this stuck?" */
+.msb-proc__card {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border);
+  border-left: 4px solid var(--msb-fg-muted);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+}
+
+.msb-proc__card--danger {
+  border-left-color: var(--msb-danger);
+}
+
+.msb-proc__card--warn {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-proc__card--ok {
+  border-left-color: var(--msb-ok);
+}
+
+.msb-proc__card--info {
+  border-left-color: var(--msb-accent);
+}
+
+.msb-proc__card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.msb-proc__tag {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__lead {
+  font-size: var(--msb-text-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__detail {
+  color: var(--msb-fg-soft);
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__also {
+  padding-top: 6px;
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-proc__also-title {
+  margin-bottom: 4px;
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__also ul,
+.msb-proc__unread {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-proc__unread {
+  margin-top: 4px;
+  font-weight: 400;
+}
+
+.msb-proc__also li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  color: var(--msb-fg-soft);
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__also li > span:last-child {
+  min-width: 0;
+  flex: 1 1 12em;
+}
+
+/* Sections */
+.msb-proc__sections {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.msb-proc__sections .msb-panel__result {
+  margin-bottom: 0;
+}
+
+.msb-proc__summary {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.msb-proc__summary .msb-panel__badge {
+  margin-left: 0;
+}
+
+.msb-proc__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.msb-proc__rows {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-proc__row {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-border-strong);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg-soft);
+}
+
+.msb-proc__row--danger {
+  border-left-color: var(--msb-danger);
+}
+
+.msb-proc__row--warn {
+  border-left-color: var(--msb-warn);
+}
+
+.msb-proc__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.msb-proc__title {
+  min-width: 0;
+  flex: 1 1 10em;
+  font-weight: 600;
+  color: var(--msb-fg);
+  overflow-wrap: anywhere;
+}
+
+a.msb-proc__title {
+  color: var(--msb-accent);
+}
+
+.msb-proc__headline {
+  color: var(--msb-fg);
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__error {
+  padding: 6px 8px;
+  border: 1px solid var(--msb-danger-line);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-danger-soft);
+  color: var(--msb-danger);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__error-label {
+  font-family: var(--msb-font);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.msb-proc__note {
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__when {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.msb-proc__lines {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__lines summary {
+  cursor: pointer;
+}
+
+.msb-proc__lines ul {
+  display: grid;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.msb-proc__lines li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  overflow-wrap: anywhere;
+}
+
+.msb-proc__line-when {
+  flex: none;
+  min-width: 6em;
+  cursor: help;
+}
+
+/* A section that is empty, not applicable, not on the instance or could not be read: one compact block */
+.msb-proc__stub {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__stub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--msb-fg);
+}
+
+.msb-proc__stub-head .msb-panel__badge {
+  margin-left: 0;
+}
+
+.msb-proc__stub--unread {
+  border-color: var(--msb-warn-line);
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+.msb-proc__stub--unread .msb-proc__stub-head {
+  color: var(--msb-warn);
+}
+
+.msb-proc__na {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-proc__foot {
+  margin-top: 10px;
+}
+
+.msb-proc .msb-panel__result-body {
+  padding-top: 0;
+}

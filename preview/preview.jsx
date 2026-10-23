@@ -24,6 +24,8 @@ import { prodGuardAsk, runScriptAsk } from '../src/lib/confirmCopy.js';
 import { createCommandPalette } from '../src/content/commandPalette.js';
 import { createWelcome } from '../src/content/welcome.js';
 import { createGuide } from '../src/content/guide.js';
+import { createWhatsNew } from '../src/content/whatsNew.js';
+import manifest from '../manifest.json';
 import { lintScript } from '../src/lib/lint.js';
 import { attachUiRoot, UI_HOST_ID } from '../src/content/uiRoot.js';
 import { writeGuard, flatValue } from '../src/lib/pushArtifact.js';
@@ -319,6 +321,7 @@ api.registerServices({
     return { host: 'dev12345.service-now.com', env, label: env.toUpperCase(), allowed: env === 'dev' || env === 'test' || env === 'stage' };
   },
   testDataExisting: async (table, ids) => new Set(ids.filter((id) => window.__created?.has(id))),
+  openRegisteredPanel: (name, panelParams) => api.openPanel(name, panelParams),
   fetchLiveUpdateSets: () => fetchLiveUpdateSets(),
   findCollisions: (setId) => findCollisions(setId),
   findUncapturedChanges: (options) => findUncapturedChanges(options),
@@ -367,7 +370,11 @@ if (params.get('inline')) {
 let palette = null;
 let welcome = null;
 let guide = null;
-if (params.get('palette') || params.get('welcome') || params.get('guide')) {
+let whatsNew = null;
+// ?whatsnew=1: the "What's new" card shown at once. ?whatsnew=auto: the real once-per-version path (a person who has dismissed the
+// first-run card; it appears after ?delay=<ms>, default 1500). ?whatsnew=new: a person who has not (the card must NOT appear and
+// window.__msb.storage shows the notes marked as seen). ?whatsnew=seen: already seen this version (must not appear).
+if (params.get('palette') || params.get('welcome') || params.get('guide') || params.get('whatsnew')) {
   const toast = window.__toast || createToastHost();
   if (!window.__toast) shadow.appendChild(toast.element);
   window.__toast = toast;
@@ -388,6 +395,7 @@ if (params.get('palette') || params.get('welcome') || params.get('guide')) {
     toggleTheme: () => {},
     showWelcome: () => welcome?.show(),
     showGuide: () => guide?.show(),
+    showWhatsNew: () => whatsNew?.show(),
     onOpenChange: () => {},
     impersonate: () => {},
     impersonateByQuery: () => {},
@@ -396,11 +404,28 @@ if (params.get('palette') || params.get('welcome') || params.get('guide')) {
   shadow.appendChild(palette.element);
   welcome = createWelcome({ shadow, openPalette: () => palette.open(), openGuide: () => guide?.show() });
   guide = createGuide({ shadow, openPalette: (text) => palette.open(text), getContext: pageContext, showTour: () => welcome?.show() });
+  whatsNew = createWhatsNew({
+    shadow,
+    openPalette: (text) => palette.open(text),
+    openPanel: (name) => {
+      api.openForTool();
+      api.openPanel(name);
+    },
+    openEditor: () => toast.info('Full-screen editor'),
+    isPaletteOpen: () => palette.isOpen(),
+    getVersion: () => manifest.version,
+    delayMs: Number(params.get('delay')) || 1500,
+  });
   if (params.get('welcome')) welcome.show();
   if (params.get('guide')) guide.show();
+  const whatsNewMode = params.get('whatsnew');
+  if (whatsNewMode === '1') whatsNew.show();
+  if (whatsNewMode === 'auto' || whatsNewMode === 'seen') memory.mysnowbuddy_welcomed = true;
+  if (whatsNewMode === 'seen') memory.mysnowbuddy_whatsnew_seen = manifest.version;
+  if (whatsNewMode === 'auto' || whatsNewMode === 'seen' || whatsNewMode === 'new') whatsNew.maybeShow();
   if (params.get('palette') === 'open') setTimeout(() => palette.open(params.get('prefill') || ''), 300);
 }
-window.__msb = { api, agentTools, audit, shadow, palette, welcome, guide };
+window.__msb = { api, agentTools, audit, shadow, palette, welcome, guide, whatsNew, storage: memory };
 
 // Script the panels for screenshots: ?open=api|bench|<any panel name from panelRegistry.js>
 const open = params.get('open');

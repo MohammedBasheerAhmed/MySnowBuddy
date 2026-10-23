@@ -11,9 +11,11 @@ const root = path.join(__dirname, '..');
 const outdir = path.join(root, `.test-dist-${process.pid}`);
 fs.rmSync(outdir, { recursive: true, force: true });
 
+// `node tests/run.js notify` runs only the test files whose name contains "notify" (several parallel workers share the tree).
+const only = process.argv[2];
 const entries = fs
   .readdirSync(__dirname)
-  .filter((f) => f.endsWith('.test.js'))
+  .filter((f) => f.endsWith('.test.js') && (!only || f.includes(only)))
   .map((f) => path.join(__dirname, f));
 
 esbuild

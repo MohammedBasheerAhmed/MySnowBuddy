@@ -64,6 +64,7 @@ const SCENARIOS = [
     },
   },
   { name: 'welcome card', query: 'welcome=1' },
+  { name: "what's new card", query: 'whatsnew=1' },
   { name: 'on-page tools: form', query: 'inline=1', settle: 1800 },
   { name: 'on-page tools: list', query: 'inline=1&page=list', settle: 1800 },
   { name: 'on-page tools: field popover', query: 'inline=1', settle: 1800, trustedClick: '[data-msb-inline="btn"]' },

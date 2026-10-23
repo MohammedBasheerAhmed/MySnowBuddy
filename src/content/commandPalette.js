@@ -7,7 +7,9 @@
 //
 // Keyboard: Up/Down or Ctrl+N/P to move, Enter to run, Shift/Ctrl+Enter to
 // open a navigation in a new tab, Alt+Enter to copy a navigation's link,
-// Alt+1..9 to run the numbered result, Esc to close.
+// Alt+1..9 to run the numbered result, Esc to close. On a "go to" result (a
+// business rule, script include, ACL... found by name) Tab or Right Arrow opens
+// its actions: open, new tab, edit the script, where it is used, versions, copy.
 //
 // Ranking learns from use: commands you run often and lately rise to the top
 // of the empty palette and of ties in a search. Any search also ends with
@@ -16,7 +18,7 @@
 
 import { buildCommands, buildProviders, slashCommand, GROUPS } from './commands.js';
 import { SPECIAL_VERBS, findCommand } from '../lib/slashCommands.js';
-import { buildStoredCommands, goToDefinitionCommand, openByNameProvider, STORED_GROUPS } from './storedCommands.js';
+import { buildStoredCommands, goToDefinitionCommand, goToProvider, goToActions, resumePendingEdit, STORED_GROUPS } from './storedCommands.js';
 import { slashNavProvider } from './slashBar.js';
 import { encodedQueryProvider } from './queryTools.js';
 import { scaffoldProvider } from './scaffoldCommands.js';
@@ -48,6 +50,9 @@ const GROUP_ICONS = {
 };
 
 const PROVIDER_DEBOUNCE_MS = 180;
+const GOTO_DEBOUNCE_MS = 240; // name searches wait a little longer: each one is several requests
+// While the actions of a result are open, these keys belong to them.
+const MENU_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab', 'Home', 'End']);
 const MAX_RESULTS = 40;
 const RECENT_SHOWN = 6;
 const QUICK_KEYS = 9; // Alt+1..Alt+9
@@ -112,10 +117,15 @@ export function createCommandPalette(deps) {
   const urlHints = el('span', 'msb-palette__hintGroup');
   urlHints.append(hintGroup(['Shift', 'Enter'], 'new tab'), hintGroup(['Alt', 'Enter'], 'copy link'));
   urlHints.hidden = true;
+  // Tab opens the actions of a result found by name; shown only while one is highlighted.
+  const actionHints = hintGroup(['Tab'], 'actions');
+  actionHints.classList.add('msb-palette__hintGroup--actions');
+  actionHints.hidden = true;
   footer.append(
     hintGroup(['\u2191', '\u2193'], 'navigate'),
     hintGroup(['Enter'], 'run'),
     urlHints,
+    actionHints,
     hintGroup(['Alt', '1-9'], 'jump'),
     hintGroup(['Alt', 'P'], 'pin')
   );
@@ -135,7 +145,19 @@ export function createCommandPalette(deps) {
   let pinned = [];
   let pageCtx = {};
   let stats = {};
+  // "Go to anything": name searches run on their own pipeline so a slow table never delays the other results, and
+  // their rows appear as each kind answers.
+  let goTo = null;
+  let goToRows = [];
+  let goToTimer = null;
+  let goToRunner = null;
+  let lastDynamic = [];
+  let menu = null; // { index, rowId, active, actions: [{ id, label, hint }] }: the actions of a highlighted result
+  let moved = false; // the user moved the highlight since the text last changed
   const searchProviders = latestOnly((term) => Promise.allSettled(providers.map((provider) => provider(term))));
+
+  // The page that was open when the palette was created may be waiting for the editor ("Open it, then edit the script").
+  resumePendingEdit({ getContext, openScriptEditor: deps.openScriptEditor, toast });
 
   overlay.addEventListener('mousedown', (event) => {
     if (event.target.hasAttribute('data-msb-close')) close();
@@ -143,14 +165,19 @@ export function createCommandPalette(deps) {
   });
 
   input.addEventListener('input', () => {
+    closeMenu({ redraw: false });
     updateMode();
+    moved = false;
+    lastDynamic = [];
+    // The rows already fetched narrow at once while the next letter's request is on its way.
+    goToRows = goTo ? goTo.instant(input.value) : [];
     render();
     scheduleProviders();
   });
 
   function updateMode() {
     const v = input.value;
-    const label = v.startsWith('/') ? 'Shortcut' : v.startsWith('@') ? 'Impersonate' : /^[0-9a-f]{32}$/i.test(v.trim()) ? 'sys_id' : '';
+    const label = v.startsWith('/') ? 'Shortcut' : v.startsWith('@') ? 'Impersonate' : /^[0-9a-f]{32}$/i.test(v.trim()) ? 'sys_id' : goTo ? goTo.modeLabel(v) : '';
     modeChip.textContent = label;
     modeChip.hidden = !label;
   }
@@ -163,15 +190,30 @@ export function createCommandPalette(deps) {
       // A page script's synthetic Enter must not run the selected command (impersonate, switch, ...).
       if (overlay.hidden || event.isComposing || !event.isTrusted) return;
       const letter = event.key.toLowerCase();
-      if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p')) && quickIndex(event) === -1 && !isPinKey(event)) return;
+      if (!NAV_KEYS.has(event.key) && !(event.ctrlKey && (letter === 'n' || letter === 'p')) && quickIndex(event) === -1 && !isPinKey(event) && !isMenuKey(event)) return;
       event.stopImmediatePropagation();
       onKeyDown(event);
     },
     true
   );
 
+  // Tab or Right Arrow (with the caret at the end of the text) open the actions of a "go to" result; while they are
+  // open, the arrows, Enter, Esc and Tab belong to them.
+  function isMenuKey(event) {
+    if (menu) return MENU_KEYS.has(event.key);
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !results[activeIndex]?.goTo) return false;
+    if (event.key === 'Tab') return true;
+    return event.key === 'ArrowRight' && input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+  }
+
   function onKeyDown(event) {
     const key = event.key;
+    if (menu && handleMenuKey(event)) return;
+    if (!menu && (key === 'Tab' || key === 'ArrowRight') && isMenuKey(event)) {
+      event.preventDefault();
+      openMenu(activeIndex);
+      return;
+    }
     if (isPinKey(event)) {
       event.preventDefault();
       togglePin(results[activeIndex]);
@@ -255,7 +297,104 @@ export function createCommandPalette(deps) {
     setActive(next);
   }
 
+  // ---- Actions of a "go to" result -----------------------------------------------------------------------------
+  function openMenu(index) {
+    const row = results[index];
+    const actions = goToRunner && row?.goTo ? goToRunner.list(row) : [];
+    if (!actions.length) return;
+    menu = { index, rowId: row.id, active: 0, actions };
+    paint();
+    syncMenuActive();
+  }
+
+  function closeMenu({ redraw = true } = {}) {
+    if (!menu) return;
+    menu = null;
+    // Results that arrived while the actions were open are drawn now.
+    if (redraw) render(lastDynamic, { keepActive: true });
+  }
+
+  // The menu's items are not focused (focus stays in the input); aria-activedescendant announces the highlighted one.
+  function syncMenuActive() {
+    if (!menu) return;
+    resultsEl.querySelectorAll('.msb-palette__menuItem').forEach((node, i) => {
+      node.classList.toggle('msb-palette__menuItem--active', i === menu.active);
+      node.setAttribute('aria-selected', String(i === menu.active));
+      if (i === menu.active) {
+        input.setAttribute('aria-activedescendant', node.id);
+        node.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  }
+
+  function handleMenuKey(event) {
+    const key = event.key;
+    const letter = key.toLowerCase();
+    if (key === 'ArrowDown' || key === 'ArrowUp' || (event.ctrlKey && (letter === 'n' || letter === 'p'))) {
+      event.preventDefault();
+      const delta = key === 'ArrowUp' || letter === 'p' ? -1 : 1;
+      menu.active = (menu.active + delta + menu.actions.length) % menu.actions.length;
+      syncMenuActive();
+      return true;
+    }
+    if (key === 'Home' || key === 'End') {
+      event.preventDefault();
+      menu.active = key === 'Home' ? 0 : menu.actions.length - 1;
+      syncMenuActive();
+      return true;
+    }
+    if (key === 'Enter' && !event.altKey) {
+      event.preventDefault();
+      runMenuAction(menu.active);
+      return true;
+    }
+    if (key === 'Escape' || key === 'ArrowLeft' || key === 'Tab' || key === 'ArrowRight') {
+      event.preventDefault();
+      closeMenu();
+      return true;
+    }
+    return false;
+  }
+
+  async function runMenuAction(actionIndex) {
+    if (!menu) return;
+    const row = results[menu.index];
+    const action = menu.actions[actionIndex];
+    close();
+    if (!row || !action) return;
+    try {
+      await goToRunner.run(action.id, row);
+    } catch (err) {
+      toast.error(err.message || String(err));
+    }
+  }
+
+  function buildMenu() {
+    // A group of options inside the same listbox, so the screen reader reads them as part of the results.
+    const list = el('div', 'msb-palette__menu');
+    list.setAttribute('role', 'group');
+    list.setAttribute('aria-label', `Actions for ${results[menu.index]?.title || 'this result'}`);
+    menu.actions.forEach((action, i) => {
+      const node = el('div', 'msb-palette__menuItem');
+      node.id = `msb-palette-menu-${i}`;
+      node.setAttribute('role', 'option');
+      node.setAttribute('aria-selected', 'false');
+      node.appendChild(el('span', 'msb-palette__menuLabel', action.label));
+      node.appendChild(el('span', 'msb-palette__menuHint', action.hint || ''));
+      node.addEventListener('mousemove', (event) => {
+        if ((event.movementX || event.movementY) && menu && menu.active !== i) {
+          menu.active = i;
+          syncMenuActive();
+        }
+      });
+      node.addEventListener('click', trustedDom(() => runMenuAction(i)));
+      list.appendChild(node);
+    });
+    return list;
+  }
+
   function setActive(index) {
+    moved = true;
     activeIndex = Math.max(0, Math.min(index, results.length - 1));
     resultsEl.querySelectorAll('.msb-palette__item').forEach((el, i) => {
       el.classList.toggle('msb-palette__item--active', i === activeIndex);
@@ -266,10 +405,13 @@ export function createCommandPalette(deps) {
       }
     });
     urlHints.hidden = !(results[activeIndex]?.url || results[activeIndex]?.copyUrl);
+    actionHints.hidden = !results[activeIndex]?.goTo;
   }
 
   async function execute(command, newTab) {
     if (!command) return;
+    // A note ("Searching...", "Business Rules cannot be read here") has nothing to run; the palette stays open.
+    if (command.status) return;
     close();
     try {
       // Only the registered actions are worth learning; one-off results (a sys_id, a user, a typed query) are not.
@@ -287,10 +429,27 @@ export function createCommandPalette(deps) {
 
   function scheduleProviders() {
     clearTimeout(providerTimer);
+    clearTimeout(goToTimer);
     // Results still in flight are for the old text; they must not land after this keystroke.
     searchProviders.cancel();
+    goTo?.cancel();
     const query = input.value;
     providerTimer = setTimeout(() => runProviders(query), PROVIDER_DEBOUNCE_MS);
+    goToTimer = setTimeout(() => runGoTo(query), GOTO_DEBOUNCE_MS);
+  }
+
+  // Name search ("go to anything"): rows arrive as each kind answers, and the next keystroke cancels this run.
+  async function runGoTo(query) {
+    if (!goTo || overlay.hidden || input.value !== query) return;
+    const paintRows = (rows) => {
+      if (overlay.hidden || input.value !== query) return;
+      if (!rows.length && !goToRows.length) return;
+      goToRows = rows;
+      // With the actions of a result open, the list stays put; it is redrawn when they close.
+      if (!menu) render(lastDynamic, { keepActive: true });
+    };
+    const rows = await goTo.search(query.trim(), paintRows);
+    if (rows) paintRows(rows);
   }
 
   async function runProviders(query) {
@@ -305,13 +464,18 @@ export function createCommandPalette(deps) {
       .flatMap((r) => r.value || []);
     if (!dynamic.length) return;
 
-    render(dynamic);
+    lastDynamic = dynamic;
+    // With the actions of a result open the list stays put (a redraw could move that row away under the keys);
+    // closing them draws these rows.
+    if (!menu) render(dynamic, { keepActive: true });
   }
 
-  function render(dynamic = []) {
+  function render(dynamic = [], { keepActive = false } = {}) {
     const query = input.value.trim();
     const scored = [];
     grouped = !query;
+    // A redraw only because more results arrived keeps the highlight on the row it was on, unless that row is gone.
+    const keepId = keepActive && moved && activeIndex > 0 ? results[activeIndex]?.id : null;
 
     if (!query) {
       const recentSet = new Map(commands.map((c) => [c.id, c]));
@@ -346,11 +510,15 @@ export function createCommandPalette(deps) {
       const slash = handledHere ? null : slashCommand(query, sidebar);
       if (slash) scored.push(slash);
       dynamic.forEach((cmd) => scored.push(cmd));
+      goToRows.forEach((cmd) => scored.push(cmd));
+      // A record found by name replaces its "recent record" row.
+      const foundHere = new Set(goToRows.map((cmd) => cmd.goTo?.sysId).filter(Boolean));
       // Two or more words describe a problem ("who changed this"): every word must be found, in any order.
       // A loose character match across that much text would match nearly everything.
       const multiWord = queryWords(query).length >= 2;
       const onPage = new Set(pageSuggestions(pageCtx));
       commands.forEach((cmd) => {
+        if (foundHere.size && cmd.id.startsWith('recent.') && foundHere.has(cmd.id.slice('recent.'.length))) return;
         const rest = `${cmd.hint || ''} ${cmd.keywords || ''} ${intentText(cmd.id)}`;
         // The exact text may be anywhere (title, hint, keywords, problem phrases). A loose "letters in order" match is
         // only trusted on the title: across all that text it matches nearly everything for a name like AssessmentUtils.
@@ -367,12 +535,20 @@ export function createCommandPalette(deps) {
 
     const fallbacks = query ? fallbackCommands(query) : [];
     results = [...dedupe(scored).slice(0, MAX_RESULTS - fallbacks.length), ...fallbacks];
-    activeIndex = 0;
+    // The first row that does something: a note ("Searching...", "cannot be read here") is not the default for Enter.
+    activeIndex = Math.max(0, results.findIndex((r) => !r.status));
+    if (keepId) {
+      const at = results.findIndex((r) => r.id === keepId);
+      if (at !== -1) activeIndex = at;
+    }
+    if (menu && results[menu.index]?.id !== menu.rowId) menu = null; // the row the actions belonged to moved or went
     paint();
   }
 
   // What to offer after the matches, so a query that names no command still leads somewhere.
-  function fallbackCommands(query) {
+  function fallbackCommands(typed) {
+    // After a prefix ("br: closed") the fallbacks are about what follows it.
+    const query = goTo ? goTo.stripPrefix(typed) : typed;
     if (query.length < 2 || query.startsWith('/') || query.startsWith('@') || isSysId(query)) return [];
     const shown = query.length > 34 ? `${query.slice(0, 33)}…` : query;
     const open = (fn) => () => fn(query);
@@ -396,6 +572,7 @@ export function createCommandPalette(deps) {
       [
         ['who changed this', 'describe the problem'],
         ['incident', 'open a table'],
+        ['si: AjaxUtil', 'find a script, rule or ACL by name'],
         ['/tn table', 'list with a filter'],
         ['a sys_id', 'jump to the record'],
         ['@user', 'impersonate'],
@@ -446,7 +623,8 @@ export function createCommandPalette(deps) {
 
       const title = document.createElement('span');
       title.className = 'msb-palette__title';
-      const hits = query && cmd.group !== FALLBACK_GROUP ? matchPositions(query, cmd.title) : [];
+      // A result found by name carries its own highlight (whole words; empty when only another name matched).
+      const hits = cmd.hits || (query && cmd.group !== FALLBACK_GROUP ? matchPositions(query, cmd.title) : []);
       if (hits.length) {
         // Text nodes and <mark>s only: instance data never goes through innerHTML.
         highlightRuns(cmd.title, hits).forEach((run) => title.appendChild(run.hit ? el('mark', 'msb-palette__hl', run.text) : document.createTextNode(run.text)));
@@ -464,16 +642,24 @@ export function createCommandPalette(deps) {
 
       // When results are score-sorted the groups interleave, so the group is
       // shown per row instead of as a header.
-      if (!grouped && cmd.group) {
+      if (!grouped && cmd.group && !cmd.kindLabel) {
         const tag = document.createElement('span');
         tag.className = 'msb-palette__badge';
         tag.textContent = cmd.group;
         item.appendChild(tag);
       }
 
+      // A result found by name: what kind of thing it is, and whether it is switched off.
+      if (cmd.kindLabel) item.appendChild(el('span', 'msb-palette__badge msb-palette__badge--kind', cmd.kindLabel));
+      if (cmd.inactive) {
+        item.classList.add('msb-palette__item--inactive');
+        item.appendChild(el('span', 'msb-palette__badge msb-palette__badge--inactive', 'inactive'));
+      }
+      if (cmd.status) item.classList.add('msb-palette__item--status');
+
       if (cmd.badge) item.appendChild(el('span', 'msb-palette__badge', cmd.badge));
       if (!grouped && pinned.includes(cmd.id)) item.appendChild(el('span', 'msb-palette__badge', 'pinned'));
-      if (cmd.url) {
+      if (cmd.url && !cmd.kindLabel) {
         const badge = document.createElement('span');
         badge.className = 'msb-palette__badge msb-palette__badge--open';
         badge.textContent = 'open';
@@ -487,12 +673,16 @@ export function createCommandPalette(deps) {
       // row Enter runs.
       item.addEventListener('mousemove', (event) => {
         if (!event.movementX && !event.movementY) return;
-        if (index !== activeIndex) setActive(index);
+        if (index !== activeIndex && !menu) setActive(index);
       });
       item.addEventListener('click', trustedDom((event) => execute(cmd, event.shiftKey || event.ctrlKey || event.metaKey)));
       resultsEl.appendChild(item);
+      // The actions of the highlighted result open right under it.
+      if (menu && menu.index === index) resultsEl.appendChild(buildMenu());
     });
     urlHints.hidden = !(results[activeIndex]?.url || results[activeIndex]?.copyUrl);
+    actionHints.hidden = !results[activeIndex]?.goTo;
+    syncMenuActive();
   }
 
   // ServiceNow (and the classic gsft_main iframe) can hold focus, so retry until the input has it.
@@ -552,9 +742,16 @@ export function createCommandPalette(deps) {
         run: () => toast.info(hiddenNote),
       });
     }
+    // Names (rules, script includes, ACLs...) are searched by the go-to pipeline above, not by a provider here.
+    goTo = goToProvider({ ctx, tier });
+    goTo.reset();
+    goToRunner = goToActions({ sidebar, toast, openScriptEditor: deps.openScriptEditor, ctx });
+    goToRows = [];
+    lastDynamic = [];
+    menu = null;
+    moved = false;
     providers = [
       ...buildProviders({ ...deps, ctx }),
-      openByNameProvider(),
       encodedQueryProvider({ ctx, toast }),
       scaffoldProvider({ ctx, toast, reopen: (text) => open(text) }),
       instanceSwitchProvider({ toast }),
@@ -605,6 +802,13 @@ export function createCommandPalette(deps) {
     input.value = '';
     results = [];
     resultsEl.replaceChildren();
+    // Stop name searches and forget their results (they are kept per open palette).
+    clearTimeout(goToTimer);
+    goTo?.cancel();
+    goTo?.reset();
+    goToRows = [];
+    lastDynamic = [];
+    menu = null;
   }
 
   function toggle(prefill) {

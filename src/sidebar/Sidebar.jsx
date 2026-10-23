@@ -34,6 +34,7 @@ import AgentRun from './AgentRun.jsx';
 import Icon from './Icon.jsx';
 import ToolWindow from './ToolWindow.jsx';
 import { defaultWindowRect, upsertWindow } from '../lib/toolWindow.js';
+import { splitOpenParams } from '../lib/panelLinks.js';
 import MessageBody, { HelpBody } from './MessageBody.jsx';
 import { runAgent } from '../lib/agent/agentLoop.js';
 import { TOOL_SCHEMAS } from '../lib/agent/toolSchemas.js';
@@ -161,7 +162,7 @@ const WINDOW_TITLES = {
 const windowTitle = (name) => WINDOW_TITLES[name] || panelByName(name)?.title || name;
 
 // Tools that show wide tables, diffs or logs open larger.
-const WIDE_TOOLS = new Set(['compare', 'search', 'query', 'logtail', 'rest', 'versions', 'fields', 'remote', 'updateset', 'xray', 'health', 'access', 'impact', 'hotspots', 'atf', 'testbench', 'bgscript']);
+const WIDE_TOOLS = new Set(['compare', 'search', 'query', 'logtail', 'rest', 'versions', 'fields', 'remote', 'updateset', 'xray', 'health', 'access', 'impact', 'hotspots', 'atf', 'testbench', 'bgscript', 'datamodel', 'clienttrace', 'portal', 'notify', 'process', 'previewfix']);
 const windowSize = (name) => (WIDE_TOOLS.has(name) ? { w: 560, h: 620 } : { w: 480, h: 580 });
 
 const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpenPalette = null }, ref) {
@@ -443,12 +444,16 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     openPanel(name, { context: ctx, ...params });
   }
 
-  // Panels from panelRegistry.js; their extra params arrive as `params`.
+  // Panels from panelRegistry.js; their extra params arrive as `params`. A caller that wants the panel on a record other
+  // than the one on screen (a failed email's record, a flow's source record) passes it as `params.context`
+  // ({ table, sysId }); a panel that reads the record then gets that one instead of the page's.
   function openRegisteredPanel(name, params = {}) {
     const entry = panelByName(name);
     if (!entry) return false;
-    if (entry.withContext) openWithContext(name, { params });
-    else openPanel(name, { params });
+    const { context: pinned, params: rest } = splitOpenParams(params);
+    if (entry.withContext && pinned) openPanel(name, { context: pinned, params: rest });
+    else if (entry.withContext) openWithContext(name, { params: rest });
+    else openPanel(name, { params: rest });
     return true;
   }
 
@@ -1350,7 +1355,7 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
           const Panel = entry.component;
           return (
             <Panel
-              key={`${p.name}:${p.params?.args || ''}`}
+              key={`${p.name}:${p.params?.args || ''}:${p.context?.table || ''}:${p.context?.sysId || ''}`}
               context={p.context || null}
               params={p.params || {}}
               services={servicesRef.current}

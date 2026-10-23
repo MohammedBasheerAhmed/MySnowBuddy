@@ -15,6 +15,11 @@ See [PROGRESS.md](PROGRESS.md) for current build status and
 [docs/decisions.md](docs/decisions.md) for implementation decisions and open
 follow-ups (start any new session by reading those two files first).
 
+Also: [docs/SHOWCASE.md](docs/SHOWCASE.md) (a demo script), [docs/LIVE_CHECK.md](docs/LIVE_CHECK.md)
+(a 20-minute checklist for running the newest tools on a real instance) and
+[docs/features/](docs/features/) (one page per newer tool: what it reads and which
+assumptions are not yet confirmed live).
+
 ## Tech stack
 - Plain JavaScript (no TypeScript)
 - React for the chat sidebar and options page UI, transpiled via esbuild (JSX only)
@@ -52,6 +57,16 @@ tests/evals/            Eval cases for the skills (offline in npm test, live wit
 dist/                   Build output - load THIS folder as an unpacked extension
 ```
 
+## Requirements
+- Chrome or Edge **111 or newer**. The Client trace recorder is a content script that
+  runs in the page's own JavaScript world (`"world": "MAIN"`), which needs 111.
+- Node 18 or newer to build (developed on 22) and `npm install` for esbuild, React
+  and the dev tools. No other runtime dependencies.
+- A ServiceNow instance you can sign in to. The extension reads and acts with your own
+  browser session; it has no server of its own. The checks were calibrated on a personal
+  developer instance (Australia patch 7). Other releases may name a table or column
+  differently: the **Self-check** (`/doctor`) says which tools that affects.
+
 ## Setup
 ```
 npm install
@@ -75,8 +90,15 @@ and paste a key.
 
 ## Load as an unpacked extension
 1. `npm run build`
-2. Chrome/Edge → Extensions → Enable Developer Mode → "Load unpacked"
-3. Select the `dist/` folder
+2. Chrome: open `chrome://extensions` (Edge: `edge://extensions`) and turn on Developer mode
+3. "Load unpacked", then select the `dist/` folder
+4. Open a ServiceNow page (`https://<instance>.service-now.com`) and press `Ctrl+Shift+Space`
+
+After each rebuild press the reload arrow on the extension's card **and reload the
+ServiceNow tab**. A tab that was open before the update does not have the newest content
+scripts (the Client trace recorder in particular), and says so in its panel.
+Run **Self-check** first (`/doctor` in the palette or chat box): it tells you whether
+NowBuddy can read your instance and which tools have the tables and columns they need.
 
 ## Features
 
@@ -136,7 +158,7 @@ access) hosted by an offscreen document, with a 6 second kill switch.
 
 | Tier | Examples | Runs |
 | --- | --- | --- |
-| observe | read_page, navigate, get_instance_info, get_schema, query_table, read_artifact, search_code, read_logs, lookup_api, explain_access, explain_field, check_update_set, scan_instance_health | automatically |
+| observe | read_page, navigate, get_instance_info, get_schema, query_table, read_artifact, search_code, read_logs, lookup_api, explain_access, explain_field, check_update_set, scan_instance_health, explain_email, explain_process, map_table, find_dotwalk_path, explain_preview_problems, find_artifact, run_selfcheck, find_property, read_client_trace | automatically |
 | draft | verify_script, test_client_script | automatically (no side effects) |
 | run | dry_run_script, run_atf | asks (or automatically in "Auto dry runs" mode; never ATF, never for external agents) |
 | write | set_form_field, save_form, save_artifact, create_record, update_record, delete_record, click_ui_action, run_background_script, switch_update_set, switch_application_scope, impersonate_user, end_impersonation, run_ui_steps, undo_last_write | always asks, with a diff or the full record; on PROD you must type the instance name |
@@ -170,7 +192,15 @@ anything that changes something:
   `switch_update_set` / `switch_application_scope` (read back to confirm),
   `impersonate_user` / `end_impersonation`, `run_atf`.
 - **Explain**: `explain_access`, `explain_field`, `check_update_set` and
-  `scan_instance_health` expose the analysis panels below as tools.
+  `scan_instance_health` expose the analysis panels below as tools. So do the
+  Email tracer (`explain_email`: "why was no email sent for INC0010042?"),
+  Flows and approvals (`explain_process`), the Data model map (`map_table`,
+  `find_dotwalk_path`), Preview problems (`explain_preview_problems`) and Go to
+  anything (`find_artifact`), the Self-check (`run_selfcheck`), system
+  properties (`find_property`: search, read one, who reads it; a secret never
+  returns its value) and the Client trace recording (`read_client_trace`; it
+  only reads, the user starts and stops recording). All are read-only and return
+  short answers: the verdict, the top reasons, links, and a count of what was left out.
 
 **Local MCP bridge.** `mcp/snowbuddy-mcp.js` lets Claude Code or any MCP client call
 the same tools through your logged-in tab, plus two MCP-only tools: `screenshot`
@@ -201,6 +231,7 @@ Type to fuzzy-match commands, or use the input as an omnibox:
 | `@jsmith` | Matching users, Enter to impersonate |
 | `/lint`, `/review`, … | Runs the chat slash command |
 | a problem, in your own words (`who changed this`, `why can't they see this`, `what did I change`) | The command that answers it |
+| part of a name: `closed`, `AjaxUtil`, `br: closed`, `si: ajax`, `acl: incident.state`, `widget: approval` | **Go to anything**: business rules, script includes, client scripts, UI actions, ACLs, notifications, flows, widgets, properties, roles, users and more. `br:`, `si:`, `acl:` and the other kind prefixes narrow it; `Tab` on a result shows what you can do with it (open, edit the script here, where it is used, versions, copy link) |
 | nothing | Pinned commands, then Suggested for this page, then recent commands and records, then everything grouped |
 
 `Enter` runs, `Shift`/`Ctrl+Enter` opens navigations in a new tab, `↑`/`↓` or
@@ -211,7 +242,9 @@ The palette is page-aware: on a script record it suggests lint, the full-screen
 editor and versions; on a list it suggests explain, count and copy query; on an
 update set it suggests review and ship check. `Alt+P` pins the highlighted
 command (up to 8, kept at the top), and `Alt+1`..`Alt+9` runs the Nth result.
-First run shows a short tour card; "Quick tour" in the palette brings it back.
+First run shows a short tour card; "Quick tour" in the palette brings it back. After
+an update, a "What's new" card lists the new tools once (only for people who already
+dismissed the tour); "What's new" in the palette opens it again.
 
 What it covers beyond the analysis features below:
 
@@ -252,6 +285,34 @@ These need the classic form and list DOM (including classic pages inside the
 Next Experience shell). Native workspace forms get the bottom bar only. In the
 options page, "Where tools open" switches windows to the sidebar, and the page
 toolbar and menus can be turned off.
+
+### Keyboard shortcuts
+
+| Keys | Does |
+| --- | --- |
+| `Ctrl+Shift+Space` | Command palette (Mac: `Control+Shift+Space`; remap at `chrome://extensions/shortcuts`) |
+| `Alt+Shift+C` | Chat sidebar |
+| `Alt+Shift+X` | Page X-ray on or off |
+| `Alt+Shift+E` | Script editor (over the field, or full screen) |
+| `Alt+click` / `Alt+Shift+click` on a form label | Copy the field name / its value |
+| In the palette: `Alt+P`, `Alt+1`..`Alt+9`, `Tab`, `Shift+Enter` | Pin the highlighted command, run the Nth result, show a result's actions (go to anything), open in a new tab |
+
+In the script editor (`F1` lists them all). Added in 0.9:
+
+| Keys | Does |
+| --- | --- |
+| `Ctrl+Shift+O` | Go to a function, method or handler (also the breadcrumb in the footer) |
+| `Shift+Alt+F` | Format the script, or just the selected lines: indentation and spacing only, and it refuses if the result could mean something different |
+| `Alt+F3` / `Shift+Alt+F3` | Next / previous changed region (the bar beside the line numbers marks them; the Changes button lists them with Revert) |
+| `Ctrl+D`, `Ctrl+Shift+L`, `Alt+click` | Select the next occurrence (adds a cursor), select every occurrence, add a cursor |
+| `Ctrl+L`, `Ctrl+J` | Select the line, join with the next line |
+| `Tab` / `Shift+Tab` after a snippet name (`si`, `sia`, `br`, `onchange`, `gr`, `ajax`...) | Fill the template's blanks one after another; `Esc` stops |
+| `Ctrl+Shift+Enter` | Dry run the selection or the script (it never starts a real run) |
+
+Older ones: `Ctrl+Space` completion, `F8` next problem, `Ctrl+.` quick fix, `F12` /
+`Ctrl+click` go to definition, `Shift+F12` find references, `Ctrl+G` go to line,
+`Ctrl+/` comment, `Alt+Up/Down` move line, `Ctrl+S` apply to the field, `Ctrl+Enter`
+apply and close, `Ctrl+Shift+S` apply and save the record.
 
 ### Chat sidebar
 Toggle with `Alt+Shift+C` or from the extension icon. The header shows an
@@ -301,9 +362,27 @@ AI-assisted:
 | `/document` | Generates technical documentation for the current record |
 | `/audit` | Runs the read-only security audit, then asks the model to prioritise the findings |
 
-Panels: `/search`, `/updateset`, `/rest`, `/compare`, `/why` (`/access`), `/xray`,
-`/impact`, `/health` (`/scan`), `/mywork` (`/me`), `/ship` (`/review-set`), `/push`. Plus
-`/help` and `/clear`. Every panel is also in the command palette.
+Panels (each opens a tool; also in the command palette, and the command takes the
+text after it, such as `/map incident` or `/vs INC0010002`):
+
+| Command | Opens |
+| --- | --- |
+| `/search`, `/updateset`, `/rest`, `/compare` | Code search, update set review, REST builder, instance compare |
+| `/why` (`/access`), `/xray`, `/impact` | Access debugger, Page X-ray, Change impact |
+| `/health` (`/scan`), `/mywork` (`/me`), `/ship` (`/review-set`), `/push` | Health scan, My work, Ship check, Push to instance |
+| `/usage`, `/vs` (`/diff`), `/history`, `/refs` | Where a field is used, compare two records, history of a field, what points at a record |
+| `/rules`, `/savetrace`, `/test`, `/testdata` | Why didn't my rule run, Save trace, the test kit, sample records |
+| `/failed`, `/hotspots`, `/recent`, `/release`, `/breakdown` | What went wrong, what is slow or noisy, what changed lately, release notes for an update set, break a list down |
+| `/watch` | **Client trace**: what the page's scripts did to the form |
+| `/notify` (`/whymail`) | **Email tracer**: why wasn't the email sent |
+| `/flows` (`/process`) | **Flows, approvals and SLAs** on this record |
+| `/prop` (`/property`) | **System properties**: find, who reads it, change with undo |
+| `/map` (`/schema`), `/path` (`/dotwalk`) | **Data model map** and dot-walk path finder |
+| `/sp` (`/portal`, `/widgets`) | **Portal inspector** for a Service Portal page |
+| `/preview` (`/problems`) | **Update set preview problems** |
+| `/doctor` (`/selfcheck`) | **Self-check** |
+
+Plus `/help` and `/clear`.
 
 ### Change impact (`/impact`)
 Answers "what does changing this script affect?" before you edit it. Open a business
@@ -349,6 +428,56 @@ now. Lists get column names and the query in plain English; catalog items map
 `IO:` variables to names; Service Portal pages outline widgets with links to the
 widget, instance and editor. Nothing is fetched until you turn it on, and
 everything is removed when you turn it off.
+
+### Debug: what happened, and why (new in 0.9)
+Three read-only tools for "why did that not happen?", each opened from the palette
+(describe the problem), its slash command, or the launcher.
+
+- **Client trace** (`/watch`): a flight recorder for the browser side of a form. Press
+  **Reload and record**, use the form, then read what the page's scripts did, in order:
+  every `g_form` change, GlideAjax and GlideRecord call, dialog, request, error and long
+  freeze, with the client script, UI policy or UI action behind it when the stack
+  allows ("Unknown script" when it does not). It lists what stands out (errors, slow or
+  blocking calls, repeated GlideAjax, fields several scripts fight over), and Copy
+  as Markdown makes a ticket-ready report. It only watches while armed, never stores
+  password fields or values named like a secret, and stops by itself after 30 minutes.
+- **Email tracer** (`/notify`): for the record on screen, which notifications could fire
+  and how far each got: matched, event fired, event processed, email created, email
+  sent. It names the first broken link in a sentence ("everyone on the list is left out:
+  this is the person who fired the event, and Send to event creator is off") and shows who
+  would get the mail and who is left out and why.
+  It also starts from an email, an event or a notification record. It reads the
+  instance's mail settings and never changes anything.
+- **Flows, approvals and SLAs** (`/flows`): everything running, or run, against the
+  record: Flow Designer executions, legacy workflows, approvals, SLAs, child tasks and
+  queued events, with a plain "Waiting on: ..." line at the top. A table your user
+  cannot read is named, not shown as "nothing".
+
+### Explore, change and ship (new in 0.9)
+- **Data model map** (`/map incident`): how a table connects to the others, as a diagram
+  and a list: the extends chain, child tables, the reference fields it holds and the
+  fields elsewhere that point at it. **`/path incident cmn_department`** finds the
+  dot-walk paths between two tables (`caller_id.department`) with the dot-walk string, a
+  GlideRecord line, a `getElement` line, a Table API `sysparm_fields` fragment and an
+  encoded-query condition, each with a Copy button.
+- **Portal inspector** (`/sp`): on a Service Portal page, every widget with its instance
+  options and the live `c.data`, a snapshot-and-compare of the data (click something,
+  see which keys changed), what its code touches, and links to the widget, the Widget
+  Editor and the page. Production portals often switch Angular debug info off; the panel
+  says so and offers to reload the page with it on, after asking.
+- **System properties** (`/prop`): find a property by name, description or value (paste a
+  `gs.getProperty('x', '30')` and it uses the name), see which scripts read or set it,
+  change it behind a confirmation that names the instance and the current update set, and
+  restore it in one click (the panel keeps the old value). Properties of type password
+  or named like a secret never show or copy their value.
+- **Update set preview problems** (`/preview`): for a retrieved update set that will not
+  commit, each preview problem in plain words: what it means, which other retrieved set
+  provides a missing record, what to check, and which platform button to press (it
+  presses none). It also suggests a commit order and copies a report for the change ticket.
+- **Self-check** (`/doctor`): says whether NowBuddy can read this instance (session,
+  Table and Stats API, dictionary, pickers, release) and, for every tool, whether the
+  tables and columns it reads exist and can be read. Copy report gives a Markdown report
+  with no tokens, user name or record values: the thing to send with a bug report.
 
 ### Health scan (`/health`, `/scan`)
 A read-only, prioritised report on custom code and configuration: lint and API
@@ -444,7 +573,7 @@ instance, falling back to per-instance credentials stored in the options page.
 - **Slash shortcuts in the palette**: type `/tn incident`, `/tnn`, `/sys <sys_id>`, `/props`, `/log`, `/code`, `/bg`, `/xml`, `/cs`, `/stats`, `/edit`, `/sync`. Type `/` to see the list.
 - **Instance tag**: the browser tab title and favicon carry the environment (PROD, TEST, DEV) and a coloured bar sits at the top of the page. The palette lists your known instances to jump between them. Setting: `instanceTagEnabled`.
 - **Field tools**: Alt+click a form field label to copy its name, Alt+Shift+click to copy its value.
-- **Full-screen script editor** (`/edit` or `Alt+Shift+E`): autocomplete (`Ctrl+Space`, or automatically after `.` and inside strings) for `g_form`, `g_user`, `gs`, `current`/`previous`, inferred `GlideRecord` variables, dictionary fields with dot-walking, table names, Script Includes and their methods, system properties, roles and snippets; hover docs and parameter hints from the API catalog; live problems with wavy underlines, a Problems list, `F8` to jump and `Ctrl+.` quick fixes; `Alt+Up/Down` move line, `Shift+Alt+Up/Down` duplicate, `Ctrl+Shift+K` delete line, `Ctrl+G` go to line, regex find and replace, `Shift+Alt+F` re-indent; `F1` lists every shortcut. Also: syntax highlighting, line numbers, auto-indent, bracket and quote pairing, `Ctrl+/` comment, lint. `Ctrl+S` applies to the form field, `Ctrl+Enter` applies and closes, `Ctrl+Shift+S` (or Apply & save) applies and saves the record, with an extra confirmation on production. A syntax check runs before applying, and lint and syntax problems show as gutter markers while you type. Run and Dry run execute the script (or the selection) as a background script and show the output under the editor. Ask AI explains, fixes, tests or comments the script (or selection) in the chat sidebar, and Compare opens the other-instance comparison; `Alt+Shift+E` brings the editor back. `F12` or `Ctrl+click` jumps to a local function, Script Include or table. `Shift+F12` (or the References button) finds every script on the instance that uses the Script Include, method or name at the caret, marking real calls apart from words that only look similar. Saving a Script Include that removes, renames or reshapes a method asks first when other scripts still call it (read-only check, off with the safety-guards setting; it never blocks when it cannot finish). `Tab` after `gr`, `grget`, `gra`, `gdt`, `info`, `err`, `try`, `fn` or `ajax` expands a snippet. A chip shows the current update set (highlighted when it is Default). The palette lists the five latest records first when it opens.
+- **Full-screen script editor** (`/edit` or `Alt+Shift+E`): autocomplete (`Ctrl+Space`, or automatically after `.` and inside strings) for `g_form`, `g_user`, `gs`, `current`/`previous`, inferred `GlideRecord` variables, dictionary fields with dot-walking, table names, Script Includes and their methods, system properties, roles and snippets; hover docs and parameter hints from the API catalog; live problems with wavy underlines, a Problems list, `F8` to jump and `Ctrl+.` quick fixes; `Alt+Up/Down` move line, `Shift+Alt+Up/Down` duplicate, `Ctrl+Shift+K` delete line, `Ctrl+G` go to line, regex find and replace; `F1` lists every shortcut (new ones are in Keyboard shortcuts above). Also: syntax highlighting, line numbers, auto-indent, bracket and quote pairing, `Ctrl+/` comment, lint. `Ctrl+S` applies to the form field, `Ctrl+Enter` applies and closes, `Ctrl+Shift+S` (or Apply & save) applies and saves the record, with an extra confirmation on production. A syntax check runs before applying, and lint and syntax problems show as gutter markers while you type. Run and Dry run execute the script (or the selection) as a background script and show the output under the editor. Ask AI explains, fixes, tests or comments the script (or selection) in the chat sidebar, and Compare opens the other-instance comparison; `Alt+Shift+E` brings the editor back. `F12` or `Ctrl+click` jumps to a local function, Script Include or table. `Shift+F12` (or the References button) finds every script on the instance that uses the Script Include, method or name at the caret, marking real calls apart from words that only look similar. Saving a Script Include that removes, renames or reshapes a method asks first when other scripts still call it (read-only check, off with the safety-guards setting; it never blocks when it cannot finish). `Tab` after a snippet name (`gr`, `grget`, `gra`, `gdt`, `info`, `err`, `try`, `fn`, `ajax`, `si`, `sia`, `br`, `onchange`, `onload`, `onsubmit`) expands it with blanks you fill in one after another. New in 0.9: go to a function (`Ctrl+Shift+O`), a Format that refuses any change that could alter meaning (`Shift+Alt+F`), a bar beside the changed lines with Revert per region, several cursors, join and select line, and a dry run from the keyboard. A chip shows the current update set (highlighted when it is Default). The palette lists the five latest records first when it opens.
 - **Edit in VS Code** (`/sync`): pick a local folder and the open script is kept in sync with `<table>/<name>.<field>.js`. Saving in the editor updates the form field; edits on the form update the file. Chrome and Edge only (File System Access API). The folder is chosen each time and never remembered, and sync stops when you leave the record.
 
 ### Developer toolbox
@@ -463,14 +592,20 @@ sync, known instances, impersonation presets, and per-instance
 credential management for Instance Compare.
 
 ## Known limitations
-- **The agent has not been run against a real model, and most features have not been
-  run against a real ServiceNow instance.** A first calibration on a personal developer
-  instance confirmed the Table API tables and columns the older features use, the
-  background script endpoint and the API catalog (several entries were fixed). The
-  control-plane tools, script editor, access debugger, page X-ray, health scan and
-  update set tools (October 2026) are unit tested (400+ tests) but their DOM selectors,
-  endpoints and some columns are assumptions; each is listed in
-  [docs/decisions.md](docs/decisions.md). Not yet: a live Anthropic/OpenAI call.
+- **The agent has not been run against a real model, and the tools added in 0.9 have
+  not been run against a real ServiceNow instance.** Calibration on a personal developer
+  instance (Australia patch 7) confirmed the Table API tables and columns the older
+  features use, the background script endpoint, impersonation and the API catalog
+  (several entries were fixed), and later live passes covered more of the older tools
+  (PROGRESS.md says which). The 0.9 tools (client trace, email tracer, flows, system
+  properties, data model map, portal inspector, preview problems, self-check, go to
+  anything and the editor additions) are unit tested and were looked at in the preview
+  harness with fake data. Their DOM selectors, endpoints and column names are
+  assumptions: [docs/features/](docs/features/) lists each one,
+  [docs/LIVE_CHECK.md](docs/LIVE_CHECK.md) is the 20-minute script that tests them on a
+  real instance, and the Self-check (`/doctor`) tests the tables and columns itself. The
+  older assumptions are in [docs/decisions.md](docs/decisions.md). Not yet: a live
+  Anthropic/OpenAI call.
 - The API catalog was written from general ServiceNow knowledge, not exported from
   an instance or the docs. Entries are conservative (`complete: false` almost
   everywhere, so an unlisted method is only a low-severity note, except a near-miss
@@ -493,13 +628,12 @@ credential management for Instance Compare.
   names differ on your release will fail gracefully and be reported as skipped.
 - `syslog.level` numeric mapping and the `sys_update_xml.name` = `<table>_<sys_id>`
   convention are assumptions that need confirming on your instance.
-- Context detection selectors (`src/content/context.js`) are heuristic and
-  target Next Experience UI. Classic UI's split `gsft_main` iframe is not yet
-  supported (the content script currently only runs in the top-level frame).
-- The background-script-runner and impersonate-user endpoints
-  (`src/content/tableApi.js`) target the historically documented ServiceNow
-  mechanisms (`sys.scripts.do`, `impersonate.do`) but have **not been verified
-  against a live instance**.
+- Context detection selectors (`src/content/context.js`) are heuristic. The classic
+  form frame (`gsft_main`), top level or inside the Next Experience shell, is read
+  through the page bridge; native workspace forms get the bottom bar only.
+- The background-script runner (`sys.scripts.do`) and impersonation
+  (`POST /api/now/ui/impersonate/<sys_id>`) were confirmed on one personal developer
+  instance (see PROGRESS.md); other releases may differ.
 - Dry run depends on `GlideRecord.prototype` being patchable in the execution
   scope. It fails closed (refuses to run) if it is not.
 - Voice input relies on the browser's Web Speech API. In Chrome, audio is
@@ -511,15 +645,16 @@ credential management for Instance Compare.
 - Cross-instance session reuse depends on browser cookie/SameSite behavior and
   has **not been verified against two live instances** — the Basic Auth
   fallback exists precisely because this may not work everywhere.
-- **Nothing has been tested against a real ServiceNow instance yet** — no live
-  instance was available during development. This is the immediate next step.
+- **Run `/doctor` first on any instance you have not used NowBuddy on.** It is the
+  fastest way to find a table or column your release names differently.
 
 ## Roadmap
 Phases 1–7 are implemented (see [PROGRESS.md](PROGRESS.md)). Next, in order:
-run everything against a personal developer instance, validate the API catalog
-against it, and use `npm run eval -- --live` to tune the skills. Remaining ideas:
-Classic UI (`gsft_main`) support, knowledge article drafting from resolved
-tickets, table schema browser, `sys_audit` history explanation, shared team
+run the 0.9 tools against a personal developer instance
+([docs/LIVE_CHECK.md](docs/LIVE_CHECK.md)), validate the API catalog against it, and
+use `npm run eval -- --live` to tune the skills. Remaining ideas:
+knowledge article drafting from resolved
+tickets, `sys_audit` history explanation, shared team
 prompt/snippet library, and more AI providers (Gemini, Azure OpenAI) via the existing adapter interface.
 
 ## Team workflow

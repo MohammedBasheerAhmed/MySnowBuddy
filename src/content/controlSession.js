@@ -14,7 +14,7 @@
 import { queryTable } from './tableApi.js';
 import { sessionHeaders, getSessionToken } from './sessionToken.js';
 import { callPage } from './pageBridge.js';
-import { getNodeInfo, getCurrentUpdateSet, setCurrentUpdateSet, setCurrentApplication, shellUrl } from './quickActions.js';
+import { getNodeInfo, getCurrentUpdateSet, setCurrentUpdateSet, setCurrentApplication, shellUrl, recordUrl } from './quickActions.js';
 import { runAtfSuite } from './atf.js';
 import { startImpersonating, stopImpersonating } from './impersonation.js';
 import * as page from './controlPage.js';
@@ -23,6 +23,14 @@ import { explainAccess } from './accessDebugger.js';
 import { runHealthScan } from './healthScan.js';
 import { loadShipCheck, readCurrentUpdateSet as readMyUpdateSet } from './myWork.js';
 import { xrayServices } from './xray.js';
+import { loadNotifyReport } from './notifyTrace.js';
+import { processLoad } from './processView.js';
+import { dataModelLoad, dataModelFindPaths } from './dataModel.js';
+import { previewProblemSets, previewProblemLoad } from './previewProblems.js';
+import { doctorServices } from './doctor.js';
+import { propertyServices } from './properties.js';
+import { clientTraceServices } from './clientTrace.js';
+import { searchArtifacts } from '../lib/agent/insights.js';
 
 const SYS_ID_RE = /^[0-9a-f]{32}$/i;
 // sys_filter_option_dynamic "Me": the same filter the platform uses for "assigned to me".
@@ -227,7 +235,9 @@ export function createControlDeps({ confirm } = {}) {
       endImpersonation,
     },
     atf: { startSuite: startAtfSuite, readProgress: readCicdProgress, readSuiteResult },
-    // Read-only analysis panels exposed as tools (access debugger, page X-ray, ship check, health scan).
+    // Read-only analysis panels exposed as tools (access debugger, page X-ray, ship check, health scan, Email tracer,
+    // Flows and approvals, Data model map and path finder, Preview problems, Go to anything). The tools shape the
+    // reports into compact answers (src/lib/agent/insights.js); nothing here writes.
     insights: {
       explainAccess,
       fieldReport: (args) => xrayServices.xrayFieldReport(args),
@@ -235,6 +245,22 @@ export function createControlDeps({ confirm } = {}) {
       loadShipCheck,
       currentUpdateSet: readMyUpdateSet,
       runHealthScan,
+      notifyReport: (args) => loadNotifyReport(args),
+      processLoad: (args) => processLoad(args),
+      dataModelLoad: (args) => dataModelLoad(args),
+      dataModelFindPaths: (args) => dataModelFindPaths(args),
+      previewProblemSets: (args) => previewProblemSets(args),
+      previewProblemLoad: (args) => previewProblemLoad(args),
+      // Self-check, system properties (search / get / who reads it) and the Client trace recording, read only: arm, disarm
+      // and clear are deliberately not here.
+      doctorRun: (options) => doctorServices.doctorRun(options),
+      propertySearch: (query) => propertyServices.propertyExplorerSearch(query),
+      propertyGet: (target) => propertyServices.propertyExplorerGet(target),
+      propertyUsage: (name) => propertyServices.propertyExplorerUsage(name),
+      clientTraceStatus: () => clientTraceServices.clientTraceStatus(),
+      clientTraceLoad: () => clientTraceServices.clientTraceLoad(),
+      clientTraceResolve: (refs) => clientTraceServices.clientTraceResolve(refs),
+      findArtifacts: (args) => searchArtifacts({ ...args, query: (table, query, fields, options) => queryTable(table, query, fields, options), linkFor: recordUrl }),
     },
   };
 }

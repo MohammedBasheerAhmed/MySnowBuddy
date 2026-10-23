@@ -16,6 +16,7 @@
 //   unknownColumns            Set of "table.column" used in conditions that do not exist
 
 import { hotspotsFixture } from './hotspotsFixture.js';
+import { fixtureRoute } from './fixtures/index.js';
 
 /* ---------------------------------------------------------------- ids and dates */
 
@@ -124,7 +125,7 @@ const SCHEMA = {
   sys_script_client: {
     label: 'Client Script',
     parent: 'sys_metadata',
-    cols: { name: 'string', table: 'table_name', type: 'string', field: 'string', script: 'script', active: 'boolean', ui_type: 'integer', global: 'boolean', view: 'string', description: 'string', inherited: 'boolean' },
+    cols: { name: 'string', table: 'table_name', type: 'string', field: 'string', script: 'script', active: 'boolean', ui_type: 'integer', global: 'boolean', view: 'string', description: 'string', applies_extended: 'boolean' },
   },
   catalog_script_client: { label: 'Catalog Client Script', parent: 'sys_script_client', cols: { cat_item: 'ref:sc_cat_item', variable_set: 'string' } },
   sc_cat_item: { label: 'Catalog Item', parent: 'sys_metadata', cols: { name: 'string', active: 'boolean' } },
@@ -573,7 +574,7 @@ const CS_CATEGORY = `function onChange(control, oldValue, newValue, isLoading, i
 	ga.getXMLWait();
 	g_form.setValue('subcategory', ga.getAnswer());
 }`;
-const csBase = { active: 'true', ui_type: '0', global: 'true', view: '', description: '', inherited: 'false', field: '' };
+const csBase = { active: 'true', ui_type: '0', global: 'true', view: '', description: '', applies_extended: 'false', field: '' };
 add('sys_script_client', 'P1 group', { ...csBase, name: 'Incident - require group on P1', table: 'incident', type: 'onChange', field: 'priority', script: CS_P1, ...custom(ME.userName, 0, 3) });
 add('sys_script_client', 'hide phone', { ...csBase, name: 'Hide phone for ESS', table: 'incident', type: 'onLoad', script: CS_PHONE, ...custom(ME.userName, 1, 6) });
 add('sys_script_client', 'category', { ...csBase, name: 'Category defaults', table: 'incident', type: 'onChange', field: 'category', script: CS_CATEGORY, ...custom(ME.userName, 2) });
@@ -1018,6 +1019,8 @@ function route(method, url, body) {
   // Save trace windows (gs.secondsAgo) are answered by the rows addSaveTraceRows() adds, not by the Hot spots fixture.
   const hot = /gs\.secondsAgo\(/.test(decodeURIComponent(u.search)) ? null : hotspotsFixture(method, u); // Hot spots tables (preview/hotspotsFixture.js); null for anything else
   if (hot) return hot;
+  const fixture = fixtureRoute(method, u, body);
+  if (fixture) return fixture;
   if ((m = /^\/api\/now\/table\/([^/]+)(?:\/([^/]+))?$/.exec(p))) return tableEndpoint(method, decodeURIComponent(m[1]), m[2] ? decodeURIComponent(m[2]) : '', u.searchParams, body ? JSON.parse(body) : null);
   if ((m = /^\/api\/now\/stats\/([^/]+)$/.exec(p))) return statsEndpoint(decodeURIComponent(m[1]), u.searchParams);
   if ((m = /^\/api\/now\/ui\/concoursepicker\/(updateset|application)$/.exec(p))) return pickerEndpoint(method, m[1], body ? JSON.parse(body) : null);

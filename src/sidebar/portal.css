@@ -1,0 +1,556 @@
+/* Portal inspector (/sp): src/sidebar/PortalPanel.jsx, src/content/portalInspector.js */
+
+.msb-portal__busy {
+  margin-top: 10px;
+  font-size: var(--msb-text-sm);
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__nope {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--msb-border);
+  border-left: 3px solid var(--msb-fg-muted);
+  border-radius: 0 var(--msb-radius-sm) var(--msb-radius-sm) 0;
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg);
+}
+
+.msb-portal__nope p,
+.msb-portal__notice p {
+  margin: 0;
+}
+
+.msb-portal__notice {
+  display: grid;
+  gap: 6px;
+}
+
+.msb-portal__notice .msb-panel__actions {
+  margin: 0;
+  align-items: center;
+}
+
+.msb-portal__muted {
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+  font-weight: 400;
+}
+
+.msb-portal__none {
+  color: var(--msb-fg-muted);
+}
+
+/* Screen-reader text for controls that are visually labelled by their placeholder or position. */
+.msb-portal__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- Page and list ------------------------------------------------------------------------------------------ */
+
+.msb-portal__page {
+  margin-top: 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__page > summary,
+.msb-portal__sec > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-portal__pagebody {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+
+.msb-portal__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
+  margin-top: 14px;
+}
+
+.msb-portal__title {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-portal__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.msb-portal__tools button[aria-pressed='true'] {
+  background: var(--msb-accent);
+  border-color: var(--msb-accent);
+  color: var(--msb-accent-fg);
+}
+
+.msb-portal__filter {
+  display: block;
+  margin-top: 8px;
+}
+
+.msb-portal__filter input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-family: inherit;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__list {
+  display: grid;
+  gap: 4px;
+  max-height: 230px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.msb-portal__row {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+  color: var(--msb-fg);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.msb-portal__row:hover {
+  border-color: var(--msb-accent);
+}
+
+.msb-portal__row[aria-pressed='true'] {
+  border-color: var(--msb-accent);
+  border-left-width: 3px;
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+}
+
+.msb-portal__name {
+  font-size: var(--msb-text-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.msb-portal__sub {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.msb-portal__row[aria-pressed='true'] .msb-portal__sub {
+  color: var(--msb-active-fg);
+}
+
+/* --- The selected widget ------------------------------------------------------------------------------------ */
+
+.msb-portal__detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--msb-border);
+}
+
+.msb-portal__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px 10px;
+}
+
+.msb-portal__widget {
+  margin: 0;
+  font-size: var(--msb-text-lg);
+  font-weight: 600;
+  color: var(--msb-fg);
+  overflow-wrap: anywhere;
+}
+
+.msb-portal__sec {
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg);
+}
+
+.msb-portal__sec > summary .msb-panel__badge {
+  margin-left: 0;
+}
+
+.msb-portal__sec[open] > summary {
+  border-bottom: 1px solid var(--msb-border);
+}
+
+.msb-portal__sec > :not(summary) {
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.msb-portal__sec > :last-child {
+  margin-bottom: 10px;
+}
+
+.msb-portal__sec > .msb-panel__actions {
+  margin-bottom: 4px;
+}
+
+.msb-portal__why {
+  margin-top: 10px;
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg-soft);
+}
+
+.msb-portal__subtitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 12px 0 6px;
+  font-size: var(--msb-text-sm);
+  font-weight: 600;
+  color: var(--msb-fg);
+}
+
+.msb-portal__subtitle .msb-panel__badge {
+  margin-left: 0;
+}
+
+.msb-portal__about {
+  margin: 0;
+}
+
+/* Inside this panel only: a bare "code" rule would restyle every other panel. */
+.msb-portal code {
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+}
+
+/* --- Facts --------------------------------------------------------------------------------------------------- */
+
+.msb-portal__facts {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__fact {
+  display: grid;
+  grid-template-columns: minmax(80px, 34%) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.msb-portal__fact dt {
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--msb-fg);
+}
+
+.msb-portal__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.msb-portal__chip {
+  overflow-wrap: anywhere;
+}
+
+.msb-portal__warn {
+  color: var(--msb-warn);
+  font-weight: 600;
+}
+
+.msb-portal__hints {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--msb-text-sm);
+  line-height: 1.5;
+  color: var(--msb-fg-soft);
+}
+
+/* --- The JSON tree ------------------------------------------------------------------------------------------- */
+
+.msb-portal__tree {
+  margin: 0;
+  padding: 0 0 0 14px;
+  list-style: none;
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-sm);
+  line-height: 1.55;
+}
+
+.msb-portal__tree--root {
+  max-height: min(60vh, 520px);
+  margin-top: 6px;
+  padding: 6px 8px;
+  overflow: auto;
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius-sm);
+  background: var(--msb-bg-subtle);
+}
+
+.msb-portal__tree ul {
+  border-left: 1px solid var(--msb-border);
+}
+
+.msb-portal__tree summary {
+  cursor: pointer;
+  border-radius: var(--msb-radius-xs);
+}
+
+.msb-portal__leaf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  padding-left: 14px;
+}
+
+.msb-portal__key {
+  color: var(--msb-fg);
+  font-weight: 600;
+}
+
+.msb-portal__key::after {
+  content: ':';
+  font-weight: 400;
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__meta {
+  margin-left: 6px;
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__val {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.msb-portal__val--string {
+  color: var(--msb-accent);
+}
+
+.msb-portal__val--number {
+  color: var(--msb-fg);
+}
+
+.msb-portal__val--boolean {
+  color: var(--msb-warn);
+}
+
+.msb-portal__val--null,
+.msb-portal__val--marker {
+  color: var(--msb-fg-muted);
+  font-style: italic;
+}
+
+.msb-portal__leaf--changed {
+  border-left: 3px solid var(--msb-accent);
+  padding-left: 11px;
+  background: var(--msb-accent-soft);
+}
+
+/* The word is always there, so the stripe is never the only sign of a change. */
+.msb-portal__flag {
+  padding: 0 5px;
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-active-bg);
+  color: var(--msb-active-fg);
+  font-family: var(--msb-font);
+  font-size: var(--msb-text-xs);
+  font-weight: 700;
+}
+
+.msb-portal__flag--inline {
+  background: var(--msb-warn-soft);
+  color: var(--msb-warn);
+}
+
+/* --- Changes since the snapshot ----------------------------------------------------------------------------- */
+
+.msb-portal__changes {
+  display: grid;
+  gap: 4px;
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__changes li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.msb-portal__kind {
+  flex: none;
+  min-width: 56px;
+  font-size: var(--msb-text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__kind--removed {
+  color: var(--msb-danger);
+}
+
+.msb-portal__kind--added {
+  color: var(--msb-ok);
+}
+
+.msb-portal__kind--changed {
+  color: var(--msb-warn);
+}
+
+.msb-portal__arrow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-soft);
+}
+
+/* --- Options table ------------------------------------------------------------------------------------------- */
+
+.msb-portal__options {
+  width: calc(100% - 20px);
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: var(--msb-text-sm);
+}
+
+.msb-portal__options th,
+.msb-portal__options td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--msb-border);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  color: var(--msb-fg);
+}
+
+.msb-portal__options thead th {
+  font-size: var(--msb-text-xs);
+  color: var(--msb-fg-muted);
+}
+
+.msb-portal__options tbody th {
+  font-weight: 400;
+}
+
+/* --- The outline on the page (drawn inside the extension's own shadow root, never in the page) --------------- */
+
+.msb-portal-outline {
+  position: fixed;
+  /* Above the page, below the sidebar (--msb-z - 2) and the tool windows, so it never covers them. */
+  z-index: calc(var(--msb-z) - 3);
+  box-sizing: border-box;
+  border: 2px solid var(--msb-accent);
+  border-radius: 2px;
+  background: transparent;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px var(--msb-bg);
+}
+
+.msb-portal-outline[hidden] {
+  display: none;
+}
+
+.msb-portal-outline__tag {
+  position: absolute;
+  left: -2px;
+  bottom: 100%;
+  max-width: 320px;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 3px 3px 0 0;
+  background: var(--msb-accent);
+  color: var(--msb-accent-fg);
+  font-family: var(--msb-font);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msb-portal-outline--top .msb-portal-outline__tag {
+  bottom: auto;
+  top: 0;
+  border-radius: 0 0 3px 0;
+}
+
+.msb-portal-outline--flash {
+  border-width: 3px;
+}

@@ -1,12 +1,32 @@
 // Palette commands that come from saved data (bookmarks, recent records,
-// impersonation presets, favourite prompts and snippets), plus the
-// open-by-name provider and go-to-definition.
+// impersonation presets, favourite prompts and snippets), plus "go to anything"
+// (type part of a name, land on the record; the logic is src/lib/goTo.js) and go-to-definition.
 
 import { GROUPS } from './commands.js';
 import { listBookmarks, listRecents, listPresets } from './stores.js';
-import { recordUrl, copyText, navigate } from './quickActions.js';
+import { recordUrl, listUrl, absoluteUrl, copyText, navigate } from './quickActions.js';
 import { queryTable } from './tableApi.js';
 import { loadLibrary, allPrompts, contextValues, renderTemplate } from '../lib/promptLibrary.js';
+import {
+  createGoToEngine,
+  parseGoTo,
+  kindById,
+  rankCandidates,
+  selectRows,
+  toRow,
+  refineCandidates,
+  actionsFor,
+  usageTarget,
+  versionQuery,
+  listRowsFor,
+  noticeRowsFor,
+  LIMITS,
+  BARE_SCORE_CAP,
+  PENDING_EDIT_KEY,
+  pendingEditMarker,
+  parsePendingEdit,
+  pendingEditMatches,
+} from '../lib/goTo.js';
 
 export const STORED_GROUPS = {
   bookmarks: 'Bookmarks',
@@ -15,14 +35,7 @@ export const STORED_GROUPS = {
 };
 
 const IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_.]{1,80}$/;
-const NAME_SEARCH_TABLES = [
-  ['sys_script_include', 'Script Include'],
-  ['sys_script', 'Business Rule'],
-  ['sys_script_client', 'Client Script'],
-  ['sys_ui_action', 'UI Action'],
-  ['sys_ui_script', 'UI Script'],
-  ['sysauto_script', 'Scheduled Job'],
-];
+export const GO_TO_GROUP = 'Go to';
 
 async function favouriteCommands({ ctx, sidebar, toast }) {
   const out = [];
@@ -111,36 +124,221 @@ export async function buildStoredCommands(deps) {
   return [...out, ...favourites];
 }
 
-/** Type part of a script, business rule or UI action name to jump straight to it. */
-export function openByNameProvider() {
-  return async (query) => {
-    const term = query.trim();
-    if (term.length < 3 || /^[@/]/.test(term) || term.includes('^') || /^[0-9a-f]{32}$/i.test(term)) return [];
+// ---- Go to anything ---------------------------------------------------------------------------------------------------
+// Type part of a name ("incident closed", "AjaxUtil", "br: notify") and land on the rule, script include, ACL,
+// notification, flow, widget, table, property, role or user. src/lib/goTo.js decides what to ask and how to rank;
+// everything here is the glue: read-only queries through queryTable, the recent records for ranking, and the actions.
 
-    const settled = await Promise.allSettled(
-      NAME_SEARCH_TABLES.map(([table]) =>
-        queryTable(table, `nameLIKE${term}^ORDERBYname`, ['sys_id', 'name'], { limit: 3 })
-      )
-    );
+// One engine for the page session: tables the user cannot read stay skipped; results are cleared when the palette opens.
+const goToEngine = createGoToEngine({ query: (table, query, fields, options) => queryTable(table, query, fields, options) });
 
-    const results = [];
-    settled.forEach((res, i) => {
-      if (res.status !== 'fulfilled') return;
-      const [table, label] = NAME_SEARCH_TABLES[i];
-      res.value.forEach((row, index) =>
-        results.push({
-          id: `name.${table}.${row.sys_id}`,
-          title: row.name,
-          hint: label,
-          group: GROUPS.navigate,
-          // A name that starts with the query beats one that only contains it.
-          score: 700 - index * 5 + (String(row.name).toLowerCase().startsWith(term.toLowerCase()) ? 60 : 0),
-          url: recordUrl(table, row.sys_id),
-        })
-      );
+/**
+ * @param {{ ctx?: object, tier?: string|null }} deps `ctx` is the page on screen; `tier` the role tier of the user
+ * @returns {{ search(query: string, onUpdate?: (rows: object[]) => void): Promise<object[]|null>, instant(query: string): object[],
+ *            modeLabel(query: string): string, stripPrefix(query: string): string, cancel(): void, reset(): void }}
+ */
+export function goToProvider({ ctx = {}, tier = null } = {}) {
+  let recents = new Map();
+  let recentsLoaded = false;
+  let last = { term: '', candidates: [] };
+  let latest = 0; // the newest search; an older one that wakes up after an await gives up
+
+  // Read once, on the first search: nothing is read before the user types.
+  async function loadRecents() {
+    if (recentsLoaded) return;
+    recentsLoaded = true;
+    try {
+      const list = await listRecents(window.location.hostname);
+      recents = new Map(list.map((r, index) => [r.sysId, index]));
+    } catch {
+      recents = new Map();
+    }
+  }
+
+  function rowsFrom(parsed, candidates) {
+    const limits = LIMITS[parsed.mode === 'kind' ? 'kind' : 'bare'];
+    const ranked = rankCandidates(candidates, parsed.term, { recents, ctx });
+    // Bare text: below the palette's table navigation and record lookups (BARE_SCORE_CAP explains why).
+    const cap = parsed.mode === 'kind' ? undefined : BARE_SCORE_CAP;
+    return selectRows(ranked, limits).map((entry) => ({ ...toRow(entry, { cap }), group: GO_TO_GROUP, url: recordUrl(entry.c.table, entry.c.sysId) }));
+  }
+
+  const emptyMeta = () => ({ unavailable: [], failed: [], expired: false, searched: [], cached: [] });
+
+  async function search(query, onUpdate) {
+    const mine = (latest += 1);
+    const parsed = parseGoTo(query, { ctx, tier });
+    if (parsed.mode === 'none') {
+      goToEngine.cancel();
+      last = { term: '', candidates: [] };
+      return [];
+    }
+    if (parsed.mode === 'kind' && (parsed.tooShort || !parsed.kinds.length)) {
+      goToEngine.cancel();
+      last = { term: '', candidates: [] };
+      return [...listRowsFor(parsed, emptyMeta(), listUrl), ...noticeRowsFor({ ...parsed, kinds: [] }, emptyMeta(), false, 1)];
+    }
+
+    await loadRecents();
+    if (mine !== latest) return null;
+    const build = (candidates, meta, pending) => {
+      const shown = rowsFrom(parsed, candidates);
+      return [...shown, ...listRowsFor(parsed, meta, listUrl), ...noticeRowsFor(parsed, meta, pending, shown.length)];
+    };
+    if (parsed.mode === 'kind') onUpdate?.(build([], emptyMeta(), true));
+
+    const result = await goToEngine.search({
+      term: parsed.term,
+      kinds: parsed.kinds,
+      more: parsed.more,
+      mode: parsed.mode,
+      onProgress: ({ candidates, meta }) => {
+        last = { term: parsed.term, candidates };
+        onUpdate?.(build(candidates, meta, true));
+      },
     });
-    return results;
+    if (!result) return null; // a newer search took over
+    last = { term: parsed.term, candidates: result.candidates };
+    return build(result.candidates, result.meta, false);
+  }
+
+  /** While the next letter is typed: the rows already fetched that still match, so the list narrows at once. */
+  function instant(query) {
+    const parsed = parseGoTo(query, { ctx, tier });
+    if (parsed.mode === 'none' || parsed.tooShort || !last.candidates.length) return [];
+    if (!parsed.term.toLowerCase().includes(last.term.toLowerCase())) return [];
+    const same = parsed.mode === 'kind' ? last.candidates.filter((c) => parsed.kinds.includes(c.kind)) : last.candidates;
+    return rowsFrom(parsed, refineCandidates(same, parsed.term));
+  }
+
+  /** The chip beside the input while a prefix is typed: "Business Rule", or "Find" for several kinds. */
+  function modeLabel(query) {
+    const parsed = parseGoTo(query, { ctx, tier });
+    if (parsed.mode !== 'kind') return '';
+    const ids = parsed.kinds.length ? parsed.kinds : parsed.denied || [];
+    return ids.length === 1 ? kindById(ids[0]).label : 'Find';
+  }
+
+  /** The text after a kind prefix ("br: closed" gives "closed"); anything else comes back as it is. */
+  function stripPrefix(query) {
+    const parsed = parseGoTo(query, { ctx, tier });
+    return parsed.mode === 'kind' ? parsed.term : query;
+  }
+
+  return { search, instant, modeLabel, stripPrefix, cancel: () => { latest += 1; goToEngine.cancel(); }, reset: () => goToEngine.reset() };
+}
+
+/** Kept for callers of the old name; the palette uses goToProvider() to show results as each kind answers. */
+export function openByNameProvider(deps = {}) {
+  const provider = goToProvider(deps);
+  return async (query) => (await provider.search(query)) || [];
+}
+
+/**
+ * The actions on a highlighted result (Tab or Right Arrow in the palette). Each one is an existing command or service:
+ * navigation, the in-place script editor, the Change impact / code search / field usage panels, the version list.
+ */
+export function goToActions({ sidebar, toast, openScriptEditor, ctx = {} }) {
+  const here = (g) => Boolean(ctx.sysId) && String(ctx.sysId).toLowerCase() === String(g.sysId).toLowerCase();
+  const urlOf = (g) => recordUrl(g.table, g.sysId);
+  const needSidebar = (opened) => {
+    if (opened === false) toast.info('Turn on the sidebar in Options to see this panel.');
   };
+
+  return {
+    list: (row) => (row?.goTo ? actionsFor(row.goTo, { onPage: here(row.goTo) }) : []),
+
+    async run(id, row) {
+      const g = row?.goTo;
+      if (!g) return;
+      switch (id) {
+        case 'open':
+          navigate(urlOf(g));
+          return;
+        case 'tab':
+          navigate(urlOf(g), { newTab: true });
+          return;
+        case 'list':
+          if (/^[a-z][a-z0-9_]{0,79}$/.test(g.name)) navigate(listUrl(g.name));
+          return;
+        case 'edit':
+          if (here(g) && openScriptEditor) {
+            await openScriptEditor();
+            return;
+          }
+          // Open the record; the next page opens the editor (resumePendingEdit, called when the palette is created).
+          try {
+            sessionStorage.setItem(PENDING_EDIT_KEY, pendingEditMarker(g.table, g.sysId));
+          } catch {
+            toast.info('Opening the record. Use "Edit the script" there.');
+          }
+          navigate(urlOf(g));
+          return;
+        case 'usage': {
+          const target = usageTarget(g);
+          if (!target) return;
+          sidebar.openForTool?.();
+          if (target.type === 'impact') needSidebar(sidebar.openPanel?.('impact', { args: target.value }));
+          else if (target.type === 'impact-page') needSidebar(sidebar.openPanel?.('impact', { args: '' }));
+          else if (target.type === 'field') needSidebar(sidebar.openPanel?.('fieldusage', { args: target.value }));
+          else sidebar.openSearchPanel?.(target.value);
+          return;
+        }
+        case 'versions':
+          if (here(g) && sidebar.openVersionPanel) {
+            sidebar.openForTool?.();
+            sidebar.openVersionPanel();
+            return;
+          }
+          navigate(listUrl('sys_update_version', versionQuery(g.table, g.sysId)));
+          return;
+        case 'link':
+          await copyText(absoluteUrl(urlOf(g)));
+          toast.success('Copied link');
+          return;
+        case 'sysid':
+          await copyText(g.sysId);
+          toast.success(`Copied sys_id ${g.sysId}`);
+          return;
+        default:
+      }
+    },
+  };
+}
+
+/**
+ * Called once when the palette is created, on every page load. "Open it, then edit the script" leaves a short-lived
+ * marker in sessionStorage and navigates; this opens the in-place editor when the page for that record is ready.
+ * With no marker (nearly always) it returns at once.
+ */
+export function resumePendingEdit({ getContext, openScriptEditor, toast, tries = 25, everyMs = 400 }) {
+  let marker = null;
+  try {
+    const stored = sessionStorage.getItem(PENDING_EDIT_KEY);
+    if (stored === null) return;
+    sessionStorage.removeItem(PENDING_EDIT_KEY); // used once
+    marker = parsePendingEdit(stored);
+  } catch {
+    return;
+  }
+  if (!marker || typeof openScriptEditor !== 'function') return;
+  let left = tries;
+  const timer = setInterval(() => {
+    left -= 1;
+    let ctx = {};
+    try {
+      ctx = getContext() || {};
+    } catch {
+      ctx = {};
+    }
+    if (pendingEditMatches(marker, ctx) && ctx.scriptFieldLabel) {
+      clearInterval(timer);
+      openScriptEditor();
+    } else if (left <= 0) {
+      clearInterval(timer);
+      if (pendingEditMatches(marker, ctx)) toast?.info('This record has no script field the editor can open.');
+    }
+  }, everyMs);
 }
 
 /** URL of the Script Include or table named `name`, or null. */

@@ -11,6 +11,10 @@ already on.
 Each step is a thing a developer does every week. Use a dev or PDI instance, and open a **Script Include** or a
 **Business Rule** first, because that page shows the most.
 
+Steps 1 to 9 take about eight minutes. For five, run **1, 2, 4, 7, 8 and 9**; steps 3, 5 and 6 are the extras for when
+there is time. Steps 7 to 9 are the tools added in 0.9: run the matching sections of
+[LIVE_CHECK.md](LIVE_CHECK.md) on the demo instance first, so you know what it will show.
+
 ### 1. Say what you need, not what the tool is called (30 seconds)
 
 ![The palette with suggestions for the script on screen](screenshots/01-palette-suggested.jpg)
@@ -66,6 +70,40 @@ move it: collisions, missing dependencies, scripts that fail lint, and a release
 On any record: copy the Table API URL, a GlideRecord that loads it, or its values as JSON. On any list: explain the
 filter in plain words, count the rows, copy the encoded query or the GlideRecord code.
 
+### 7. Find out why an email never arrived (60 seconds)
+
+![Why wasn't the email sent: five steps, the first broken one marked](screenshots/04-email-tracer.jpg)
+
+Open an incident, press `Ctrl+Shift+Space` and type `why was the email not sent` (or `/notify`). Pick a notification
+from the list (for example **Incident commented**, or type part of its name) and press **Trace**. It walks the chain **matched, event fired, event processed, email
+created, email sent**, marks the first link that broke in one sentence, and lists who would have received the mail and
+who was left out and why (inactive user, notifications disabled, no address, the person who fired the event).
+
+A staged example for a dev instance: comment on an incident as the person it is assigned to, then trace **Incident
+commented**. If that person is the only recipient, the answer is "Send to event creator is off". What you see depends on
+that instance's notifications and on whether email is switched on; the panel says when it cannot tell, and when it
+cannot read `sysevent` or `sys_email`. It only reads.
+
+### 8. Find out why a ticket is stuck (45 seconds)
+
+![Flows, approvals and SLAs: what the record is waiting on](screenshots/05-flows-approvals-slas.jpg)
+
+On an incident, change or request that has something running, type `why is this ticket stuck` (or `/flows`). The top
+line says what the record is **waiting on**: a failed flow, an approval (from whom, for how long), a workflow
+activity, an open child task, a breached SLA, a queued event. Below it are the sections: Flow Designer runs with their
+error and log, approvals, SLAs, tasks and legacy workflows. A section it cannot read is named; "Nothing is running"
+is only said after every source was read.
+
+### 9. Walk from one table to another (45 seconds)
+
+![Path finder: incident to cmn_department, with copy buttons for each way of writing it](screenshots/06-dot-walk-path.jpg)
+
+Type `/path incident cmn_department`. It lists the dot-walk routes (`caller_id.department`, `assigned_to.department`,
+and the longer ones through other tables) and, for the one you pick, the dot-walk string, a `GlideRecord` line, a
+`getElement` line, a Table API `sysparm_fields` fragment and an encoded-query condition, each with a Copy button. The
+**Map** tab (`/map incident`) shows the same table as a diagram: what it extends, its children, what it references and
+what references it.
+
 ## Where a new user starts
 
 The first time it runs there is a short card. After that, **Developer guide** in the palette lists everything by the job
@@ -73,6 +111,9 @@ you are doing, with the page you are on first. Every line is a button that opens
 in.
 
 ![The developer guide, for a script page](screenshots/03-developer-guide.jpg)
+
+After an update, a **What's new** card lists the new tools once, by job, for people who already dismissed the first-run
+card; "What's new" in the palette opens it again.
 
 ## Why it is safe to try on a real instance
 
@@ -87,7 +128,14 @@ in.
 2. Log in to a dev instance. Do not demo on production.
 3. Open the Script Include `AJAXMessagingUtils` (or any custom one that other scripts call) for steps 2 and 3.
 4. Open a new Incident (`/incident.do?sys_id=-1`) for step 4. It is a blank form, so nothing is saved.
-5. To replay the first-run card: palette, **Quick tour**.
+5. Run **Self-check** (`/doctor`) on the demo instance before the audience arrives, and read what it says. It shows which
+   tools have the tables and columns they need there. Do not open it live unless it is green or you can explain the amber.
+6. Steps 7 to 9 need an incident (or change) that has an email trail, something running against it, and a signed-in user
+   who can read the dictionary. Open the one you will use beforehand and try the three commands once. Those tools were
+   built after the last live pass; [LIVE_CHECK.md](LIVE_CHECK.md) is how to confirm them.
+7. To replay the first-run card: palette, **Quick tour**. To show the new-tools card: palette, **What's new**.
 
-The screenshots here come from the local preview (`npm run preview`, then `?palette=open&scriptform=1` and `?guide=1`),
-which uses a fake incident and no instance data.
+**About the screenshots.** All of them come from the local preview with fake data (`npm run preview`, then
+`?palette=open&scriptform=1`, `?guide=1`, `?open=notify`, `?open=process` and
+`?open=datamodel&q=path incident cmn_department`). The incident, notifications, flows and row counts in them are made up.
+None is a picture of a real instance, and what your instance shows will differ.

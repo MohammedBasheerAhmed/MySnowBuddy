@@ -16,9 +16,10 @@ import { searchTables } from './tableCatalog.js';
 import { queryTable } from './tableApi.js';
 import { similarKeywords, similarQuery, rankSimilar } from '../lib/similar.js';
 import { listCustomCommands } from './stores.js';
-import { canUseSlash, slashTier } from '../lib/roleTier.js';
-import { panelForSlash } from '../sidebar/panelRegistry.js';
-import { findCommand, buildFindQuery, escapeQueryValue, expandTemplate, slashHelpRows, SPECIAL_VERBS } from '../lib/slashCommands.js';
+import { canSee, canUseSlash, slashTier } from '../lib/roleTier.js';
+import { PANELS, panelForSlash } from '../sidebar/panelRegistry.js';
+import { findCommand, buildFindQuery, escapeQueryValue, expandTemplate, slashHelpGroups, SPECIAL_VERBS } from '../lib/slashCommands.js';
+import { buildCatalog, opensTool, usage } from '../lib/slashCatalog.js';
 
 const GROUP = 'Shortcuts';
 const TABLE_NAME_RE = /^[a-z][a-z0-9_]*$/;
@@ -26,22 +27,57 @@ const FIND_LIMIT = 8;
 
 const SPECIAL_SET = new Set(SPECIAL_VERBS.map(([verb]) => verb));
 
+// The chat sidebar's commands (/prop, /flows, /lint ...), so "/" in the palette lists everything. The palette's own verbs win
+// a clash (/search here is the instance text search, not the sidebar's code search).
+const isPaletteVerb = (verb) => SPECIAL_SET.has(verb) || Boolean(findCommand(verb));
+const CHAT_COMMANDS = buildCatalog(PANELS).filter((cmd) => !isPaletteVerb(cmd.verb.slice(1)));
+
 /**
  * @param {{ctx: object, sidebar: object, reopen: (text: string) => void}} deps
  * @returns {(query: string) => Promise<object[]>}
  */
 export function slashNavProvider({ roleAccess = null, ctx = {}, sidebar, reopen, openScriptEditor, startFileSync, toggleFieldNames, toast, getCsrfToken }) {
-  const helpRows = (prefix, custom = []) =>
-    slashHelpRows(custom)
-      .filter(([verb]) => verb.startsWith(prefix) && canUseSlash(roleAccess?.tier() ?? null, findCommand(verb)?.verb || verb))
-      .map(([verb, args, meaning], index) => ({
-        id: `slashhelp.${verb}`,
-        title: `/${verb}${args ? ` ${args}` : ''}`,
-        hint: meaning,
-        group: GROUP,
-        score: 1100 - index,
-        run: () => reopen(`/${verb} `),
-      }));
+  // Every command that starts with what was typed ("/" alone: all of them): the navigation shortcuts and the user's own first,
+  // then the sidebar's tools, then "find a ..." for each kind of record, then the commands that ask the AI.
+  const helpRows = (prefix, custom = []) => {
+    const tier = roleAccess?.tier() ?? null;
+    const { shortcuts, finders } = slashHelpGroups(custom);
+    const shortcutRow = ([verb, args, meaning]) => ({
+      verbs: [verb],
+      allowed: canUseSlash(tier, findCommand(verb)?.verb || verb),
+      row: { id: `slashhelp.${verb}`, title: `/${verb}${args ? ` ${args}` : ''}`, hint: meaning, group: GROUP, run: () => reopen(`/${verb} `) },
+    });
+    const chatRow = (cmd) => {
+      const verbs = [cmd.verb, ...cmd.aliases].map((v) => v.slice(1));
+      const tool = opensTool(cmd);
+      return {
+        verbs,
+        // A command typed out in full is the "Run /x" row's job: reopening the palette on the same text would go round in circles.
+        allowed: (!cmd.panel || canSee(tier, `panel.${cmd.panel}`)) && (tool || !verbs.includes(prefix)),
+        row: {
+          id: `slashhelp.chat.${cmd.verb.slice(1)}`,
+          title: usage(cmd),
+          hint: cmd.desc,
+          group: cmd.group,
+          run: tool ? () => sidebar.runCommand(cmd.verb) : () => reopen(`${cmd.verb} `),
+        },
+      };
+    };
+    const chat = CHAT_COMMANDS.map(chatRow);
+    // A command whose own verb starts with the text comes before one that only has an alias that does (/pro: /prop, then /flows
+    // through /process); the order above is kept inside each kind.
+    const byVerb = ({ verbs }) => (verbs[0].startsWith(prefix) ? 0 : 1);
+    return [
+      ...shortcuts.map(shortcutRow),
+      ...chat.filter((_, i) => opensTool(CHAT_COMMANDS[i])),
+      ...finders.map(shortcutRow),
+      ...chat.filter((_, i) => !opensTool(CHAT_COMMANDS[i])),
+    ]
+      .filter(({ verbs, allowed }) => allowed && verbs.some((v) => v.startsWith(prefix)))
+      .map((item, index) => ({ item, index }))
+      .sort((a, b) => byVerb(a.item) - byVerb(b.item) || a.index - b.index)
+      .map(({ item }, index) => ({ ...item.row, score: 1100 - index / 100 }));
+  };
 
   const reloadAction = { label: 'Reload', onClick: () => window.location.reload() };
 
@@ -278,7 +314,7 @@ export function slashNavProvider({ roleAccess = null, ctx = {}, sidebar, reopen,
         return [{ id: 'slash.bg', title: 'Background script runner', group: GROUP, score: 1100, run: () => { sidebar.openForTool(); sidebar.openBackgroundScriptPanel(); } }];
 
       case 'names':
-        return toggleFieldNames ? [{ id: 'slash.names', title: 'Show or hide database names on the page', hint: 'Field names under every label, column names in lists', group: GROUP, score: 1100, run: () => toggleFieldNames() }] : [];
+        return toggleFieldNames ? [{ id: 'slash.names', title: 'Show or hide database names and types on the page', hint: 'Name and type beside every label and column', group: GROUP, score: 1100, run: () => toggleFieldNames() }] : [];
 
       case 'edit':
         return openScriptEditor ? [{ id: 'slash.edit', title: 'Edit the script (over the field)', group: GROUP, score: 1100, run: () => openScriptEditor() }] : [];

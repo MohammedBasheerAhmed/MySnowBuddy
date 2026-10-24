@@ -1,5 +1,6 @@
 // Type "/tn incident" (or any slash command) into ServiceNow's own navigator filter and press Enter:
-// the command palette opens with that text, the way SN Utils' navigator commands work. The filter box lives
+// the command palette opens with that text, the way SN Utils' navigator commands work. Typing just "/" into the empty
+// filter opens it at once on the list of every command. The filter box lives
 // in a shadow root of the Polaris header (or in the classic navigator), so the key is caught in the capture
 // phase on the top document and the real input is read from composedPath().
 

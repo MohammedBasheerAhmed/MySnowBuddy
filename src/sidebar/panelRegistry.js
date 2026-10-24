@@ -1,4 +1,4 @@
-// Feature panels that plug into the sidebar, the command palette and /help
+// Feature panels that plug into the sidebar, the command palette, the "/" suggestions and /help
 // without editing Sidebar.jsx, commands.js or mount.js. Add one entry per panel.
 //
 // An entry is:
@@ -481,9 +481,4 @@ export function panelByName(name) {
 
 export function panelForSlash(command) {
   return PANELS.find((p) => (p.slash || []).includes(command)) || null;
-}
-
-/** /help lines for the registered panels, aligned like the built-in list. */
-export function panelHelpLines() {
-  return PANELS.flatMap((p) => (p.slash || []).slice(0, 1).map((cmd) => `  ${cmd.padEnd(23)}${p.help || p.hint || p.title}`));
 }

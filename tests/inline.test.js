@@ -201,3 +201,34 @@ test('the breadcrumb query is the last crumb, with a related list\'s fixed query
   assert.equal(breadcrumbQuery({ fixedQuery: 'parent=abc', filters: ['', 'parent=abc^active=true'] }), 'parent=abc^active=true');
   assert.equal(breadcrumbQuery({ fixedQuery: 'parent=abc', filters: [''] }), 'parent=abc');
 });
+
+test('type tags: what a column is, in the words a developer reads', () => {
+  const { typeTagText, typeTagTitle } = require('../src/lib/inline.js');
+  assert.equal(typeTagText({ type: 'string', maxLength: '160' }), 'string (160)');
+  assert.equal(typeTagText({ type: 'string' }), 'string');
+  assert.equal(typeTagText({ type: 'reference', reference: 'sys_user' }), 'reference → sys_user');
+  assert.equal(typeTagText({ type: 'reference' }), 'reference');
+  assert.equal(typeTagText({ type: 'glide_list', reference: 'sys_user' }), 'list → sys_user');
+  assert.equal(typeTagText({ type: 'glide_date_time' }), 'date/time');
+  assert.equal(typeTagText({ type: 'journal_input' }), 'journal');
+  assert.equal(typeTagText({ type: 'boolean' }), 'boolean');
+  assert.equal(typeTagText({ type: 'GlideDuration' }), 'glideduration', 'a glide_type attribute is shown as it is, lower-cased');
+  // A dropdown keeps its stored type: that is what g_form.getValue and GlideRecord return.
+  assert.equal(typeTagText({ type: 'integer', choiceType: '1' }), 'choice (integer)');
+  assert.equal(typeTagText({ type: 'string', choiceType: '3', maxLength: '40' }), 'choice (string)');
+  assert.equal(typeTagText({ type: 'string', choiceType: '2', maxLength: '160' }), 'string (160)', 'a suggestion list is still free text');
+  assert.equal(typeTagText({ type: 'integer', choiceType: '0' }), 'integer');
+  // Nothing to say: no empty tag.
+  assert.equal(typeTagText(null), '');
+  assert.equal(typeTagText({}), '');
+  assert.equal(typeTagText({ type: '  ' }), '');
+});
+
+test('type tag hover text names the dictionary type and where an inherited column is defined', () => {
+  const { typeTagTitle } = require('../src/lib/inline.js');
+  assert.equal(typeTagTitle('short_description', { type: 'string', maxLength: '160', definedOn: 'task' }, 'task'), 'short_description: string (160)');
+  assert.equal(typeTagTitle('short_description', { type: 'string', maxLength: '160', definedOn: 'task' }, 'incident'), 'short_description: string (160), defined on task');
+  assert.equal(typeTagTitle('opened_at', { type: 'glide_date_time', definedOn: 'task' }, 'task'), 'opened_at: date/time (dictionary type glide_date_time)');
+  assert.equal(typeTagTitle('state', { type: 'integer', choiceType: '1', definedOn: 'task' }, 'task'), 'state: choice (integer)', 'the type is not said twice');
+  assert.equal(typeTagTitle('x', null, 'task'), '');
+});

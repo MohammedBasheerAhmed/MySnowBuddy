@@ -29,7 +29,9 @@ import ScopeExportPanel from './ScopeExportPanel.jsx';
 import AutomationPanel from './AutomationPanel.jsx';
 import ApiExplorerPanel from './ApiExplorerPanel.jsx';
 import TestBenchPanel from './TestBenchPanel.jsx';
-import { PANELS, panelByName, panelForSlash, panelHelpLines } from './panelRegistry.js';
+import { PANELS, panelByName, panelForSlash } from './panelRegistry.js';
+import SlashMenu from './SlashMenu.jsx';
+import { buildCatalog, matchCommands, completion, helpText } from '../lib/slashCatalog.js';
 import AgentRun from './AgentRun.jsx';
 import Icon from './Icon.jsx';
 import ToolWindow from './ToolWindow.jsx';
@@ -88,56 +90,10 @@ const SUGGESTIONS = {
   ],
 };
 
-const SLASH_HELP = [
-  'Analysis (no AI tokens used)',
-  '  /lint                  deterministic review of the script on this form',
-  '  /formdiff              show unsaved form changes vs the saved record',
-  '  /deps <ScriptInclude>  callers and callees as a dependency graph',
-  '  /verify                syntax + API catalog + lint + structure check of the script on this form',
-  '  /skills                which skill pack is active, and the agent tools',
-  '  /changes               what the agent changed on this instance (undo with /undo)',
-  '  /undo                  undo the last change the agent made',
-  '',
-  'AI-assisted',
-  '  /review                lint + AI review of the script on this form',
-  '  /explain <text>        explain an error, log line or field',
-  '  /generate <request>    generate a background script',
-  '  /conflictcheck         find conflicts with existing configuration',
-  '  /dedupe                find likely duplicate CIs in the CMDB',
-  '  /logs [text]           triage recent instance errors',
-  '  /trace <stack trace>   resolve a stack trace to the failing script',
-  '  /atf                   generate an ATF test outline for this record',
-  '  /document              generate technical documentation for this record',
-  '  /audit                 security and configuration audit',
-  '',
-  'Agent',
-  '  (just type)            the agent reads the instance, writes, verifies and tests, and asks before changing anything',
-  '  /chat <text>           plain chat, no tools',
-  '  /agent on|off          turn agent mode on or off',
-  '  /model                 show the model in use and open settings',
-  '',
-  'Panels',
-  '  /search                global code search',
-  '  /list                  list filter: explain, GlideRecord code, count, export',
-  '  /tail                  live system log',
-  '  /versions              version history and field diff for this record',
-  '  /fields                field inspector for this table',
-  '  /remote                compare this record with another instance',
-  '  /tests                 run ATF suites and see results',
-  '  /scope                 export a scope as a ZIP of scripts',
-  '  /api [text]            verified API explorer (client + server)',
-  '  /testclient            simulate a client script against a fake form',
-  '  /updateset             update set collisions and coverage',
-  '  /rest                  REST request builder',
-  '  /automate              navigate and click through screens',
-  '  /compare               compare two instances',
-  '  /script                background script runner with history',
-  '  /prompts               prompt library: saved and built-in prompts',
-  '  /snippets              code snippet library',
-  ...panelHelpLines(),
-  '',
-  '  /clear                 clear conversation history',
-].join('\n');
+// Every slash command, built once from the panel registry plus the commands handled in this file. It feeds the
+// suggestions above the composer and /help, so a new panel shows up in both without a second list to keep.
+const CATALOG = buildCatalog(PANELS);
+const SLASH_HELP = helpText(CATALOG);
 
 // Window titles for the panels that Sidebar.jsx renders itself; registered panels use their registry title.
 const WINDOW_TITLES = {
@@ -237,6 +193,13 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
   const historyDays = useRef(DEFAULT_HISTORY_DAYS);
   const abortRef = useRef(null);
   const approvalsRef = useRef(new Map());
+
+  // Suggestions above the composer while the text is "/word": which command is highlighted, and the text Esc closed them on.
+  const [slashActive, setSlashActive] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(null);
+  const slashItems = busy ? [] : matchCommands(CATALOG, input);
+  const slashOpen = slashItems.length > 0 && slashDismissed !== input;
+  const slashIndex = Math.min(slashActive, Math.max(0, slashItems.length - 1));
 
   const scriptRisk = analyzeScriptRisk(bgScript);
 
@@ -1188,6 +1151,53 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
 
+  // A picked suggestion replaces the "/word" with the command and a space, ready for its arguments (or for Enter).
+  function pickSlash(cmd) {
+    const text = completion(cmd);
+    setInput(text);
+    baseInputRef.current = text;
+    setSlashActive(0);
+    textareaRef.current?.focus();
+  }
+
+  // Keys that belong to the open suggestions; true when one was used. Enter on a command typed out in full still sends it.
+  function onSlashKey(e) {
+    if (!slashOpen || e.nativeEvent.isComposing) return false;
+    const count = slashItems.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSlashActive((slashIndex + (e.key === 'ArrowDown' ? 1 : -1) + count) % count);
+      return true;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      setSlashDismissed(input);
+      return true;
+    }
+    const cmd = slashItems[slashIndex];
+    const typedInFull = input.trim().toLowerCase() === cmd.verb;
+    if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey && !typedInFull)) {
+      e.preventDefault();
+      if (isTrustedEvent(e)) pickSlash(cmd);
+      return true;
+    }
+    return false;
+  }
+
+  // The "/ commands" hint under the box: an empty box gets the "/" and its suggestions; a draft is left alone and /help is printed.
+  function showCommands() {
+    if (input.trim()) {
+      pushLocal('/help', SLASH_HELP, { help: true });
+      return;
+    }
+    setInput('/');
+    baseInputRef.current = '/';
+    setSlashActive(0);
+    setSlashDismissed(null);
+    textareaRef.current?.focus();
+  }
+
   function handleExportChat() {
     if (!messages.length) return;
     const text = [
@@ -1736,11 +1746,16 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
             ref={textareaRef}
             rows={1}
             value={input}
+            aria-haspopup="listbox"
+            aria-controls={slashOpen ? 'msb-slash-list' : undefined}
+            aria-activedescendant={slashOpen ? `msb-slash-list-opt-${slashIndex}` : undefined}
             onChange={(e) => {
               setInput(e.target.value);
               baseInputRef.current = e.target.value;
+              setSlashActive(0);
             }}
             onKeyDown={(e) => {
+              if (onSlashKey(e)) return;
               // Enter that confirms an IME candidate (CJK etc.) must not send the half-typed message.
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -1786,9 +1801,14 @@ const Sidebar = forwardRef(function Sidebar({ getContext, instance = null, onOpe
             </button>
           )}
         </div>
+        {/* After the input row in the DOM (it is positioned above it): see SlashMenu for why. */}
+        {slashOpen && <SlashMenu id="msb-slash-list" items={slashItems} active={slashIndex} grouped={input.trim() === '/'} onPick={pickSlash} onHover={setSlashActive} />}
         <div className="msb-sidebar__composer-hint">
           <span>
-            <kbd>Enter</kbd> send <kbd>/</kbd> commands
+            <kbd>Enter</kbd> send{' '}
+            <button type="button" className="msb-sidebar__hintbtn" onClick={trusted(showCommands)} disabled={busy} title="Show every command">
+              <kbd>/</kbd> commands
+            </button>
           </span>
           {agentEnabled && (
             <label className="msb-autonomy" title={AUTONOMY_LEVELS.find((l) => l.id === autonomy)?.hint}>

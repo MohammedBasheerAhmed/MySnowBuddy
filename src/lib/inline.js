@@ -2,7 +2,7 @@
 // buttons the page toolbar shows, which form labels hold scripts, and how audit / record data is
 // turned into popover rows. No DOM and no network, so it is all unit-tested (tests/inline.test.js).
 
-import { isName, isSysId, parsePrefixedId } from './xray.js';
+import { isName, isSysId, parsePrefixedId, shortType } from './xray.js';
 import { isTicketTable } from './ticketTables.js';
 
 export const SYS_ID_PATTERN = /^[0-9a-f]{32}$/i;
@@ -155,7 +155,7 @@ export function toolbarModel({ table = '', sysId = '', isList = false, hasScript
       { id: 'copyGlide', label: 'Copy GlideRecord code', short: 'GlideRecord', group: 'filter' },
       { id: 'copyRows', label: 'Copy rows: the rows on screen, their sys_ids or a link to this list', short: 'Copy rows', group: 'rows' },
       { id: 'insight', label: 'Break this list down: counts per column or per day', short: 'Break down', group: 'rows' },
-      { id: 'names', label: 'Names: show the database name of every column', short: 'Names', group: 'view', toggle: true },
+      { id: 'names', label: 'Names: show the database name and type of every column', short: 'Names', group: 'view', toggle: true },
       { id: 'more', label: 'More list tools', short: 'More', group: 'view' },
     ];
   }
@@ -180,7 +180,7 @@ export function toolbarModel({ table = '', sysId = '', isList = false, hasScript
     );
   }
   items.push({ id: 'formtools', label: 'Form tools: show hidden fields, highlight, copy values, duplicate, open as', short: 'Form', group: 'form' });
-  items.push({ id: 'names', label: 'Names: show the database name of every field', short: 'Names', toggle: true });
+  items.push({ id: 'names', label: 'Names: show the database name and type of every field', short: 'Names', toggle: true });
   return items;
 }
 
@@ -208,6 +208,35 @@ export function fieldCode(kind, field) {
   if (kind === 'client') return name.includes('.') ? '' : `g_form.getValue('${name}')`;
   if (kind === 'server') return name.includes('.') ? `gr.getElement('${name}').toString()` : `gr.getValue('${name}')`;
   return '';
+}
+
+/**
+ * The type tag shown beside a database name: "string (160)", "reference → sys_user", "list → sys_user", "choice (integer)",
+ * "date/time". `field` is { type, reference, maxLength, choiceType } from the dictionary; a list header's own glide_type can
+ * stand in as { type }. '' when the type is unknown, so no empty tag is drawn.
+ */
+export function typeTagText(field) {
+  const raw = String(field?.type || '').trim().toLowerCase();
+  if (!raw) return '';
+  if (raw === 'reference' || raw === 'glide_list') {
+    const kind = raw === 'reference' ? 'reference' : 'list';
+    return field.reference ? `${kind} → ${field.reference}` : kind;
+  }
+  const plain = shortType({ type: raw }) || raw;
+  // A choice list on a string or integer column: the stored type is what g_form.getValue and GlideRecord see.
+  if (field.choiceType && String(field.choiceType) !== '0' && String(field.choiceType) !== '2') return `choice (${plain})`;
+  if (raw === 'string' && Number(field.maxLength) > 0) return `string (${field.maxLength})`;
+  return plain;
+}
+
+/** Hover text for the tag: the type in full, and the table that defines the column when it is not the one on screen. */
+export function typeTagTitle(name, field, table = '') {
+  const text = typeTagText(field);
+  if (!text) return '';
+  const raw = String(field.type || '').toLowerCase();
+  const inherited = field.definedOn && table && field.definedOn !== table ? `, defined on ${field.definedOn}` : '';
+  // The dictionary's own name for the type is added only when the tag does not already contain it ("date/time" is glide_date_time).
+  return `${name}: ${text}${raw && !text.includes(raw) ? ` (dictionary type ${raw})` : ''}${inherited}`;
 }
 
 /** Actions in the menu opened from a list column header. */

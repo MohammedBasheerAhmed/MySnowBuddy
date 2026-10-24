@@ -578,6 +578,7 @@
 /* --- Composer ------------------------------------------------------------ */
 
 .msb-sidebar__composer {
+  position: relative; /* the slash suggestions open above it */
   padding: 10px 12px 11px;
   background: var(--msb-hero-bg);
   border-top: 1px solid var(--msb-accent-line);
@@ -693,6 +694,121 @@
 }
 
 .msb-sidebar__composer-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--msb-border);
+  border-bottom-width: 2px;
+  border-radius: var(--msb-radius-xs);
+  background: var(--msb-bg);
+  font-family: var(--msb-mono);
+}
+
+/* "/ commands": the hint is also the way to open the list with the mouse. */
+.msb-sidebar__hintbtn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.msb-sidebar__hintbtn:hover:not(:disabled) {
+  color: var(--msb-fg);
+  text-decoration: underline;
+}
+
+.msb-sidebar__hintbtn:disabled {
+  cursor: not-allowed;
+}
+
+/* --- Slash suggestions (above the composer) ------------------------------ */
+
+.msb-slash {
+  position: absolute;
+  right: 12px;
+  bottom: calc(100% - 6px);
+  left: 12px;
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  max-height: min(340px, 52vh);
+  background: var(--msb-bg-raised);
+  border: 1px solid var(--msb-border);
+  border-radius: var(--msb-radius);
+  box-shadow: var(--msb-shadow);
+  overflow: hidden;
+}
+
+.msb-slash__list {
+  flex: 1;
+  min-height: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.msb-slash__group {
+  padding: 8px 8px 3px;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+  font-weight: 600;
+}
+
+.msb-slash__item {
+  display: grid;
+  grid-template-columns: minmax(7.5em, auto) minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--msb-radius-sm);
+  cursor: pointer;
+}
+
+.msb-slash__item--active {
+  background: var(--msb-active-bg);
+}
+
+.msb-slash__verb {
+  color: var(--msb-fg);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-sm);
+  white-space: nowrap;
+}
+
+/* Muted text is only tested against the plain surfaces; on the highlighted row everything takes the active colour. */
+.msb-slash__item--active .msb-slash__verb,
+.msb-slash__item--active .msb-slash__desc,
+.msb-slash__item--active .msb-slash__via {
+  color: var(--msb-active-fg);
+}
+
+.msb-slash__item--active .msb-slash__verb {
+  font-weight: 600;
+}
+
+.msb-slash__desc {
+  min-width: 0;
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-sm);
+  line-height: 1.35;
+}
+
+.msb-slash__via {
+  color: var(--msb-fg-muted);
+  font-family: var(--msb-mono);
+  font-size: var(--msb-text-xs);
+}
+
+.msb-slash__foot {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-top: 1px solid var(--msb-border);
+  color: var(--msb-fg-muted);
+  font-size: var(--msb-text-xs);
+}
+
+.msb-slash__foot kbd {
   padding: 0 4px;
   border: 1px solid var(--msb-border);
   border-bottom-width: 2px;

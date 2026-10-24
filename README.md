@@ -384,6 +384,21 @@ text after it, such as `/map incident` or `/vs INC0010002`):
 
 Plus `/help` and `/clear`.
 
+**Finding the commands.** Type `/` in the chat box: every command appears in a list, grouped
+(check this page, debug and explore, tools, ask the AI, agent and chat), and it narrows as you type
+(`/pr` finds `/prop` and `/prompts`; an alias such as `/why` finds `/access`). Up and Down choose, Tab
+completes, Esc closes; Enter on a command typed in full sends it. The **/ commands** hint under the box
+does the same with the mouse, and `/help` prints the whole list. The list and `/help` are built from the
+panel registry, so a new panel shows up in both. In the command palette, a lone `/` lists every command,
+including the navigation shortcuts (`/tn incident`, `/br name`, `/sys`); typing `/` into the empty
+application navigator filter opens that same list.
+
+**Names and types.** The **Names** button on the page toolbar (or `/names`) shows the database name of every
+form label and list column, with a tag for its type: `string (160)`, `reference → sys_user`,
+`choice (integer)`, `date/time`. Types come from the dictionary (one lookup per table, only once Names is on;
+dot-walked columns such as `caller_id.name` follow the reference); a list header's own `glide_type` is used if
+the dictionary cannot be read. Hover a tag for the dictionary type and the table that defines the column.
+
 ### Change impact (`/impact`)
 Answers "what does changing this script affect?" before you edit it. Open a business
 rule, Script Include, client script, UI action, script action, scheduled job, Scripted

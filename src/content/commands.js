@@ -850,10 +850,10 @@ export function buildCommands(deps) {
   if (deps.toggleFieldNames) {
     add({
       id: 'tools.fieldNames.toggle',
-      title: 'Show or hide database names',
-      hint: deps.fieldNamesOn?.() ? 'Names are showing: hide them' : 'Field names under every label, column names in lists',
+      title: 'Show or hide database names and types',
+      hint: deps.fieldNamesOn?.() ? 'Names and types are showing: hide them' : 'Database name and type beside every label and column',
       group: GROUPS.tools,
-      keywords: 'technical names field names column names database names labels show hide tn dictionary element',
+      keywords: 'technical names field names column names database names labels show hide tn dictionary element type field type column type data type string reference choice integer',
       run: () => deps.toggleFieldNames(),
     });
   }
@@ -1209,7 +1209,8 @@ export function buildProviders(deps) {
  */
 export function slashCommand(query, sidebar) {
   const term = query.trim();
-  if (!term.startsWith('/')) return null;
+  // A lone "/" is the start of a command, not one: the palette lists the commands instead.
+  if (!term.startsWith('/') || term === '/') return null;
   // A command that belongs to a tool panel says so and ranks first: Enter opens that tool.
   const panel = panelForSlash(term.split(/\s+/)[0].toLowerCase());
   return {

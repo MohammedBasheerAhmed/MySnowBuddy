@@ -43,6 +43,25 @@ const SCENARIOS = [
       await sleep(500);
     },
   },
+  {
+    name: 'command palette: a lone "/" lists every command',
+    query: 'palette=open',
+    settle: 700,
+    steps: async (page) => {
+      await page.keyboard.type('/');
+      await sleep(600);
+    },
+  },
+  {
+    name: 'chat: slash suggestions',
+    query: '',
+    settle: 700,
+    steps: async (page) => {
+      await page.evaluate(() => document.getElementById('mysnowbuddy-root').shadowRoot.querySelector('.msb-sidebar__composer textarea').focus());
+      await page.keyboard.type('/');
+      await sleep(300);
+    },
+  },
   { name: 'developer guide', query: 'guide=1' },
   { name: 'save trace: idle', query: 'open=savetrace', settle: 1800 },
   {
@@ -68,6 +87,23 @@ const SCENARIOS = [
   { name: 'on-page tools: form', query: 'inline=1', settle: 1800 },
   { name: 'on-page tools: list', query: 'inline=1&page=list', settle: 1800 },
   { name: 'on-page tools: field popover', query: 'inline=1', settle: 1800, trustedClick: '[data-msb-inline="btn"]' },
+  ...[
+    ['form', 'inline=1'],
+    ['list', 'inline=1&page=list'],
+  ].map(([kind, query]) => ({
+    name: `on-page tools: ${kind} with database names and types shown`,
+    query,
+    settle: 1800,
+    steps: async (page) => {
+      // A real click on the toolbar's Names button; the types are read from the dictionary once it is on.
+      const at = await page.evaluate(() => {
+        const r = document.getElementById('mysnowbuddy-root').shadowRoot.querySelector('[data-msb-toggle="names"]').getBoundingClientRect();
+        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+      });
+      await page.mouse.click(at.x, at.y);
+      await sleep(3000);
+    },
+  })),
   {
     name: 'smart selection: JSON popover',
     query: 'inline=1',

@@ -46,7 +46,10 @@ import { openFormToolsMenu, clearFormTools } from './formTools.js';
 import { handleSelection as handleSmartSelection, cancelSmartSelect } from './smartSelect.js';
 import { UI_HOST_ID } from './uiRoot.js';
 import { isFieldPath, isSysId } from '../lib/xray.js';
+import { fetchTableFields } from './fieldInspector.js';
 import {
+  typeTagText,
+  typeTagTitle,
   dominantTable,
   isScriptColumn,
   isScriptLabel,
@@ -104,16 +107,21 @@ const errorText = (err) => (err && err.message) || String(err);
 // Fixed colours that read on light and dark ServiceNow themes: green text (#14573f) on a pale
 // green fill (#e4f3ec) is 7.6:1 and keeps its contrast whatever the page behind it is.
 const PAGE_CSS = `
-.msb-inl-wrap{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:3px;margin:0 0 0 6px!important;vertical-align:middle;white-space:nowrap}
+.msb-inl-wrap{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:3px;max-width:100%;margin:0 0 0 6px!important;vertical-align:middle;white-space:nowrap}
+.msb-inl-tail{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;gap:3px;max-width:100%;min-width:0;white-space:nowrap}
 .msb-inl-btn{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:inline-flex!important;align-items:center;justify-content:center;min-width:19px;height:17px;padding:0 6px!important;border-radius:4px!important;border:1px solid #b5dccb!important;background:#e4f3ec!important;color:#14573f!important;font:600 10.5px/15px -apple-system,"Segoe UI",Roboto,Arial,sans-serif!important;letter-spacing:0!important;text-transform:none!important;cursor:pointer;user-select:none;white-space:nowrap;position:relative}
 /* WCAG 2.2 target size: the pill stays 17px tall, the clickable area is 25px. */
 .msb-inl-btn::after{content:"";position:absolute;inset:-4px -2px}
 .msb-inl-btn:hover{background:#d3eadf!important;border-color:#1b6b4f!important}
 .msb-inl-btn--menu{font-weight:800!important;padding:0 5px!important}
 .msb-inl-btn--col{margin:0 0 0 4px!important}
-/* Database names: hidden until the user turns "Names" on (html[data-msb-names]). */
+/* Database names and column types: hidden until the user turns "Names" on (html[data-msb-names]). */
 .msb-inl-btn--name{display:none!important;font:600 10.5px/15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;background:#fff!important;border-style:dashed!important}
 html[data-msb-names] .msb-inl-btn--name{display:inline-flex!important}
+/* The type is read-only text, so it is a plain tag, not a button: dark grey on pale grey is 9.6:1 on any page theme. */
+.msb-inl-type{all:initial;visibility:inherit!important;box-sizing:border-box!important;display:none!important;max-width:100%;height:17px;padding:0 6px!important;margin:0 0 0 3px!important;border-radius:4px!important;border:1px solid #d3d9df!important;background:#eef1f4!important;color:#2b343c!important;font:500 10.5px/15px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;user-select:text}
+html[data-msb-names] .msb-inl-type:not(:empty){display:inline-block!important}
+.msb-inl-tail .msb-inl-type{flex:0 1 auto;min-width:0}
 `;
 
 function applyNames(doc) {
@@ -151,6 +159,80 @@ function makeButton(doc, { text, title, className = '' }, onActivate) {
     onActivate(btn);
   });
   return btn;
+}
+
+// --- Column types ----------------------------------------------------------------------------------
+//
+// With "Names" on, each database name carries a tag with the column's type ("string (160)", "reference → sys_user").
+// The dictionary of a table is read once (one lookup per table, including the tables a dot-walk passes through) and only
+// while Names is on; a list header's own glide_type is the fallback when the dictionary cannot be read.
+
+const TYPE_RETRY_MS = 30000;
+const dictionaries = new Map(); // table -> Promise<Map<column, field> | null>
+const dictionaryFailedAt = new Map();
+
+function dictionaryOf(table) {
+  if (Date.now() - (dictionaryFailedAt.get(table) || 0) < TYPE_RETRY_MS) return Promise.resolve(null);
+  if (!dictionaries.has(table)) {
+    dictionaries.set(
+      table,
+      fetchTableFields(table)
+        .then(({ fields }) => new Map(fields.map((field) => [field.name, field])))
+        .catch(() => {
+          // No access to the dictionary, or a slow instance: try again later, not on every scan.
+          dictionaries.delete(table);
+          dictionaryFailedAt.set(table, Date.now());
+          return null;
+        })
+    );
+  }
+  return dictionaries.get(table);
+}
+
+/** The dictionary entry of a column, following a dot-walk through its reference fields; null when it cannot be found. */
+async function columnDefinition(table, path) {
+  const parts = String(path).split('.');
+  let current = table;
+  for (let i = 0; i < parts.length; i += 1) {
+    // eslint-disable-next-line no-await-in-loop -- each step needs the table the previous one pointed at.
+    const field = (await dictionaryOf(current))?.get(parts[i]);
+    if (!field) return null;
+    if (i === parts.length - 1) return { ...field, table: current };
+    if (!field.reference) return null;
+    current = field.reference;
+  }
+  return null;
+}
+
+function makeTypeTag(doc, { table, path, glideType = '' }) {
+  const tag = doc.createElement('span');
+  tag.setAttribute(ATTR, 'type');
+  tag.className = 'msb-inl-type';
+  tag.dataset.msbTable = table;
+  tag.dataset.msbPath = path;
+  tag.dataset.msbGlide = glideType;
+  return tag;
+}
+
+/** Fill the type tags of a document that have no text yet. Does nothing while Names is off: nothing is read until it is on. */
+async function fillTypes(doc) {
+  if (!state.names) return;
+  const tags = [...doc.querySelectorAll(`[${ATTR}="type"]:not([data-msb-done])`)];
+  tags.forEach((tag) => tag.setAttribute('data-msb-done', '1'));
+  for (const tag of tags) {
+    const { msbTable: table, msbPath: path, msbGlide: glide } = tag.dataset;
+    // eslint-disable-next-line no-await-in-loop -- the first column of a table loads its dictionary, the rest read the cache.
+    const field = await columnDefinition(table, path).catch(() => null);
+    const known = field || (glide ? { type: glide } : null);
+    const text = typeTagText(known);
+    if (!text) {
+      // Not resolved (yet): let the next scan try again after the retry delay, unless the page has nothing to say.
+      if (!glide) tag.removeAttribute('data-msb-done');
+      continue;
+    }
+    tag.textContent = text;
+    tag.setAttribute('title', field ? typeTagTitle(path, field, field.table) : `${path}: ${text}`);
+  }
 }
 
 // --- Popover helpers -----------------------------------------------------------------------------
@@ -471,7 +553,13 @@ function annotateForm(doc) {
     wrap.setAttribute(ATTR, 'wrap');
     wrap.className = 'msb-inl-wrap';
     wrap.appendChild(makeButton(doc, { text: field, title: `${field}: click to copy the database name`, className: 'msb-inl-btn--name' }, () => copyWithToast(field, `field name ${field}`)));
-    wrap.appendChild(makeButton(doc, { text: '⋯', title: `${field}: copy name or value, dictionary entry, ACLs, last change`, className: 'msb-inl-btn--menu' }, (btn) => openFieldMenu(btn, { doc, table, field })));
+    // The label column is narrow: when the pills do not fit on one line the type and the menu wrap together, not one by one.
+    const tail = doc.createElement('span');
+    tail.setAttribute(ATTR, 'tail');
+    tail.className = 'msb-inl-tail';
+    tail.appendChild(makeTypeTag(doc, { table, path: field }));
+    tail.appendChild(makeButton(doc, { text: '⋯', title: `${field}: copy name or value, dictionary entry, ACLs, last change`, className: 'msb-inl-btn--menu' }, (btn) => openFieldMenu(btn, { doc, table, field })));
+    wrap.appendChild(tail);
     if (isScriptColumn(field)) {
       const strip = (text, title, fn) => wrap.appendChild(makeButton(doc, { text, title }, fn));
       strip('Edit', `Edit ${field} right here, over the field (changes flow to the form as you type)`, () => editInPlace(doc, table, field));
@@ -480,6 +568,7 @@ function annotateForm(doc) {
     }
     label.appendChild(wrap);
   });
+  fillTypes(doc).catch(() => {});
 }
 
 function annotateList(doc) {
@@ -493,10 +582,12 @@ function annotateList(doc) {
     // Current releases wrap the title, sort icon and their own ⋮ menu in a flex container; a button placed after it
     // lands under the next column's resize handle. Beside the title it stays clickable.
     const nameBtn = makeButton(doc, { text: column, title: `${column}: click to copy the database name`, className: 'msb-inl-btn--name msb-inl-btn--col' }, () => copyWithToast(column, `column name ${column}`));
+    const typeTag = makeTypeTag(doc, { table, path: column, glideType: th.getAttribute('glide_type') || '' });
     const title = th.querySelector('.list_header_cell_container a.column_head');
-    if (title) title.after(nameBtn, btn);
-    else th.append(nameBtn, btn);
+    if (title) title.after(nameBtn, typeTag, btn);
+    else th.append(nameBtn, typeTag, btn);
   });
+  fillTypes(doc).catch(() => {});
 }
 
 /** A "Copy query" button beside each list's filter breadcrumb, so the encoded query is one click away. */
@@ -899,14 +990,16 @@ export function toggleFieldNames(force) {
   xrayDocuments().forEach((doc) => {
     try {
       applyNames(doc);
+      // The types are read now, not before: nothing is fetched for a page whose names were never asked for.
+      if (state.names && state.on) fillTypes(doc).catch(() => {});
     } catch {
       // The frame navigated away.
     }
   });
   state.bar?.querySelectorAll('[data-msb-toggle="names"]').forEach((btn) => btn.setAttribute('aria-pressed', String(state.names)));
   saveUiState({ [NAMES_KEY]: state.names }).catch(() => {});
-  if (state.on) state.deps.toast.info(state.names ? 'Showing database names. Click one to copy it.' : 'Database names hidden.');
-  else state.deps.toast.info('Turn on the on-page tools to see database names.');
+  if (state.on) state.deps.toast.info(state.names ? 'Showing database names and column types. Click a name to copy it.' : 'Database names and types hidden.');
+  else state.deps.toast.info('Turn on the on-page tools to see database names and types.');
   return inlineStatus();
 }
 

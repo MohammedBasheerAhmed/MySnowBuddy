@@ -65,8 +65,25 @@ test('slash commands typed in the navigator filter are caught, nothing else is',
   assert.equal(navSlashQuery({ field, key: 'Enter', value: '  /tn incident ' }), '/tn incident');
   assert.equal(navSlashQuery({ field, key: 'Enter', value: 'incident' }), '', 'a normal filter is left alone');
   assert.equal(navSlashQuery({ field, key: 'Enter', value: '/' }), '', 'a bare slash is not a command');
+  // The first "/" in an empty filter opens the palette on the list of every command.
+  assert.equal(navSlashQuery({ field, key: '/', value: '' }), '/');
+  assert.equal(navSlashQuery({ field, key: '/', value: '   ' }), '/');
+  assert.equal(navSlashQuery({ field, key: '/', value: '', shiftKey: true }), '/', '"/" is Shift+7 on many layouts');
+  assert.equal(navSlashQuery({ field, key: '/', value: 'inc' }), '', 'a slash inside a filter is just a character');
+  assert.equal(navSlashQuery({ field, key: '/', value: '', ctrlKey: true }), '');
+  assert.equal(navSlashQuery({ field, key: '/', value: '', isComposing: true }), '');
+  assert.equal(navSlashQuery({ field: { ...field, id: 'other' }, key: '/', value: '' }), '', 'other inputs are never touched');
   assert.equal(navSlashQuery({ field, key: 'Enter', value: '/tn x', isComposing: true }), '', 'an IME composition is not a submit');
   assert.equal(navSlashQuery({ field, key: 'Enter', value: '/tn x', ctrlKey: true }), '');
   assert.equal(navSlashQuery({ field, key: 'a', value: '/tn x' }), '');
   assert.equal(navSlashQuery({ field: { ...field, id: 'other' }, key: 'Enter', value: '/tn x' }), '', 'other inputs are never touched');
+});
+
+test('help groups put the shortcuts and the user\'s own commands before the finders', () => {
+  const { slashHelpGroups, SPECIAL_VERBS } = require('../src/lib/slashCommands.js');
+  const { shortcuts, finders } = slashHelpGroups([{ verb: 'mine', template: '/x?q={q}', label: 'Mine' }]);
+  assert.equal(shortcuts.length, SPECIAL_VERBS.length + 1);
+  assert.deepEqual(shortcuts.at(-1), ['mine', '<text>', 'Mine']);
+  assert.equal(finders.length, FIND_COMMANDS.length);
+  assert.ok(finders.every(([, args]) => args === '<search>'));
 });

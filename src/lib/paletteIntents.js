@@ -109,7 +109,7 @@ export const INTENTS = {
   'ai.prompts': 'saved prompts templates for the ai',
   'analyze.audit': 'security check public access risky acl who can read',
   'tools.theme.toggle': 'dark mode light mode night theme colors',
-  'tools.fieldNames.toggle': 'show the technical names of the fields database names column names what is the field called label vs name',
+  'tools.fieldNames.toggle': 'show the technical names of the fields database names column names what is the field called label vs name what type is this field column type data type is it a reference or a string',
   'tools.list.tsv': 'paste these rows into excel a spreadsheet google sheets copy the list as a table for a spreadsheet',
   'tools.list.markdown': 'put these rows in a ticket a wiki a pull request as a markdown table',
   'tools.list.json': 'give me these rows as json test data array of objects',

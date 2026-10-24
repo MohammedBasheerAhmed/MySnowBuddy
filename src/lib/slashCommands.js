@@ -68,7 +68,7 @@ export const SPECIAL_VERBS = [
   ['sync', '', 'Edit the script in VS Code via a synced file'],
   ['edit', '', 'Full-screen script editor'],
   ['similar', '', 'Records like the one that is open'],
-  ['names', '', 'Show or hide database names on the page'],
+  ['names', '', 'Show or hide database names and types on the page'],
   ['new', '<br|si|cs|uia|sj|fix|rest> [name] [on table]', 'New script from a verified template'],
   ['xml', '', 'XML of the current record'],
   ['cs', '', 'Flush the instance cache'],
@@ -102,12 +102,17 @@ export function buildFindQuery(def, term) {
   return `${def.search.map((field) => `${field}LIKE${value}`).join('^OR')}^ORDERBY${def.display}`;
 }
 
+/** [verb, args, meaning] rows: the fixed shortcuts with the user's own after them, and the "find a ..." commands. */
+export function slashHelpGroups(custom = []) {
+  return {
+    shortcuts: [...SPECIAL_VERBS, ...custom.map((c) => [c.verb, c.template.includes('{') ? '<text>' : '', c.label || c.template])],
+    finders: FIND_COMMANDS.map((def) => [def.verb, '<search>', `Find ${def.label.toLowerCase()}`]),
+  };
+}
+
 export function slashHelpRows(custom = []) {
-  return [
-    ...SPECIAL_VERBS,
-    ...FIND_COMMANDS.map((def) => [def.verb, '<search>', `Find ${def.label.toLowerCase()}`]),
-    ...custom.map((c) => [c.verb, c.template.includes('{') ? '<text>' : '', c.label || c.template]),
-  ];
+  const { shortcuts, finders } = slashHelpGroups(custom);
+  return [...shortcuts, ...finders];
 }
 
 export const CUSTOM_VERB_RE = /^[a-z][a-z0-9_-]{0,15}$/;

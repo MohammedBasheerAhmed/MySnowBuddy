@@ -3,7 +3,34 @@
 Read this file first at the start of any new session, before re-exploring the
 codebase or re-reading the full build spec.
 
-## RESUME HERE: 2026-10-23, the big batch (NOT committed; NOTHING live-checked; demo is Monday 2026-10-26)
+## NEWEST (2026-10-24, NOT committed): "/" suggestions and column types
+**Live check on dev364920 (user reloaded the extension):** the chat "/" menu (groups, narrowing `/ver`, Tab completes to `/verify `), the
+palette "/" list and the list-header and form type tags all work on the real instance; no password or write needed. The real PDI also showed
+that on forms a long tag (`reference → cmdb_ci_service`) ran 6px into the input under a narrow label column (Service, Service offering,
+Assignment group). Fixed: `.msb-inl-wrap` now wraps (`max-width:100%`), and type + `⋯` sit in a nowrap `.msb-inl-tail` so they wrap together.
+That fix is built into `dist` but NOT yet seen in the user's Chrome (needs another reload); it was checked on the live page by injecting the
+same CSS and grouping. The old Chrome tab group from the earlier session is gone, so a new tab group is needed next time.
+**Asked:** "when a developer types in / there are no suggestions ... how does a developer know what all the commands are", then "we are not
+showing the type of the column on the list or the form".
+**Cause found:** the chat box said "type / for commands" but nothing listened for "/"; `/help` was a hand-kept list that had drifted from
+the panel registry; the palette's bare "/" listed only the navigation verbs (and a junk "Run /" row), capped at 40 rows; a lone "/" in the
+navigator filter did nothing. **Done:** `src/lib/slashCatalog.js` (one list: panel registry + the commands Sidebar.jsx handles; precedence
+mirrors handleSend) feeds (1) the suggestion menu above the chat box (`src/sidebar/SlashMenu.jsx`; Up/Down, Tab completes, Esc closes, Enter
+on a command typed in full sends; the "/ commands" hint is a button), (2) `/help`, generated, (3) the palette's "/" list (`slashBar.js` helpRows:
+shortcuts, then tools, then finders, then AI commands; cap 200 for a lone "/"), (4) the navigator filter (first "/" in an empty filter opens
+the palette, `navSlashQuery`). Column types: with Names on, a tag beside each database name (`typeTagText` in src/lib/inline.js; dictionary via
+`fetchTableFields`, cached per table, follows dot-walks, list `glide_type` fallback) on forms and list headers.
+**Verified:** `npm test` 1749 pass, `npm run a11y` passes (new scenarios added), built preview driven in real Chrome (light and dark): menu,
+keys, mouse, /help, palette list, type tags on form and list. **NOT verified:** on the real PDI (needs the extension reloaded at
+chrome://extensions and the session logged in); real list headers' `glide_type` values are unconfirmed.
+**Found, not fixed (pre-existing):** three slash verbs are claimed twice and the older meaning never runs: `/trace <stack trace>` (the save
+trace panel owns `/trace`), the agent's `/changes` (field history owns it), and the test kit's `/tests` alias (the ATF panel owns it).
+`resolveCatalog(PANELS).shadowed` lists them and tests/slashcatalog.test.js pins the list.
+The legacy palette command "Toggle technical field names" (`tools.technicalNames`, quickActions.js) still shows names only, no types.
+
+## RESUME HERE: 2026-10-23, the big batch (COMMITTED AND PUSHED as ab61a3c on origin/main; live-checked in two passes, see below; demo is Monday 2026-10-26)
+**Update (end of 2026-10-23): the whole batch, the live-pass fixes and the sp.cjs removal are in commit ab61a3c, pushed to origin/main. Every
+"NOT committed" / "nothing is committed" / "NOTHING live-checked" note in this section is out of date; read the LIVE PASS paragraphs.**
 **What happened.** The user said "use as many agents as you want, make this the best developer friendly extension, improvise on top
 of what is present". 10 builder agents + 5 independent reviewer/fixer agents + 4 integration workers ran in parallel. 128 files
 changed (56 modified, 72 new); version 0.9.0; `npm test` 1650+ pass, `node build.js` clean, `npm run a11y` passes, `node

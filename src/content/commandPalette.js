@@ -54,6 +54,7 @@ const GOTO_DEBOUNCE_MS = 240; // name searches wait a little longer: each one is
 // While the actions of a result are open, these keys belong to them.
 const MENU_KEYS = new Set(['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab', 'Home', 'End']);
 const MAX_RESULTS = 40;
+const ALL_COMMANDS_SHOWN = 200;
 const RECENT_SHOWN = 6;
 const QUICK_KEYS = 9; // Alt+1..Alt+9
 const FALLBACK_GROUP = 'Anything else';
@@ -434,7 +435,8 @@ export function createCommandPalette(deps) {
     searchProviders.cancel();
     goTo?.cancel();
     const query = input.value;
-    providerTimer = setTimeout(() => runProviders(query), PROVIDER_DEBOUNCE_MS);
+    // The list for a lone "/" is local and cheap: it should not wait out the debounce that spares the instance.
+    providerTimer = setTimeout(() => runProviders(query), query.trim() === '/' ? 0 : PROVIDER_DEBOUNCE_MS);
     goToTimer = setTimeout(() => runGoTo(query), GOTO_DEBOUNCE_MS);
   }
 
@@ -518,6 +520,8 @@ export function createCommandPalette(deps) {
       const multiWord = queryWords(query).length >= 2;
       const onPage = new Set(pageSuggestions(pageCtx));
       commands.forEach((cmd) => {
+        // A lone "/" asks for the list of commands; a loose text match on "/" would only add noise below it.
+        if (query === '/') return;
         if (foundHere.size && cmd.id.startsWith('recent.') && foundHere.has(cmd.id.slice('recent.'.length))) return;
         const rest = `${cmd.hint || ''} ${cmd.keywords || ''} ${intentText(cmd.id)}`;
         // The exact text may be anywhere (title, hint, keywords, problem phrases). A loose "letters in order" match is
@@ -534,7 +538,9 @@ export function createCommandPalette(deps) {
     }
 
     const fallbacks = query ? fallbackCommands(query) : [];
-    results = [...dedupe(scored).slice(0, MAX_RESULTS - fallbacks.length), ...fallbacks];
+    // "/" alone lists every command, which is more than a search result list holds.
+    const cap = query === '/' ? ALL_COMMANDS_SHOWN : MAX_RESULTS;
+    results = [...dedupe(scored).slice(0, cap - fallbacks.length), ...fallbacks];
     // The first row that does something: a note ("Searching...", "cannot be read here") is not the default for Enter.
     activeIndex = Math.max(0, results.findIndex((r) => !r.status));
     if (keepId) {
